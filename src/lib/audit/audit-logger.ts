@@ -1,7 +1,7 @@
 import { AuditEventType, AuditCategory, AuditSeverity } from '@prisma/client';
 import { prisma } from '@/lib/db';
 import { TenantContext } from '@/lib/db/tenant-context';
-import { auth } from '@clerk/nextjs';
+import { auth } from '@clerk/nextjs/server';
 import crypto from 'crypto';
 
 interface AuditLogData {
