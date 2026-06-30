@@ -129,7 +129,7 @@
     "form-data": "^4.0.4",
     "framer-motion": "^12.23.12",
     "html2canvas-pro": "^1.5.11",
-    "inngest": "^3.40.1",
+    "inngest": "3.22.0",
     "ioredis": "^5.7.0",
     "isomorphic-dompurify": "^2.26.0",
     "lodash": "^4.17.21",
