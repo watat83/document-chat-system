@@ -37,7 +37,7 @@ jest.mock('@/lib/prisma', () => ({
   },
 }))
 
-const mockPrisma = require('@/lib/prisma').prisma
+import { prisma as mockPrisma } from '@/lib/prisma'
 
 describe('PineconeNamespaceManager', () => {
   let namespaceManager: PineconeNamespaceManager

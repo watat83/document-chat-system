@@ -1,5 +1,6 @@
 'use client';
 
+import { useMounted } from '@/hooks/use-mounted';
 import React, { createContext, useContext, useCallback, useState, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { ToastNotification, type ToastProps } from '@/components/ui/toast';
@@ -41,11 +42,10 @@ const DUPLICATE_THRESHOLD = 1000; // 1 second
 
 export function NotificationProvider({ children }: { children: React.ReactNode }) {
   const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [mounted, setMounted] = useState(false);
+  const mounted = useMounted();
   const timeoutsRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
 
   useEffect(() => {
-    setMounted(true);
     
     // Cleanup function to clear all timeouts on unmount
     return () => {

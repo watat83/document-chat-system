@@ -118,7 +118,7 @@ export function useEnhancedCache<T>(
   /**
    * Execute cache operation with comprehensive error handling
    */
-  const executeCacheOperation = useCallback(async (forceRefresh = false): Promise<void> => {
+  const executeCacheOperation = useCallback(async function executeCacheOperation(forceRefresh = false): Promise<void> {
     if (!enabled || !isMountedRef.current) {
       return
     }

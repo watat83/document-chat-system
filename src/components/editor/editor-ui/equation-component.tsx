@@ -51,11 +51,9 @@ export default function EquationComponent({
     [editor, equationValue, nodeKey]
   )
 
-  useEffect(() => {
-    if (!showEquationEditor && equationValue !== equation) {
-      setEquationValue(equation)
-    }
-  }, [showEquationEditor, equation, equationValue])
+  if (!showEquationEditor && equationValue !== equation) {
+    setEquationValue(equation)
+  }
 
   useEffect(() => {
     if (!isEditable) {

@@ -1,4 +1,5 @@
 'use client'
+import { useDocumentFile } from '@/hooks/use-document-file';
 
 import React, { useCallback, useState, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
@@ -74,53 +75,7 @@ const getOriginalFileName = (docData: any): string => {
 
 // Component for handling canvas preview with fetched file content
 const CanvasPreviewWithFetch: React.FC<{ document: any; className?: string }> = ({ document: doc, className = '' }) => {
-  const [fetchedFile, setFetchedFile] = useState<File | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-
-  // Fetch file content when component mounts or document ID changes
-  useEffect(() => {
-    // If we already have the original file, use it
-    if (doc.originalFile) {
-      setFetchedFile(doc.originalFile);
-      setIsLoading(false);
-      return;
-    }
-
-    // Otherwise fetch from API
-    const fetchFile = async () => {
-      if (!doc.id) {
-        setError('No document ID available');
-        setIsLoading(false);
-        return;
-      }
-
-      setIsLoading(true);
-      setError(null);
-
-      try {
-        const response = await fetch(`/api/v1/documents/${doc.id}/download`);
-        if (!response.ok) {
-          throw new Error(`Failed to fetch file: ${response.statusText}`);
-        }
-
-        const blob = await response.blob();
-        const file = new File([blob], getOriginalFileName(doc), {
-          type: doc.mimeType || 'application/octet-stream'
-        });
-
-        setFetchedFile(file);
-        setIsLoading(false);
-      } catch (err) {
-        console.error('Error fetching file for preview:', err);
-        setError(err instanceof Error ? err.message : 'Failed to load file');
-        setIsLoading(false);
-      }
-    };
-
-    fetchFile();
-    // Only re-fetch when document ID changes (prevents infinite loops)
-  }, [doc.id]);
+  const { fetchedFile, error, loading: isLoading } = useDocumentFile({ ...doc, name: getOriginalFileName(doc) });
 
   // Show loading state
   if (isLoading) {
@@ -209,10 +164,12 @@ export const FilePreview: React.FC<FilePreviewProps> = ({ document: doc, classNa
   }, []);
 
   // Reset iframe states when document changes
-  useEffect(() => {
+  const [previousDocumentId, setPreviousDocumentId] = useState(doc.id);
+  if (previousDocumentId !== doc.id) {
+    setPreviousDocumentId(doc.id);
     setIframeLoading(true);
     setIframeError(false);
-  }, [doc.id]);
+  }
 
   // Get document icon based on type
   const getDocumentIcon = useCallback((type: string) => {

@@ -1,4 +1,5 @@
 'use client';
+import { useObjectURL } from '@/hooks/use-object-url';
 
 import React, { useState, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
@@ -52,7 +53,8 @@ export const FilePreview: React.FC<FilePreviewProps> = ({
   showRemove = true,
   size = 'medium'
 }) => {
-  const [previewUrl, setPreviewUrl] = useState<string | null>(url || null);
+  const objectUrl = useObjectURL(url ? null : file);
+  const previewUrl = url || objectUrl;
   const [mediaState, setMediaState] = useState<MediaState>({
     isPlaying: false,
     currentTime: 0,
@@ -64,17 +66,6 @@ export const FilePreview: React.FC<FilePreviewProps> = ({
   const [imageError, setImageError] = useState(false);
   const [isZoomed, setIsZoomed] = useState(false);
   const mediaRef = useRef<HTMLVideoElement | HTMLAudioElement>(null);
-  
-  useEffect(() => {
-    if (!previewUrl && file) {
-      const objectUrl = URL.createObjectURL(file);
-      setPreviewUrl(objectUrl);
-      
-      return () => {
-        URL.revokeObjectURL(objectUrl);
-      };
-    }
-  }, [file, previewUrl]);
   
   const formatFileSize = (bytes: number): string => {
     if (bytes === 0) return '0 Bytes';

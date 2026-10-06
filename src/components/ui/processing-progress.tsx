@@ -195,19 +195,7 @@ export function ProcessingProgress({
     }
   }
 
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case 'COMPLETED': return CheckCircle
-      case 'PROCESSING': return Loader2
-      case 'PARTIAL':
-      case 'CANCELLED':
-      case 'FAILED': return AlertCircle
-      case 'QUEUED': return Clock
-      default: return Clock
-    }
-  }
-
-  const StatusIcon = getStatusIcon(status)
+  const StatusIcon = status === 'COMPLETED' ? CheckCircle : status === 'PROCESSING' ? Loader2 : ['PARTIAL', 'CANCELLED', 'FAILED'].includes(status) ? AlertCircle : Clock
   const isAnimated = status === 'PROCESSING'
 
   return (

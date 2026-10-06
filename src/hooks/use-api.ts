@@ -344,9 +344,7 @@ export function useApi<T>(
   /**
    * Execute API request
    */
-  const execute = useCallback(async (
-    overrideOptions: Partial<UseApiOptions<T>> = {}
-  ): Promise<T | null> => {
+  const execute = useCallback(async function execute(overrideOptions: Partial<UseApiOptions<T>> = {}): Promise<T | null> {
     const options = { ...defaultOptions, ...overrideOptions }
     const {
       enabled = true,

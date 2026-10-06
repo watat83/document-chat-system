@@ -1,25 +1,12 @@
-// Server-side only imports
-let cacheService: any;
-let usageTracker: any;
-
-// Only import on server-side
-if (typeof window === 'undefined') {
-  cacheService = require('./redis').default;
-  usageTracker = require('./usage-tracker').usageTracker;
-} else {
-  // Client-side fallback - no-op cache
-  cacheService = {
-    get: () => Promise.resolve(null),
-    set: () => Promise.resolve(false),
-    del: () => Promise.resolve(false),
-    exists: () => Promise.resolve(false),
-    flush: () => Promise.resolve(false),
-  };
-  usageTracker = {
-    trackCacheHit: () => Promise.resolve(),
-    trackCacheMiss: () => Promise.resolve(),
-  };
-}
+const clientCache = {
+  get: async (_key: string) => null,
+  set: async (_key: string, _value: string, _ttl?: number) => false,
+  del: async (_key: string) => false,
+  exists: async (_key: string) => false,
+  flush: async () => false,
+};
+async function getCacheService() { return typeof window === 'undefined' ? (await import('./redis')).default : clientCache; }
+async function getUsageTracker() { return typeof window === 'undefined' ? (await import('./usage-tracker')).usageTracker : { trackCacheHit: async (..._args: unknown[]) => {}, trackCacheMiss: async (..._args: unknown[]) => {} }; }
 
 export interface CacheOptions {
   ttl?: number;
@@ -53,7 +40,7 @@ class CacheManager {
     const cacheKey = this.generateKey(key, options.prefix);
 
     try {
-      const cached = await cacheService.get(cacheKey);
+      const cached = await (await getCacheService()).get(cacheKey);
 
       if (cached) {
         const parsed = JSON.parse(cached);
@@ -74,7 +61,7 @@ class CacheManager {
 
     try {
       const serialized = JSON.stringify(value);
-      return await cacheService.set(cacheKey, serialized, ttl);
+      return await (await getCacheService()).set(cacheKey, serialized, ttl);
     } catch (error) {
       console.error('Cache SET error:', error);
       return false;
@@ -94,7 +81,7 @@ class CacheManager {
     if (cached !== null) {
       // Cache hit - track usage
       if (options.userId && !options.skipBilling) {
-        await usageTracker.trackCacheHit(options.userId, key, options.organizationId);
+        await (await getUsageTracker()).trackCacheHit(options.userId, key, options.organizationId);
       }
 
       return {
@@ -113,7 +100,7 @@ class CacheManager {
 
       // Track usage
       if (options.userId && !options.skipBilling) {
-        await usageTracker.trackCacheMiss(options.userId, key, options.organizationId);
+        await (await getUsageTracker()).trackCacheMiss(options.userId, key, options.organizationId);
       }
 
       return {
@@ -129,7 +116,7 @@ class CacheManager {
 
   async invalidate(key: string, options: CacheOptions = {}): Promise<boolean> {
     const cacheKey = this.generateKey(key, options.prefix);
-    return await cacheService.del(cacheKey);
+    return await (await getCacheService()).del(cacheKey);
   }
 
   // Alias for invalidate for better API consistency
@@ -153,12 +140,12 @@ class CacheManager {
   }
 
   async flush(): Promise<boolean> {
-    return await cacheService.flush();
+    return await (await getCacheService()).flush();
   }
 
   async exists(key: string, options: CacheOptions = {}): Promise<boolean> {
     const cacheKey = this.generateKey(key, options.prefix);
-    return await cacheService.exists(cacheKey);
+    return await (await getCacheService()).exists(cacheKey);
   }
 
   // Utility methods for common cache patterns

@@ -61,12 +61,7 @@ export const FileMetadataEditor: React.FC<FileMetadataEditorProps> = ({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [activeTab, setActiveTab] = useState('basic');
 
-  // Load EXIF data on mount
-  useEffect(() => {
-    loadExifData();
-  }, [file]);
-
-  const loadExifData = async () => {
+  async function loadExifData() {
     setIsLoading(true);
     try {
       // Validate file object
@@ -91,7 +86,27 @@ export const FileMetadataEditor: React.FC<FileMetadataEditorProps> = ({
     } finally {
       setIsLoading(false);
     }
-  };
+  }
+
+
+  useEffect(() => {
+    let active = true;
+    const load = async () => {
+      try { return await extractExifData(file); }
+      catch {
+        return { fileName: file?.name || 'Unknown', fileSize: file?.size || 0,
+          fileType: file?.type || 'application/octet-stream',
+          lastModified: file?.lastModified ? new Date(file.lastModified) : new Date() };
+      }
+    };
+    void load().then(data => {
+      if (!active) return;
+      setExifData(data);
+      setEditableData(getEditableMetadata(data));
+      setIsLoading(false);
+    });
+    return () => { active = false; };
+  }, [file]);
 
   const handleInputChange = (field: keyof EditableExifData, value: any) => {
     if (!editableData) return;

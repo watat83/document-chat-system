@@ -1,5 +1,6 @@
 'use client';
 
+import { useClock } from '@/hooks/use-clock';
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -59,6 +60,7 @@ interface CircuitBreakerStatus {
 }
 
 export function IntelligentRoutingDashboard({ demoMode = true }: { demoMode?: boolean }) {
+  const now = useClock();
   const [selectedOperation, setSelectedOperation] = useState('stream');
   const [taskComplexity, setTaskComplexity] = useState<'low' | 'medium' | 'high'>('medium');
   const [budgetRemaining, setBudgetRemaining] = useState([75]);
@@ -68,8 +70,6 @@ export function IntelligentRoutingDashboard({ demoMode = true }: { demoMode?: bo
 
   const [routingDecision, setRoutingDecision] = useState<RoutingDecision | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [performanceMetrics, setPerformanceMetrics] = useState<PerformanceMetrics[]>([]);
-  const [circuitBreakers, setCircuitBreakers] = useState<CircuitBreakerStatus[]>([]);
 
   // Demo data
   const demoPerformanceMetrics: PerformanceMetrics[] = [
@@ -111,16 +111,12 @@ export function IntelligentRoutingDashboard({ demoMode = true }: { demoMode?: bo
     { provider: 'vercel', isOpen: false, failureCount: 0 },
     { provider: 'openai', isOpen: false, failureCount: 1 },
     { provider: 'anthropic', isOpen: false, failureCount: 0 },
-    { provider: 'google', isOpen: true, failureCount: 5, lastFailure: new Date(Date.now() - 30000) },
+    { provider: 'google', isOpen: true, failureCount: 5, lastFailure: new Date(now - 30000) },
     { provider: 'azure', isOpen: false, failureCount: 2 }
   ];
 
-  useEffect(() => {
-    if (demoMode) {
-      setPerformanceMetrics(demoPerformanceMetrics);
-      setCircuitBreakers(demoCircuitBreakers);
-    }
-  }, [demoMode]);
+  const performanceMetrics = demoMode ? demoPerformanceMetrics : [];
+  const circuitBreakers = demoMode ? demoCircuitBreakers : [];
 
   const makeRoutingDecision = async () => {
     setIsAnalyzing(true);
@@ -399,7 +395,7 @@ export function IntelligentRoutingDashboard({ demoMode = true }: { demoMode?: bo
                 ) : (
                   <div className="text-center py-8 text-muted-foreground">
                     <Network className="w-12 h-12 mx-auto mb-2 opacity-50" />
-                    <p>Click "Make Routing Decision" to see intelligent routing in action</p>
+                    <p>Click &quot;Make Routing Decision&quot; to see intelligent routing in action</p>
                   </div>
                 )}
               </CardContent>

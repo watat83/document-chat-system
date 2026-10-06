@@ -177,23 +177,25 @@ export class VercelAIAdapter extends AIProviderAdapter {
 
     const vercelModel = this.getVercelModel(routing.model, routing.selectedProvider);
 
-    const self = this;
+    const transformMessages = this.transformMessages.bind(this);
+    const transformToUnifiedChunk = this.transformToUnifiedChunk.bind(this);
+    const fallbackToOurSystem = this.vercelConfig.fallbackToOurSystem;
 
     return {
       async *[Symbol.asyncIterator]() {
         try {
           const { textStream } = await streamText({
             model: vercelModel,
-            messages: self.transformMessages(request.messages),
+            messages: transformMessages(request.messages),
             temperature: request.temperature || 0.7,
             maxOutputTokens: request.maxTokens
           });
 
           for await (const chunk of textStream) {
-            yield self.transformToUnifiedChunk(chunk, routing);
+            yield transformToUnifiedChunk(chunk, routing);
           }
         } catch (error) {
-          if (self.vercelConfig.fallbackToOurSystem) {
+          if (fallbackToOurSystem) {
             throw new Error(`Vercel AI SDK streaming failed, fallback required: ${(error as Error).message}`);
           }
           throw error;

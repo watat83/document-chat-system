@@ -41,7 +41,7 @@ export const FolderDeleteInfoModal: React.FC<FolderDeleteInfoModalProps> = ({
             Cannot Delete Folder
           </DialogTitle>
           <DialogDescription>
-            This folder contains items and cannot be deleted until it's empty.
+            This folder contains items and cannot be deleted until it&apos;s empty.
           </DialogDescription>
         </DialogHeader>
 
@@ -57,7 +57,7 @@ export const FolderDeleteInfoModal: React.FC<FolderDeleteInfoModalProps> = ({
               </div>
               <div className="flex-1">
                 <h3 className="font-medium text-amber-800 mb-1">
-                  "{folder.name}" is not empty
+                  &quot;{folder.name}&quot; is not empty
                 </h3>
                 <div className="flex items-center gap-4 text-sm text-amber-700">
                   <div className="flex items-center gap-1">

@@ -1,5 +1,6 @@
 'use client'
 
+import { useMounted } from '@/hooks/use-mounted';
 import React from 'react'
 import { UserButton, useAuth } from '@clerk/nextjs'
 import { Button } from '@/components/ui/button'
@@ -16,11 +17,9 @@ interface HeaderProps {
 
 export function Header({ onMobileMenuToggle, showNavigation = true, donationBannerVisible = true }: HeaderProps) {
   const { isSignedIn } = useAuth()
-  const [mounted, setMounted] = React.useState(false)
+  const mounted = useMounted();
 
-  React.useEffect(() => {
-    setMounted(true)
-  }, [])
+
 
   return (
     <header className={`sticky ${donationBannerVisible ? 'top-[52px]' : 'top-0'} z-40 w-full border-b border-border/40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 transition-all duration-300`}>

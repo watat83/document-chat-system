@@ -239,7 +239,6 @@ export class CleanOpenRouterAdapter extends AIProviderAdapter {
     this.aiMetricsIntegration = new AIMetricsIntegration();
 
     // Load prompt caching configuration from environment
-    const { ai } = require('@/lib/config/env');
     this.promptCacheEnabled = ai.openrouterPromptCacheEnabled ?? true;
     this.promptCacheTtl = ai.openrouterPromptCacheTtl ?? 300;
     this.promptCacheMinTokens = ai.openrouterPromptCacheMinTokens ?? 1024;

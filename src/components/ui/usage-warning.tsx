@@ -145,7 +145,7 @@ export function UsageLimitDialog({
               </>
             ) : (
               <>
-                You've reached your monthly limit for <strong>{usageType}</strong>.
+                You&apos;ve reached your monthly limit for <strong>{usageType}</strong>.
                 <br />
                 Current usage: <strong>{currentUsage}/{limit}</strong>
               </>

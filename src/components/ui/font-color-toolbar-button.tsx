@@ -94,11 +94,13 @@ export function FontColorToolbarButton({
     }
   }, [editor, selectedColor, onToggle, nodeType]);
 
-  React.useEffect(() => {
-    if (selectionDefined) {
-      setSelectedColor(color);
-    }
-  }, [color, selectionDefined]);
+  const [previousColor, setPreviousColor] = React.useState(color);
+  const [previousSelection, setPreviousSelection] = React.useState(selectionDefined);
+  if (previousColor !== color || previousSelection !== selectionDefined) {
+    setPreviousColor(color);
+    setPreviousSelection(selectionDefined);
+    if (selectionDefined) setSelectedColor(color);
+  }
 
   return (
     <DropdownMenu
@@ -200,20 +202,8 @@ function ColorCustom({
   updateCustomColor: (color: string) => void;
   color?: string;
 } & React.ComponentPropsWithoutRef<'div'>) {
-  const [customColor, setCustomColor] = React.useState<string>();
   const [value, setValue] = React.useState<string>(color || '#000000');
-
-  React.useEffect(() => {
-    if (
-      !color ||
-      customColors.some((c) => c.value === color) ||
-      colors.some((c) => c.value === color)
-    ) {
-      return;
-    }
-
-    setCustomColor(color);
-  }, [color, colors, customColors]);
+  const customColor = color && !customColors.some(c => c.value === color) && !colors.some(c => c.value === color) ? color : undefined;
 
   const computedColors = React.useMemo(
     () =>

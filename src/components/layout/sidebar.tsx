@@ -1,5 +1,6 @@
 'use client'
 
+import { useMounted } from '@/hooks/use-mounted';
 import React from 'react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -66,12 +67,10 @@ export function Sidebar({
   showNavigation = true,
 }: SidebarProps) {
   const pathname = usePathname()
-  const [isClient, setIsClient] = React.useState(false)
+  const isClient = useMounted();
 
   // Ensure client-side hydration
-  React.useEffect(() => {
-    setIsClient(true)
-  }, [])
+
 
   const isCurrentPath = React.useCallback(
     (href: string) => {

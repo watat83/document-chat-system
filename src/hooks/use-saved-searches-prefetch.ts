@@ -38,97 +38,12 @@ export function useSavedSearchesPrefetch() {
   const setSearchFilters = useOpportunitiesStore(state => state.setSearchFilters)
   const fetchOpportunities = useOpportunitiesStore(state => state.fetchOpportunities)
 
-  // Prefetch data on mount
-  const performPrefetch = useCallback(async () => {
-    if (!user || hasPrefetched) return
-
-    setIsLoading(true)
-    try {
-      // Get authentication token from Clerk
-      const token = await getToken()
-      
-      if (!token) {
-        console.log('No auth token available for prefetch')
-        setHasPrefetched(true) // Prevent retry
-        setPrefetchData({
-          savedSearches: [],
-          cachedMatchScores: {},
-          recentOpportunityIds: []
-        })
-        return
-      }
-
-      const response = await fetch('/api/v1/saved-searches/prefetch', {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      })
-      
-      if (!response.ok) {
-        if (response.status === 401) {
-          console.log('User not authenticated for prefetch')
-          setHasPrefetched(true) // Prevent retry
-          return
-        }
-        throw new Error(`HTTP ${response.status}`)
-      }
-
-      const result = await response.json()
-      
-      if (result.success) {
-        setPrefetchData(result.data)
-        setHasPrefetched(true)
-
-        // Apply cached match scores immediately
-        if (result.data.cachedMatchScores && Object.keys(result.data.cachedMatchScores).length > 0) {
-          console.log('🚀 Applying prefetched match scores:', Object.keys(result.data.cachedMatchScores).length)
-          
-          // Convert to the format expected by the store
-          const scores: Record<string, number> = {}
-          const details: Record<string, any> = {}
-          
-          Object.entries(result.data.cachedMatchScores).forEach(([oppId, data]: [string, any]) => {
-            scores[oppId] = data.score
-            details[oppId] = data
-          })
-          
-          setMatchScores(scores)
-          setMatchScoreDetails(details)
-        }
-
-        // Apply default search if available and not yet applied
-        if (!hasAppliedDefault && result.data.defaultSearch) {
-          console.log('🌟 Auto-applying default search:', result.data.defaultSearch.name)
-          await applyDefaultSearch(result.data.defaultSearch)
-          setHasAppliedDefault(true)
-        }
-      } else {
-        console.warn('Prefetch API returned success=false:', result.error)
-        setHasPrefetched(true) // Prevent retry
-      }
-    } catch (error) {
-      console.error('Error prefetching data:', error)
-      // Mark as prefetched to prevent infinite retry
-      setHasPrefetched(true)
-      
-      // Fallback to empty data structure
-      setPrefetchData({
-        savedSearches: [],
-        cachedMatchScores: {},
-        recentOpportunityIds: []
-      })
-    } finally {
-      setIsLoading(false)
-    }
-  }, [user, hasPrefetched, hasAppliedDefault, setMatchScores, setMatchScoreDetails, getToken])
-
   // Apply default search
   const applyDefaultSearch = useCallback(async (search: SavedSearch) => {
     try {
       // Get authentication token from Clerk
       const token = await getToken()
-      
+
       if (!token) {
         console.log('No auth token available for applying default search')
         return
@@ -148,12 +63,12 @@ export function useSavedSearchesPrefetch() {
       }
 
       const result = await response.json()
-      
+
       if (result.success) {
         // Apply filters and fetch opportunities
         setSearchFilters(result.data.filters)
         await fetchOpportunities(result.data.filters, 1, false)
-        
+
         // Silent notification - don't interrupt the user
         console.log(`✅ Applied default search: ${search.name}`)
       }
@@ -161,6 +76,92 @@ export function useSavedSearchesPrefetch() {
       console.error('Error applying default search:', error)
     }
   }, [setSearchFilters, fetchOpportunities, getToken])
+
+
+  // Prefetch data on mount
+  const performPrefetch = useCallback(async () => {
+    if (!user || hasPrefetched) return
+
+    setIsLoading(true)
+    try {
+      // Get authentication token from Clerk
+      const token = await getToken()
+
+      if (!token) {
+        console.log('No auth token available for prefetch')
+        setHasPrefetched(true) // Prevent retry
+        setPrefetchData({
+          savedSearches: [],
+          cachedMatchScores: {},
+          recentOpportunityIds: []
+        })
+        return
+      }
+
+      const response = await fetch('/api/v1/saved-searches/prefetch', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      })
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          console.log('User not authenticated for prefetch')
+          setHasPrefetched(true) // Prevent retry
+          return
+        }
+        throw new Error(`HTTP ${response.status}`)
+      }
+
+      const result = await response.json()
+
+      if (result.success) {
+        setPrefetchData(result.data)
+        setHasPrefetched(true)
+
+        // Apply cached match scores immediately
+        if (result.data.cachedMatchScores && Object.keys(result.data.cachedMatchScores).length > 0) {
+          console.log('🚀 Applying prefetched match scores:', Object.keys(result.data.cachedMatchScores).length)
+
+          // Convert to the format expected by the store
+          const scores: Record<string, number> = {}
+          const details: Record<string, any> = {}
+
+          Object.entries(result.data.cachedMatchScores).forEach(([oppId, data]: [string, any]) => {
+            scores[oppId] = data.score
+            details[oppId] = data
+          })
+
+          setMatchScores(scores)
+          setMatchScoreDetails(details)
+        }
+
+        // Apply default search if available and not yet applied
+        if (!hasAppliedDefault && result.data.defaultSearch) {
+          console.log('🌟 Auto-applying default search:', result.data.defaultSearch.name)
+          await applyDefaultSearch(result.data.defaultSearch)
+          setHasAppliedDefault(true)
+        }
+      } else {
+        console.warn('Prefetch API returned success=false:', result.error)
+        setHasPrefetched(true) // Prevent retry
+      }
+    } catch (error) {
+      console.error('Error prefetching data:', error)
+      // Mark as prefetched to prevent infinite retry
+      setHasPrefetched(true)
+
+      // Fallback to empty data structure
+      setPrefetchData({
+        savedSearches: [],
+        cachedMatchScores: {},
+        recentOpportunityIds: []
+      })
+    } finally {
+      setIsLoading(false)
+    }
+  }, [user, hasPrefetched, hasAppliedDefault, setMatchScores, setMatchScoreDetails, getToken])
 
   // Handle Clerk loading issues
   useEffect(() => {
@@ -188,17 +189,21 @@ export function useSavedSearchesPrefetch() {
   // Prefetch on user load
   useEffect(() => {
     if ((isLoaded && user && !hasPrefetched) || (clerkLoadError && !hasPrefetched)) {
-      if (user) {
-        performPrefetch()
-      } else {
-        // No user (not authenticated), just set empty data
-        setHasPrefetched(true)
-        setPrefetchData({
-          savedSearches: [],
-          cachedMatchScores: {},
-          recentOpportunityIds: []
-        })
-      }
+      const timeout = window.setTimeout(() => {
+        if (user) {
+          void performPrefetch()
+        } else {
+          // No user (not authenticated), just set empty data
+          setHasPrefetched(true)
+          setPrefetchData({
+            savedSearches: [],
+            cachedMatchScores: {},
+            recentOpportunityIds: []
+          })
+        }
+      }, 0)
+
+      return () => window.clearTimeout(timeout)
     }
   }, [isLoaded, user, hasPrefetched, clerkLoadError, performPrefetch])
 

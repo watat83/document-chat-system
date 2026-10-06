@@ -1,5 +1,6 @@
 'use client'
 
+import { useClock } from '@/hooks/use-clock';
 import React, { useState, useEffect } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -48,6 +49,7 @@ interface PerformanceMetricsProps {
 }
 
 export function PerformanceMetrics({ endpoint, showGlobal = false }: PerformanceMetricsProps) {
+  const now = useClock();
   const [metrics, setMetrics] = useState<PerformanceData | null>(null)
   const [loading, setLoading] = useState(true)
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date())
@@ -72,7 +74,7 @@ export function PerformanceMetrics({ endpoint, showGlobal = false }: Performance
           rateLimit: {
             current: Math.floor(Math.random() * 80),
             limit: 100,
-            resetTime: Date.now() + (15 * 60 * 1000) // 15 minutes from now
+            resetTime: now + (15 * 60 * 1000) // 15 minutes from now
           },
           requests: {
             total: Math.floor(Math.random() * 10000) + 5000,
@@ -119,7 +121,7 @@ export function PerformanceMetrics({ endpoint, showGlobal = false }: Performance
   }
 
   const formatTimeToReset = (timestamp: number) => {
-    const diff = timestamp - Date.now()
+    const diff = timestamp - now
     const minutes = Math.floor(diff / (1000 * 60))
     const seconds = Math.floor((diff % (1000 * 60)) / 1000)
     return `${minutes}m ${seconds}s`

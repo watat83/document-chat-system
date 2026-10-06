@@ -36,7 +36,7 @@ interface ExampleGeneratorProps {
 }
 
 export function ExampleGenerator({ endpoint, endpointKey }: ExampleGeneratorProps) {
-  const [examples, setExamples] = useState<ExampleData>({})
+  const [generatedExamples, setExamples] = useState<ExampleData | null>(null)
   const [loading, setLoading] = useState(false)
   const [lastGenerated, setLastGenerated] = useState<Date | null>(null)
 
@@ -50,7 +50,7 @@ export function ExampleGenerator({ endpoint, endpointKey }: ExampleGeneratorProp
       const newExamples = generateExampleData(endpoint)
       setExamples(newExamples)
       setLastGenerated(new Date())
-      toast.success('Examples generated with live data')
+      toast.success('Example templates generated')
     } catch (error) {
       toast.error('Failed to generate examples')
     } finally {
@@ -451,15 +451,12 @@ print(json.dumps(data, indent=2))`
     return pythonCode
   }
 
+  const examples = generatedExamples ?? generateExampleData(endpoint)
+
   const copyToClipboard = (text: string, type: string) => {
     navigator.clipboard.writeText(text)
     toast.success(`${type} copied to clipboard`)
   }
-
-  // Auto-generate examples on mount
-  useEffect(() => {
-    generateExamples()
-  }, [endpointKey])
 
   return (
     <Card className="mt-4">
@@ -471,7 +468,7 @@ print(json.dumps(data, indent=2))`
               Live Examples
             </CardTitle>
             <CardDescription>
-              Generated examples using real data models and current API responses
+              Example templates for the selected endpoint
             </CardDescription>
           </div>
           <Button

@@ -57,7 +57,12 @@ function TweetComponent({
   const containerRef = useRef<HTMLDivElement | null>(null)
 
   const previousTweetIDRef = useRef<string>("")
-  const [isTweetLoading, setIsTweetLoading] = useState(false)
+  const [isTweetLoading, setIsTweetLoading] = useState(true)
+  const [previousTweetID, setPreviousTweetID] = useState(tweetID)
+  if (previousTweetID !== tweetID) {
+    setPreviousTweetID(tweetID)
+    setIsTweetLoading(true)
+  }
 
   const createTweet = useCallback(async () => {
     try {
@@ -78,9 +83,9 @@ function TweetComponent({
   }, [onError, onLoad, tweetID])
 
   useEffect(() => {
-    if (tweetID !== previousTweetIDRef.current) {
-      setIsTweetLoading(true)
+    let createTweetTimeout: number | undefined
 
+    if (tweetID !== previousTweetIDRef.current) {
       if (isTwitterScriptLoading) {
         const script = document.createElement("script")
         script.src = WIDGET_SCRIPT_URL
@@ -91,11 +96,19 @@ function TweetComponent({
           script.onerror = onError as OnErrorEventHandler
         }
       } else {
-        createTweet()
+        createTweetTimeout = window.setTimeout(() => {
+          void createTweet()
+        }, 0)
       }
 
       if (previousTweetIDRef) {
         previousTweetIDRef.current = tweetID
+      }
+    }
+
+    return () => {
+      if (createTweetTimeout !== undefined) {
+        window.clearTimeout(createTweetTimeout)
       }
     }
   }, [createTweet, onError, tweetID])

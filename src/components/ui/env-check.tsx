@@ -85,7 +85,7 @@ export function EnvCheck() {
         <div className="mt-6 p-4 bg-muted rounded-lg">
           <h3 className="font-medium mb-2">Setup Instructions</h3>
           <div className="text-sm text-muted-foreground space-y-2">
-            <p>If you're getting authentication errors, check:</p>
+            <p>If you&apos;re getting authentication errors, check:</p>
             <ul className="list-disc list-inside space-y-1 ml-4">
               <li>Clerk Publishable Key is set in environment variables</li>
               <li>You have a Clerk account and project set up</li>

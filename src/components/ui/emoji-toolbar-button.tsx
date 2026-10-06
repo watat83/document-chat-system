@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { composeRefs } from '@udecode/react-utils';
 
 import type { Emoji } from '@emoji-mart/data';
 
@@ -338,7 +339,7 @@ function EmojiPickerContent({
 
   return (
     <div
-      ref={refs.current.contentRoot}
+      ref={(node) => composeRefs<HTMLDivElement | null>(refs.current.contentRoot)(node)}
       className={cn(
         'h-full min-h-[50%] overflow-x-hidden overflow-y-auto px-2',
         '[&::-webkit-scrollbar]:w-4',
@@ -348,7 +349,7 @@ function EmojiPickerContent({
       )}
       data-id="scroll"
     >
-      <div ref={refs.current.content} className="h-full">
+      <div ref={(node) => composeRefs<HTMLDivElement | null>(refs.current.content)(node)} className="h-full">
         {isSearching ? SearchList() : EmojiList()}
       </div>
     </div>

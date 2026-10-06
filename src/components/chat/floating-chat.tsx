@@ -331,7 +331,6 @@ export function FloatingChat() {
       '🔍 loadDocumentContext: Starting with organizationId:',
       orgId
     )
-    setIsLoadingDocuments(true)
     try {
       console.log('📡 Making API calls to load documents and folders...')
       const [docsResponse, foldersResponse] = await Promise.all([
@@ -390,7 +389,11 @@ export function FloatingChat() {
       isSignedIn
     ) {
       console.log('✅ All conditions met, calling loadDocumentContext')
-      loadDocumentContext(organizationId)
+      const timeout = window.setTimeout(() => {
+        void loadDocumentContext(organizationId)
+      }, 0)
+
+      return () => window.clearTimeout(timeout)
     } else {
       console.log('❌ Conditions not met for loading document context:', {
         supportsDocumentChat: pageContext.supportsDocumentChat,

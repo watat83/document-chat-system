@@ -1,4 +1,5 @@
 import * as React from "react"
+import { useMounted } from "@/hooks/use-mounted"
 import {
   JSX,
   MouseEventHandler,
@@ -38,7 +39,7 @@ const MIN_COLUMN_WIDTH = 92
 function TableCellResizer({ editor }: { editor: LexicalEditor }): JSX.Element {
   const targetRef = useRef<HTMLElement | null>(null)
   const resizerRef = useRef<HTMLDivElement | null>(null)
-  const tableRectRef = useRef<ClientRect | null>(null)
+  const [tableRect, setTableRect] = useState<ClientRect | null>(null)
 
   const mouseStartPosRef = useRef<MousePosition | null>(null)
   const [mouseCurrentPos, updateMouseCurrentPos] =
@@ -54,7 +55,7 @@ function TableCellResizer({ editor }: { editor: LexicalEditor }): JSX.Element {
     targetRef.current = null
     updateDraggingDirection(null)
     mouseStartPosRef.current = null
-    tableRectRef.current = null
+    setTableRect(null)
   }, [])
 
   const isMouseDownOnEvent = (event: MouseEvent) => {
@@ -112,7 +113,7 @@ function TableCellResizer({ editor }: { editor: LexicalEditor }): JSX.Element {
               }
 
               targetRef.current = target as HTMLElement
-              tableRectRef.current = tableElement.getBoundingClientRect()
+              setTableRect(tableElement.getBoundingClientRect())
               updateActiveCell(cell)
             })
           } else if (cell == null) {
@@ -156,6 +157,12 @@ function TableCellResizer({ editor }: { editor: LexicalEditor }): JSX.Element {
     }
     return false
   }
+
+  function getCellNodeHeight(cell: TableCellNode, activeEditor: LexicalEditor): number | undefined {
+    const domCellNode = activeEditor.getElementByKey(cell.getKey())
+    return domCellNode?.clientHeight
+  }
+
 
   const updateRowHeight = useCallback(
     (heightChange: number) => {
@@ -207,14 +214,6 @@ function TableCellResizer({ editor }: { editor: LexicalEditor }): JSX.Element {
     },
     [activeCell, editor]
   )
-
-  const getCellNodeHeight = (
-    cell: TableCellNode,
-    activeEditor: LexicalEditor
-  ): number | undefined => {
-    const domCellNode = activeEditor.getElementByKey(cell.getKey())
-    return domCellNode?.clientHeight
-  }
 
   const getCellColumnIndex = (
     tableCellNode: TableCellNode,
@@ -353,7 +352,6 @@ function TableCellResizer({ editor }: { editor: LexicalEditor }): JSX.Element {
         },
       }
 
-      const tableRect = tableRectRef.current
 
       if (draggingDirection && mouseCurrentPos && tableRect) {
         if (isHeightChanging(draggingDirection)) {
@@ -388,7 +386,7 @@ function TableCellResizer({ editor }: { editor: LexicalEditor }): JSX.Element {
       right: null,
       top: null,
     }
-  }, [activeCell, draggingDirection, mouseCurrentPos])
+  }, [activeCell, draggingDirection, mouseCurrentPos, tableRect])
 
   const resizerStyles = getResizers()
 
@@ -415,11 +413,8 @@ function TableCellResizer({ editor }: { editor: LexicalEditor }): JSX.Element {
 export function TableCellResizerPlugin(): null | React.ReactElement {
   const [editor] = useLexicalComposerContext()
   const isEditable = useLexicalEditable()
-  const [bodyRef, setBodyRef] = useState<HTMLElement | null>(null)
-
-  useEffect(() => {
-    setBodyRef(document.body)
-  }, [])
+  const mounted = useMounted()
+  const bodyRef = mounted ? document.body : null
 
   return useMemo(
     () =>

@@ -82,7 +82,7 @@ export function useErrorHandler(config: ErrorHandlerConfig = {}) {
 
   // Track notifications to prevent spam
   const notificationCountRef = useRef(0)
-  const lastResetRef = useRef(Date.now())
+  const lastResetRef = useRef(0)
 
   // Reset notification count every minute
   useEffect(() => {
@@ -321,6 +321,35 @@ export function useErrorHandler(config: ErrorHandlerConfig = {}) {
   }, [trackMetrics])
 
   /**
+   * Get notification title based on error
+   */
+  const getNotificationTitle = useCallback((error: EnhancedError): string => {
+    switch (error.category) {
+      case ErrorCategory.NETWORK:
+        return 'Connection Issue'
+      case ErrorCategory.AUTHENTICATION:
+        return 'Authentication Required'
+      case ErrorCategory.AUTHORIZATION:
+        return 'Access Denied'
+      case ErrorCategory.VALIDATION:
+        return 'Input Error'
+      case ErrorCategory.PERFORMANCE:
+        return 'Performance Issue'
+      case ErrorCategory.DATA_INTEGRITY:
+        return 'Data Error'
+      case ErrorCategory.EXTERNAL_SERVICE:
+        return 'Service Unavailable'
+      case ErrorCategory.USER_INPUT:
+        return 'Invalid Input'
+      case ErrorCategory.SYSTEM:
+        return 'System Error'
+      default:
+        return error.feature ? `${error.feature} Error` : 'Error Occurred'
+    }
+  }, [])
+
+
+  /**
    * Show error notification to user
    */
   const showNotification = useCallback((
@@ -373,34 +402,6 @@ export function useErrorHandler(config: ErrorHandlerConfig = {}) {
         showErrorNotification(title, message, notificationOptions)
     }
   }, [showNotifications, maxNotificationsPerMinute, showErrorNotification, showWarningNotification, showInfoNotification])
-
-  /**
-   * Get notification title based on error
-   */
-  const getNotificationTitle = useCallback((error: EnhancedError): string => {
-    switch (error.category) {
-      case ErrorCategory.NETWORK:
-        return 'Connection Issue'
-      case ErrorCategory.AUTHENTICATION:
-        return 'Authentication Required'
-      case ErrorCategory.AUTHORIZATION:
-        return 'Access Denied'
-      case ErrorCategory.VALIDATION:
-        return 'Input Error'
-      case ErrorCategory.PERFORMANCE:
-        return 'Performance Issue'
-      case ErrorCategory.DATA_INTEGRITY:
-        return 'Data Error'
-      case ErrorCategory.EXTERNAL_SERVICE:
-        return 'Service Unavailable'
-      case ErrorCategory.USER_INPUT:
-        return 'Invalid Input'
-      case ErrorCategory.SYSTEM:
-        return 'System Error'
-      default:
-        return error.feature ? `${error.feature} Error` : 'Error Occurred'
-    }
-  }, [])
 
   /**
    * Main error handling function

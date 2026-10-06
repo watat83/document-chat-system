@@ -92,7 +92,7 @@ export function ErrorConfigManager() {
     }
   }, [pendingChanges])
 
-  const loadConfiguration = async () => {
+  async function loadConfiguration() {
     try {
       setIsLoading(true)
       const response = await fetch('/api/v1/admin/error-config')
@@ -117,7 +117,7 @@ export function ErrorConfigManager() {
     }
   }
 
-  const validateChanges = async () => {
+  async function validateChanges() {
     if (Object.keys(pendingChanges).length === 0) {
       setValidationResult(null)
       return

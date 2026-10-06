@@ -58,7 +58,7 @@ export function useNotificationStream(options: UseNotificationStreamOptions = {}
     isConnectingRef.current = false;
   }, []);
 
-  const connect = useCallback(async () => {
+  const connect = useCallback(async function connect() {
     // Only run on client side
     if (!isClient) {
       return;

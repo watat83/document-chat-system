@@ -27,7 +27,7 @@ export function NotificationBadge({ className }: NotificationBadgeProps) {
     }
 
     if (notification.actionUrl) {
-      window.location.href = notification.actionUrl
+      window.location.assign(notification.actionUrl)
     }
   }
 
@@ -197,7 +197,7 @@ export function NotificationBadge({ className }: NotificationBadgeProps) {
                 variant="ghost"
                 size="sm"
                 className="w-full text-xs h-8"
-                onClick={() => window.location.href = '/notifications'}
+                onClick={() => window.location.assign('/notifications')}
               >
                 View all notifications
               </Button>

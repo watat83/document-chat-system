@@ -501,7 +501,8 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
   const setDocuments = useDocumentChatStore((state) => state.documents.setDocuments)
 
   // Loading state
-  const [isLoading, setIsLoading] = useState(true)
+  const [loadingDocument, setIsLoading] = useState(true)
+  const isLoading = Boolean(documentId) && loadingDocument
   const [fetchedDocument, setFetchedDocument] = useState<Document | null>(null)
 
   // Chat interface state
@@ -553,7 +554,6 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
 
     if (!documentId) {
       console.warn('⚠️ [FETCH EFFECT] No documentId provided, skipping API fetch')
-      setIsLoading(false)
       return
     }
 
@@ -750,26 +750,14 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
     document?.entities?.entities,
     document?.processing?.currentStatus
   ])
-  const [selectedSection, setSelectedSection] = useState<any>(null)
-
-  // Update selected section when document or sections change
-  React.useEffect(() => {
-    if (sections.length > 0 && (!selectedSection || !sections.find(s => s.id === selectedSection.id))) {
-      setSelectedSection(sections[0])
-    }
-  }, [sections, selectedSection])
-
-  // Update document title when document changes
-  React.useEffect(() => {
-    if (document) {
-      // Remove file extension from title for display purposes
-      const titleToSet = removeFileExtension(document.name || '')
-      console.log('📝 Setting document title:', { original: document.name, cleaned: titleToSet })
-      setDocumentTitle(titleToSet)
-    }
-    // Only trigger when document ID or name changes
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [document?.id, document?.name])
+  const [sectionSelection, setSelectedSection] = useState<any>(null)
+  const selectedSection = sections.find(section => section.id === sectionSelection?.id) ?? sections[0] ?? null
+  const [documentTitle, setDocumentTitle] = useState(removeFileExtension(document?.name || ''))
+  const [previousTitleSource, setPreviousTitleSource] = useState({ id: document?.id, name: document?.name })
+  if (previousTitleSource.id !== document?.id || previousTitleSource.name !== document?.name) {
+    setPreviousTitleSource({ id: document?.id, name: document?.name })
+    setDocumentTitle(removeFileExtension(document?.name || ''))
+  }
   const [isEditing, setIsEditing] = useState(false)
   const [pendingChanges, setPendingChanges] = useState<Partial<Document>>({})
   const [sectionEdits, setSectionEdits] = useState<Record<string, string>>({})
@@ -793,7 +781,6 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
   const [leftSidebarOpen, setLeftSidebarOpen] = useState(true)
   const [rightSidebarOpen, setRightSidebarOpen] = useState(true)
   const [isEditingTitle, setIsEditingTitle] = useState(false)
-  const [documentTitle, setDocumentTitle] = useState('')
   const titleInputRef = useRef<HTMLInputElement>(null)
   const [rightPanelWidth, setRightPanelWidth] = useState(0)
   const rightPanelRef = useRef<HTMLDivElement>(null)
@@ -807,10 +794,11 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
   // Track if we've already notified about analysis completion to prevent duplicates
   const [hasNotifiedCompletion, setHasNotifiedCompletion] = useState(false)
 
-  // Reset notification flag when document changes
-  useEffect(() => {
+  const [notificationDocumentId, setNotificationDocumentId] = useState(document?.id)
+  if (notificationDocumentId !== document?.id) {
+    setNotificationDocumentId(document?.id)
     setHasNotifiedCompletion(false)
-  }, [document?.id])
+  }
 
   // Component mount/unmount logging
   React.useEffect(() => {
@@ -837,21 +825,15 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
     estimatedCompletion?: string
   }>({ progress: 0 })
 
-  // Check if document is processing on mount/refresh
-  useEffect(() => {
-    if (document && document.processing?.currentStatus === 'PROCESSING' && !isAnalyzing) {
-      console.log('🔄 [RESTORE STATE] Document is PROCESSING but isAnalyzing is false, restoring analysis state');
+  const [observedProcessing, setObservedProcessing] = useState<{ id?: string; status?: string }>({})
+  if (observedProcessing.id !== document?.id || observedProcessing.status !== document?.processing?.currentStatus) {
+    setObservedProcessing({ id: document?.id, status: document?.processing?.currentStatus })
+    if (document?.processing?.currentStatus === 'PROCESSING') {
       setIsAnalyzing(true)
-      setHasNotifiedCompletion(false) // Reset notification flag for restored analysis
-      setProcessingStatus({
-        progress: 50, // Mid-way progress since we don't know exact state
-        currentStep: 'Analysis in progress (restored after page refresh)...',
-        estimatedCompletion: new Date(Date.now() + 2 * 60 * 1000).toISOString()
-      })
+      setHasNotifiedCompletion(false)
+      setProcessingStatus({ progress: 0, currentStep: 'Analysis in progress...' })
     }
-    // Only trigger when processing status changes, not when document object changes
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [document?.processing?.currentStatus, isAnalyzing])
+  }
 
   // Handler for starting AI analysis
   const handleStartAnalysis = async () => {
@@ -1227,7 +1209,6 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
     // Emergency stop - force stop all polling if flag is set
     if (forceStopPolling) {
       console.log('🛑 EMERGENCY STOP: Polling forcibly disabled')
-      setIsAnalyzing(false)
       return
     }
 
@@ -1247,8 +1228,6 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
           currentStatus: document.processing?.currentStatus,
           isAnalyzing
         })
-        setIsAnalyzing(false)
-        setForceStopPolling(true) // Prevent restart
         return
       }
 
@@ -1405,60 +1384,14 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
   // Local state for AI keywords to prevent UI resets
   const [localAIKeywords, setLocalAIKeywords] = useState<string[]>([])
 
-  // Update local AI keywords when document changes (but not when localAIKeywords changes)
-  React.useEffect(() => {
-    console.log('🔄 Syncing local AI keywords with document:', {
-      documentId: document?.id,
-      documentKeywords: document?.content?.keywords,
-      currentLocalKeywords: localAIKeywords,
-      isEditing,
-      hasUnsavedChanges
-    })
+  const keywordSource = JSON.stringify(document?.content?.keywords ?? [])
+  const [previousKeywords, setPreviousKeywords] = useState(keywordSource)
+  if (!hasUnsavedChanges && previousKeywords !== keywordSource) {
+    setPreviousKeywords(keywordSource)
+    setLocalAIKeywords(document?.content?.keywords ?? [])
+  }
 
-    // Sync from document to local state when:
-    // 1. NOT editing and no pending changes (normal sync)
-    // 2. OR we just saved changes (isEditing but no unsaved changes) - this fixes the real-time update issue
-    const shouldSyncKeywords = (!isEditing && !hasUnsavedChanges) || (isEditing && !hasUnsavedChanges)
-
-    if (document?.content?.keywords && shouldSyncKeywords) {
-      console.log('✅ Syncing keywords from document to local state:', document.content.keywords)
-      setLocalAIKeywords([...document.content.keywords])
-    } else if (document?.id && !document?.content?.keywords && shouldSyncKeywords) {
-      // Document exists but no keywords - set to empty array
-      console.log('✅ Setting local keywords to empty array')
-      setLocalAIKeywords([])
-    }
-  }, [document?.content?.keywords, document?.id, isEditing, hasUnsavedChanges])
-
-  // Update editable data when document changes or is first loaded
-  React.useEffect(() => {
-    // Early return if document is not available to prevent property access errors
-    if (!document) {
-      console.log('🎯 useEffect: Document not available, skipping editableData update')
-      return
-    }
-
-    console.log('🎯 useEffect triggered for editableData update:', {
-      hasDocument: !!document,
-      documentId: document?.id,
-      lastDocumentId,
-      shouldUpdate: document && (document.id !== lastDocumentId || !lastDocumentId)
-    })
-
-    if (document && (document.id !== lastDocumentId || !lastDocumentId)) {
-      console.log(`🔄 New document loaded, updating editableData. Document ID:`, document.id)
-      console.log('📊 Document analysis structure:', {
-        hasAnalysis: !!document.analysis,
-        hasContract: !!document.analysis?.contract,
-        contractValue: document.analysis?.contract?.estimatedValue,
-        contractAnalysisValue: document.analysis?.contractAnalysis?.estimatedValue,
-        directContractValue: document.contractValue,
-        deadline: document.analysis?.contract?.deadlines?.[0],
-        timeline: document.analysis?.contract?.timeline,
-        directDeadline: document.deadline,
-        documentType: document.documentType
-      })
-
+  if (document && document.id !== lastDocumentId) {
       setEditableData({
         tags: document.tags || [], // User tags from database
         contractValue: document.analysis?.contract?.estimatedValue ||
@@ -1498,11 +1431,8 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
         })) || []
       })
 
-    } else if (document && document.id === lastDocumentId) {
-    }
-    // Only trigger when document ID changes, not when document object reference changes
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [document?.id, lastDocumentId])
+  }
+
 
   // Cleanup auto-save timeouts on unmount
   React.useEffect(() => {
@@ -3133,7 +3063,7 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
                       Contract analysis not available
                     </div>
                     <div className="text-xs text-muted-foreground">
-                      Click "Analyze Document" to generate contract insights including requirements, opportunities, risk assessments, and timeline analysis.
+                      Click &quot;Analyze Document&quot; to generate contract insights including requirements, opportunities, risk assessments, and timeline analysis.
                     </div>
                   </div>
                 )}

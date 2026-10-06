@@ -101,11 +101,12 @@ export function InlineEquationElement(
   );
   const [open, setOpen] = React.useState(selected && isCollapsed);
 
-  React.useEffect(() => {
-    if (selected && isCollapsed) {
-      setOpen(true);
-    }
-  }, [selected, isCollapsed]);
+  const selectionActive = selected && isCollapsed;
+  const [previousSelectionActive, setPreviousSelectionActive] = React.useState(selectionActive);
+  if (previousSelectionActive !== selectionActive) {
+    setPreviousSelectionActive(selectionActive);
+    if (selectionActive) setOpen(true);
+  }
 
   useEquationElement({
     element,

@@ -70,7 +70,7 @@ export function usePricingPlans(options: UsePricingPlansOptions = {}): UsePricin
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
   const [retryCount, setRetryCount] = useState(0)
 
-  const fetchPlans = useCallback(async (isRetry = false) => {
+  const fetchPlans = useCallback(async function fetchPlans(isRetry = false) {
     try {
       if (!isRetry) {
         setLoading(true)

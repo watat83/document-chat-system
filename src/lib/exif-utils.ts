@@ -2,7 +2,6 @@
  * EXIF data extraction and manipulation utilities
  */
 
-// @ts-ignore - exifr doesn't have good TypeScript definitions
 import * as exifr from 'exifr';
 
 export interface ExifData {

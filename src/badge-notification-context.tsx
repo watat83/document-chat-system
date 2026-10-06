@@ -239,7 +239,7 @@ export function BadgeNotificationProvider({ children }: { children: React.ReactN
   })
   
   // Fetch notifications from API
-  const refreshNotifications = useCallback(async () => {
+  const refreshNotifications = useCallback(async function refreshNotifications() {
     if (!isLoaded || !isSignedIn) {
       console.log('User not loaded or not signed in, skipping notification fetch')
       dispatch({ type: 'SET_ERROR', payload: null }) // Clear any auth errors

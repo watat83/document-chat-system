@@ -366,13 +366,12 @@ export function LoadingErrorFallback({
   maxRetries,
   feature,
 }: ErrorFallbackProps) {
-  const [autoRetryCountdown, setAutoRetryCountdown] = useState<number | null>(null)
+  const [autoRetryCountdown, setAutoRetryCountdown] = useState<number | null>(retryCount === 0 && retryCount < maxRetries ? 5 : null)
   const canRetry = retryCount < maxRetries
 
   // Auto-retry for loading errors after 5 seconds
   useEffect(() => {
     if (canRetry && retryCount === 0) {
-      setAutoRetryCountdown(5)
       const interval = setInterval(() => {
         setAutoRetryCountdown((prev) => {
           if (prev === null || prev <= 1) {

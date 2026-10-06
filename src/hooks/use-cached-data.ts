@@ -1,4 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { useAuth } from '@clerk/nextjs';
 
 export interface CachedResponse<T> {
   data: T | null;
@@ -12,53 +14,21 @@ export function useCachedData<T>(
   url: string,
   options: RequestInit = {}
 ): CachedResponse<T> {
-  const [data, setData] = useState<T | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [cached, setCached] = useState(false);
-
-  const fetchData = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      
-      const response = await fetch(url, {
-        ...options,
-        headers: {
-          'Content-Type': 'application/json',
-          ...options.headers,
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
+  const { userId, orgId } = useAuth();
+  const query = useQuery({
+    queryKey: ['cached-response', userId, orgId, url, options.method, options.body],
+    gcTime: 0,
+    queryFn: async ({ signal }) => {
+      const headers = new Headers(options.headers);
+      if (!headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
+      const response = await fetch(url, { ...options, headers, signal });
+      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
       const result = await response.json();
-      setData(result.data || result);
-      setCached(result.cached || false);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const refetch = async () => {
-    await fetchData();
-  };
-
-  useEffect(() => {
-    fetchData();
-  }, [url]);
-
-  return {
-    data,
-    loading,
-    error,
-    cached,
-    refetch,
-  };
+      return { data: (result.data ?? result) as T, cached: Boolean(result.cached) };
+    },
+  });
+  return { data: query.data?.data ?? null, loading: query.isFetching, error: query.error?.message ?? null,
+    cached: query.data?.cached ?? false, refetch: async () => { await query.refetch(); } };
 }
 
 export function useCachedOpportunities(filters: any = {}) {

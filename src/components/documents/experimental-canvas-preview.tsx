@@ -24,7 +24,7 @@ export const ExperimentalCanvasPreview: React.FC<ExperimentalCanvasPreviewProps>
   height
 }) => {
   // Generate unique ID for this component instance
-  const instanceId = useMemo(() => `canvas-preview-${doc.id}-${Math.random().toString(36).substr(2, 9)}`, [doc.id])
+  const instanceId = React.useId()
   
   const containerRef = useRef<HTMLDivElement>(null)
   const [preview, setPreview] = useState<string | null>(null)
@@ -703,7 +703,11 @@ export const ExperimentalCanvasPreview: React.FC<ExperimentalCanvasPreviewProps>
     })
     if (doc.originalFile && dimensions.width > 0 && dimensions.height > 0) {
       console.log(`[${instanceId}] Generating preview for:`, doc.originalFile.name)
-      generateFilePreview(doc.originalFile)
+      const timeout = window.setTimeout(() => {
+        void generateFilePreview(doc.originalFile!)
+      }, 0)
+
+      return () => window.clearTimeout(timeout)
     }
   }, [doc.originalFile, dimensions, generateFilePreview, instanceId])
 

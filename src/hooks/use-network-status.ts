@@ -148,7 +148,7 @@ export function useNetworkStatus(config: NetworkStatusConfig = {}) {
   /**
    * Map effective connection type to our enum
    */
-  const mapEffectiveType = (effectiveType: string): ConnectionType => {
+  function mapEffectiveType(effectiveType: string): ConnectionType {
     switch (effectiveType) {
       case '4g':
         return ConnectionType.CELLULAR_4G
@@ -315,7 +315,7 @@ export function useNetworkStatus(config: NetworkStatusConfig = {}) {
   /**
    * Get quality score for comparison
    */
-  const getQualityScore = (quality: NetworkQuality): number => {
+  function getQualityScore(quality: NetworkQuality): number {
     switch (quality) {
       case NetworkQuality.EXCELLENT: return 4
       case NetworkQuality.GOOD: return 3
@@ -328,7 +328,7 @@ export function useNetworkStatus(config: NetworkStatusConfig = {}) {
   /**
    * Handle automatic reconnection attempts
    */
-  const attemptReconnection = useCallback(async () => {
+  const attemptReconnection = useCallback(async function attemptReconnection() {
     if (!autoReconnect || isReconnectingRef.current) {
       return
     }

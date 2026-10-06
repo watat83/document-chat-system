@@ -523,7 +523,7 @@ export function withUsageTracking(
     resourceType?: string;
   }
 ) {
-  return function (handler: Function) {
+  return function (handler: (...args: any[]) => any) {
     return async function (req: any, ...args: any[]) {
       try {
         // Extract organization ID from request (assuming you have tenant context)

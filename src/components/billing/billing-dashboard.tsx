@@ -1,4 +1,5 @@
 'use client';
+import Link from 'next/link';
 import { normalizeError } from '@/lib/errors/normalize-error';
 
 import { useState, useEffect } from 'react';
@@ -780,7 +781,7 @@ export function BillingDashboard() {
               <p className="text-muted-foreground mb-6">{error}</p>
               {error?.includes('sign in') ? (
                 <Button asChild size="lg" className="w-full">
-                  <a href="/sign-in">Sign In to Continue</a>
+                  <Link href={{ pathname: "/sign-in" }}>Sign In to Continue</Link>
                 </Button>
               ) : (
                 <div className="space-y-2">
@@ -966,7 +967,7 @@ export function BillingDashboard() {
                     🎉 Free Trial Active
                   </h3>
                   <p className="text-blue-700">
-                    You're enjoying all premium features at no cost.
+                    You&apos;re enjoying all premium features at no cost.
                     <span className="font-medium"> Trial ends on {nextBillingDate}</span>
                   </p>
                 </div>
@@ -984,7 +985,7 @@ export function BillingDashboard() {
                 {formatCurrency(subscription.amount / 100)}
                 <span className="text-sm font-normal text-blue-600">/month</span>
               </div>
-              <div className="text-xs text-blue-600">You're saving during trial!</div>
+              <div className="text-xs text-blue-600">You&apos;re saving during trial!</div>
             </div>
           </div>
 
@@ -1078,7 +1079,7 @@ export function BillingDashboard() {
 
           <div className="mt-4 pt-4 border-t border-orange-200">
             <div className="text-sm text-orange-700">
-              <strong>Good news:</strong> You'll retain access to all premium features until {nextBillingDate}.
+              <strong>Good news:</strong> You&apos;ll retain access to all premium features until {nextBillingDate}.
               {(() => {
                 const endDate = new Date(subscription.currentPeriodEnd);
                 const now = new Date();

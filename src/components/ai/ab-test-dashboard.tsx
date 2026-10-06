@@ -196,12 +196,9 @@ function CompletedTestCard({ test, onView }) {
 }
 
 function TestDetails({ test, winnerData }) {
-  const [metricsData, setMetricsData] = useState<any[]>([]);
-
-  // Transform metrics data for charts
-  React.useEffect(() => {
+  const metricsData = React.useMemo(() => {
     if (test.metrics) {
-      const data = test.variants.map(variant => {
+      return test.variants.map(variant => {
         const metrics = test.metrics.find(m => m.variantId === variant.id) || {};
         return {
           name: variant.name,
@@ -216,8 +213,8 @@ function TestDetails({ test, winnerData }) {
           totalRequests: metrics.totalRequests || 0
         };
       });
-      setMetricsData(data);
     }
+    return [];
   }, [test]);
 
   const radarData = metricsData.map(d => ({
@@ -391,7 +388,7 @@ function TestDetails({ test, winnerData }) {
               <Card>
                 <CardContent className="flex flex-col items-center justify-center py-8 text-muted-foreground">
                   <AlertCircle className="w-8 h-8 mb-2" />
-                  <p>Click "Get Winner" to analyze test results</p>
+                  <p>Click &quot;Get Winner&quot; to analyze test results</p>
                 </CardContent>
               </Card>
             )}

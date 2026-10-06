@@ -6,6 +6,7 @@ import {
   useEffect,
   useMemo,
   useState,
+  useRef,
 } from "react"
 
 type Suggestion = null | string
@@ -29,19 +30,19 @@ export function SharedAutocompleteContext({
 }: {
   children: ReactNode
 }) {
+  const suggestion = useRef<Suggestion>(null)
   const context: ContextShape = useMemo(() => {
-    let suggestion: Suggestion | null = null
     const listeners: Set<CallbackFn> = new Set()
     return [
       (cb: (newSuggestion: Suggestion) => void) => {
-        cb(suggestion)
+        cb(suggestion.current)
         listeners.add(cb)
         return () => {
           listeners.delete(cb)
         }
       },
       (newSuggestion: Suggestion) => {
-        suggestion = newSuggestion
+        suggestion.current = newSuggestion
         for (const listener of Array.from(listeners)) {
           listener(newSuggestion)
         }

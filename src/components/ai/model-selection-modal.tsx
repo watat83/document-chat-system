@@ -54,7 +54,6 @@ export function ModelSelectionModal({
   onModeChange
 }: ModelSelectionModalProps) {
   const [open, setOpen] = useState(false);
-  const [models, setModels] = useState<ModelInfo[]>([]);
   const [loading, setLoading] = useState(false);
   // Use optimized search from Zustand store
   const {
@@ -71,18 +70,8 @@ export function ModelSelectionModal({
   // Load models when modal opens or provider changes
   useEffect(() => {
     if (open && selectedProvider) {
-      if (providers) {
-        // Use provided data instead of API call
-        const provider = providers.find(p => p.id === selectedProvider);
-        if (provider) {
-          setModels(provider.models);
-        }
-      } else {
-        // Use store's refresh models if no models are loaded
-        const storeModels = useDocumentChatStore.getState().ai.models;
-        if (storeModels.length === 0) {
-          storeRefreshModels();
-        }
+      if (!providers && useDocumentChatStore.getState().ai.models.length === 0) {
+        void storeRefreshModels();
       }
     }
   }, [open, selectedProvider, providers, storeRefreshModels]);

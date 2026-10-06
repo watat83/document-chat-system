@@ -15,11 +15,7 @@ const mockDocument = {
   documentType: 'proposal'
 }
 
-interface DocumentDetailsProps {
-  // Add props as needed
-}
-
-export function DocumentDetails({ }: DocumentDetailsProps) {
+export function DocumentDetails() {
   return (
     <div className="h-full bg-background">
       <div className="text-center py-8">

@@ -1,5 +1,6 @@
 'use client'
 
+import { useClock } from '@/hooks/use-clock';
 import React, { useState, useEffect } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -45,8 +46,7 @@ interface ErrorDashboardProps {
 }
 
 export function ErrorDashboard({ isDemo = false }: ErrorDashboardProps) {
-  const [analytics, setAnalytics] = useState<ErrorAnalytics | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
+  const now = useClock();
   const [selectedTimeRange, setSelectedTimeRange] = useState<'1h' | '24h' | '7d' | '30d'>('24h')
   const systemHealth = useSystemHealth()
 
@@ -104,13 +104,13 @@ export function ErrorDashboard({ isDemo = false }: ErrorDashboardProps) {
       {
         fingerprint: 'ai_rate_limit_002',
         count: 8,
-        lastSeen: new Date(Date.now() - 2 * 60 * 60 * 1000),
+        lastSeen: new Date(now - 2 * 60 * 60 * 1000),
         message: 'AI service rate limit exceeded',
       },
       {
         fingerprint: 'auth_token_003',
         count: 6,
-        lastSeen: new Date(Date.now() - 4 * 60 * 60 * 1000),
+        lastSeen: new Date(now - 4 * 60 * 60 * 1000),
         message: 'Invalid authentication token',
       },
     ],
@@ -128,32 +128,7 @@ export function ErrorDashboard({ isDemo = false }: ErrorDashboardProps) {
     ],
   }
 
-  useEffect(() => {
-    if (isDemo) {
-      setAnalytics(demoAnalytics)
-      setIsLoading(false)
-      return
-    }
-
-    const loadAnalytics = async () => {
-      try {
-        const timeRange = getTimeRange(selectedTimeRange)
-        const data = getErrorAnalytics(timeRange)
-        setAnalytics(data)
-      } catch (error) {
-        console.error('Failed to load error analytics:', error)
-      } finally {
-        setIsLoading(false)
-      }
-    }
-
-    loadAnalytics()
-    const interval = setInterval(loadAnalytics, 30000) // Refresh every 30 seconds
-
-    return () => clearInterval(interval)
-  }, [selectedTimeRange, isDemo])
-
-  const getTimeRange = (range: string) => {
+  function getTimeRange(range: string) {
     const now = new Date()
     const start = new Date()
     
@@ -174,6 +149,10 @@ export function ErrorDashboard({ isDemo = false }: ErrorDashboardProps) {
     
     return { start, end: now }
   }
+
+
+  const analytics = isDemo ? demoAnalytics : getErrorAnalytics(getTimeRange(selectedTimeRange))
+  const isLoading = false
 
   const getSeverityColor = (severity: ErrorSeverity) => {
     switch (severity) {

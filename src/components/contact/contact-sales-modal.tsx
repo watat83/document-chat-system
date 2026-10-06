@@ -284,7 +284,7 @@ export function ContactSalesModal({ isOpen, onClose, context = 'general', planNa
                   </div>
                   <div>
                     <p className="font-medium text-gray-900 text-sm">Email Confirmation</p>
-                    <p className="text-gray-600 text-sm">You'll receive a confirmation email within the next few minutes</p>
+                    <p className="text-gray-600 text-sm">You&apos;ll receive a confirmation email within the next few minutes</p>
                   </div>
                 </div>
                 <div className="flex items-start bg-card rounded-lg p-3 border border-border">
@@ -302,7 +302,7 @@ export function ContactSalesModal({ isOpen, onClose, context = 'general', planNa
                   </div>
                   <div>
                     <p className="font-medium text-gray-900 text-sm">Schedule Demo</p>
-                    <p className="text-gray-600 text-sm">We'll reach out within 24 hours to schedule a demo at your convenience</p>
+                    <p className="text-gray-600 text-sm">We&apos;ll reach out within 24 hours to schedule a demo at your convenience</p>
                   </div>
                 </div>
               </div>

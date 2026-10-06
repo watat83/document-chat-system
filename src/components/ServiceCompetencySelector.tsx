@@ -14,11 +14,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import competenciesData from '@/data/government/competencies/competencies.json';
 import { searchCompetencies, getPopularCompetencies, getSearchSuggestions, type SearchResult } from '@/lib/competencies-search';
 import CompetencyCombobox from '@/components/competency/CompetencyCombobox';
-import type { 
-  CompetenciesData, 
-  CompetencyLevel, 
+import type {
+  CompetenciesData,
+  CompetencyLevel,
   CompetencyWithCategory,
-  SelectedCompetency 
+  SelectedCompetency
 } from '@/types/competencies';
 
 interface ServiceCompetencySelectorProps {
@@ -33,7 +33,7 @@ const ServiceCompetencySelector: React.FC<ServiceCompetencySelectorProps> = ({
   className = ''
 }) => {
   const data = competenciesData as CompetenciesData;
-  
+
   // Flatten all services for easy lookup
   const allServicesMap = useMemo(() => {
     const servicesMap = new Map<string, CompetencyWithCategory>();
@@ -54,7 +54,7 @@ const ServiceCompetencySelector: React.FC<ServiceCompetencySelectorProps> = ({
     });
     return servicesMap;
   }, [data]);
-  
+
   // Initialize state from props, handling both new format and legacy names
   const [selectedServices, setSelectedServices] = useState<Set<string>>(() => {
     const selected = new Set<string>();
@@ -62,7 +62,7 @@ const ServiceCompetencySelector: React.FC<ServiceCompetencySelectorProps> = ({
       // Try to find by PSC code first
       if (allServicesMap.has(c.pscCode)) {
         selected.add(c.pscCode);
-      } 
+      }
       // Then try by name (for legacy data)
       else if (allServicesMap.has(c.competencyName)) {
         const service = allServicesMap.get(c.competencyName);
@@ -73,14 +73,14 @@ const ServiceCompetencySelector: React.FC<ServiceCompetencySelectorProps> = ({
     });
     return selected;
   });
-  
+
   const [competencyLevels, setCompetencyLevels] = useState<Record<string, CompetencyLevel>>(() => {
     const levels: Record<string, CompetencyLevel> = {};
     selectedCompetencies.forEach(c => {
       // Try to find by PSC code first
       if (allServicesMap.has(c.pscCode)) {
         levels[c.pscCode] = c.level || 'intermediate';
-      } 
+      }
       // Then try by name (for legacy data)
       else if (allServicesMap.has(c.competencyName)) {
         const service = allServicesMap.get(c.competencyName);
@@ -102,27 +102,22 @@ const ServiceCompetencySelector: React.FC<ServiceCompetencySelectorProps> = ({
   const [complexityFilter, setComplexityFilter] = useState<string>('');
 
   // Create a stable reference to avoid infinite re-renders
-  const competenciesRef = useRef<string>('');
+  const [previousCompetenciesKey, setPreviousCompetenciesKey] = useState('');
   const competenciesKey = selectedCompetencies.map(c => `${c.pscCode}:${c.level}`).sort().join('|');
-  
+
   // Update state when selectedCompetencies prop changes (for data persistence after save/reload)
-  useEffect(() => {
-    // Only update if the prop data has actually changed
-    if (competenciesRef.current === competenciesKey) {
-      return;
-    }
-    
-    competenciesRef.current = competenciesKey;
-    
+  if (previousCompetenciesKey !== competenciesKey) {
+    setPreviousCompetenciesKey(competenciesKey);
+
     const expectedSelected = new Set<string>();
     const expectedLevels: Record<string, CompetencyLevel> = {};
-    
+
     selectedCompetencies.forEach(c => {
       // Try to find by PSC code first
       if (allServicesMap.has(c.pscCode)) {
         expectedSelected.add(c.pscCode);
         expectedLevels[c.pscCode] = c.level || 'intermediate';
-      } 
+      }
       // Then try by name (for legacy data)
       else if (allServicesMap.has(c.competencyName)) {
         const service = allServicesMap.get(c.competencyName);
@@ -132,14 +127,14 @@ const ServiceCompetencySelector: React.FC<ServiceCompetencySelectorProps> = ({
         }
       }
     });
-    
+
     setSelectedServices(expectedSelected);
     setCompetencyLevels(expectedLevels);
-  }, [competenciesKey, allServicesMap]);
+  }
 
   // Flatten services for search
   const allServices = useMemo(() => {
-    return Array.from(allServicesMap.values()).filter((service, index, self) => 
+    return Array.from(allServicesMap.values()).filter((service, index, self) =>
       // Remove duplicates (since we map both by PSC code and name)
       self.findIndex(s => s.pscCode === service.pscCode) === index
     );
@@ -170,16 +165,7 @@ const ServiceCompetencySelector: React.FC<ServiceCompetencySelectorProps> = ({
     return getPopularCompetencies(allServices);
   }, [allServices]);
 
-  // Get search suggestions
-  const [searchSuggestions, setSearchSuggestions] = useState<string[]>([]);
-  useEffect(() => {
-    if (searchTerm.length >= 2) {
-      const suggestions = getSearchSuggestions(allServices, searchTerm, 5);
-      setSearchSuggestions(suggestions);
-    } else {
-      setSearchSuggestions([]);
-    }
-  }, [searchTerm, allServices]);
+  const searchSuggestions = useMemo(() => searchTerm.length >= 2 ? getSearchSuggestions(allServices, searchTerm, 5) : [], [searchTerm, allServices]);
 
   // Legacy filtered services for backward compatibility
   const filteredServices = useMemo(() => {
@@ -199,9 +185,9 @@ const ServiceCompetencySelector: React.FC<ServiceCompetencySelectorProps> = ({
     if (parentUpdateRef.current === updateKey || !onCompetenciesChange) {
       return;
     }
-    
+
     parentUpdateRef.current = updateKey;
-    
+
     const competencies: SelectedCompetency[] = Array.from(selectedServices).map(serviceId => {
       const service = allServices.find(s => s.pscCode === serviceId);
       return {
@@ -212,14 +198,14 @@ const ServiceCompetencySelector: React.FC<ServiceCompetencySelectorProps> = ({
         competencyName: service?.name || ''
       };
     });
-    
+
     // Debug logging to help track skill level changes
     console.log('ServiceCompetencySelector: Updating parent with competencies:', {
       count: competencies.length,
       withLevels: competencies.filter(c => c.level !== 'intermediate').length,
       competencies: competencies.map(c => ({ name: c.competencyName, level: c.level }))
     });
-    
+
     onCompetenciesChange(competencies);
   }, [updateKey, allServices, onCompetenciesChange]);
 
@@ -262,10 +248,10 @@ const ServiceCompetencySelector: React.FC<ServiceCompetencySelectorProps> = ({
     setExpandedCategories(newExpanded);
   };
 
-  const CompetencyBadge: React.FC<{ 
-    level: CompetencyLevel; 
-    serviceId: string; 
-    compact?: boolean 
+  const renderCompetencyBadge: React.FC<{
+    level: CompetencyLevel;
+    serviceId: string;
+    compact?: boolean
   }> = ({ level, serviceId, compact = false }) => {
     const levels = {
       beginner: { color: 'bg-blue-100 text-blue-800 dark:bg-blue-500/20 dark:text-blue-300', label: 'Beginner' },
@@ -289,7 +275,7 @@ const ServiceCompetencySelector: React.FC<ServiceCompetencySelectorProps> = ({
                       setCompetencyLevel(serviceId, levelKey as CompetencyLevel)
                     }}
                     className={`w-3 h-3 rounded-full transition-all border border-gray-300 dark:border-gray-600 ${
-                      level === levelKey 
+                      level === levelKey
                         ? levelData.color.replace('100', '500').replace('800', 'white')
                         : 'bg-muted hover:bg-muted/80'
                     }`}
@@ -322,15 +308,15 @@ const ServiceCompetencySelector: React.FC<ServiceCompetencySelectorProps> = ({
     );
   };
 
-  const ServiceCard: React.FC<{ 
-    service: CompetencyWithCategory; 
-    compact?: boolean 
-  }> = ({ service, compact = false }) => {
+  const renderServiceCard: React.FC<{
+    service: CompetencyWithCategory;
+    compact?: boolean; key?: React.Key
+  }> = ({ service, compact = false, key }) => {
     const isSelected = selectedServices.has(service.pscCode);
-    
+
     if (compact) {
       return (
-        <div className={`flex items-center justify-between p-2 rounded-lg border transition-all ${
+        <div key={key} className={`flex items-center justify-between p-2 rounded-lg border transition-all ${
           isSelected ? 'border-blue-500 bg-blue-50 dark:bg-slate-800 dark:border-blue-400 dark:text-white' : 'border-border hover:border-muted-foreground/50'
         }`}>
           <div className="flex items-center gap-2 flex-1 min-w-0">
@@ -360,11 +346,7 @@ const ServiceCompetencySelector: React.FC<ServiceCompetencySelectorProps> = ({
             </div>
           </div>
           {isSelected && (
-            <CompetencyBadge 
-              level={competencyLevels[service.pscCode] || 'intermediate'} 
-              serviceId={service.pscCode}
-              compact={true}
-            />
+            renderCompetencyBadge({level: competencyLevels[service.pscCode] || 'intermediate', serviceId: service.pscCode, compact: true})
           )}
         </div>
       );
@@ -388,7 +370,7 @@ const ServiceCompetencySelector: React.FC<ServiceCompetencySelectorProps> = ({
           >
             {isSelected && <Check className="w-4 h-4" />}
           </button>
-          
+
           <div className="flex-1">
             <div className="flex items-start justify-between">
               <div>
@@ -405,15 +387,12 @@ const ServiceCompetencySelector: React.FC<ServiceCompetencySelectorProps> = ({
                 </div>
               </div>
             </div>
-            
+
             {isSelected && (
               <div className="mt-3 pt-3 border-t border-border">
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-medium text-foreground/90">Competency Level:</span>
-                  <CompetencyBadge 
-                    level={competencyLevels[service.pscCode] || 'intermediate'} 
-                    serviceId={service.pscCode}
-                  />
+                  {renderCompetencyBadge({level: competencyLevels[service.pscCode] || 'intermediate', serviceId: service.pscCode})}
                 </div>
               </div>
             )}
@@ -446,7 +425,7 @@ const ServiceCompetencySelector: React.FC<ServiceCompetencySelectorProps> = ({
   const selectedCount = selectedServices.size;
 
   // Enhanced view component
-  const EnhancedSearchView = () => {
+  const renderEnhancedSearchView = () => {
     return (
       <div className="space-y-4">
         <CompetencyCombobox
@@ -455,7 +434,7 @@ const ServiceCompetencySelector: React.FC<ServiceCompetencySelectorProps> = ({
           onCompetenciesChange={(competencies) => {
             const newSelected = new Set(competencies);
             setSelectedServices(newSelected);
-            
+
             // Update levels for new selections
             const newLevels: Record<string, CompetencyLevel> = { ...competencyLevels };
             competencies.forEach(pscCode => {
@@ -463,19 +442,19 @@ const ServiceCompetencySelector: React.FC<ServiceCompetencySelectorProps> = ({
                 newLevels[pscCode] = 'intermediate';
               }
             });
-            
+
             // Remove levels for deselected competencies
             Object.keys(newLevels).forEach(pscCode => {
               if (!competencies.includes(pscCode)) {
                 delete newLevels[pscCode];
               }
             });
-            
+
             setCompetencyLevels(newLevels);
           }}
           maxSelections={20} // Reasonable limit for UI performance
         />
-        
+
         {/* Competency level adjustment for selected items */}
         {selectedCount > 0 && (
           <div className="mt-4 p-4 bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 rounded-lg">
@@ -486,7 +465,7 @@ const ServiceCompetencySelector: React.FC<ServiceCompetencySelectorProps> = ({
               {Array.from(selectedServices).slice(0, 10).map(serviceId => {
                 const service = allServices.find(s => s.pscCode === serviceId);
                 if (!service) return null;
-                
+
                 return (
                   <div key={serviceId} className="flex items-center justify-between">
                     <div className="flex items-center gap-2 flex-1">
@@ -497,10 +476,7 @@ const ServiceCompetencySelector: React.FC<ServiceCompetencySelectorProps> = ({
                         {service.pscCode}
                       </Badge>
                     </div>
-                    <CompetencyBadge 
-                      level={competencyLevels[serviceId] || 'intermediate'} 
-                      serviceId={serviceId}
-                    />
+                    {renderCompetencyBadge({level: competencyLevels[serviceId] || 'intermediate', serviceId: serviceId})}
                   </div>
                 );
               })}
@@ -532,7 +508,7 @@ const ServiceCompetencySelector: React.FC<ServiceCompetencySelectorProps> = ({
               className="w-full pl-10 pr-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-background text-foreground"
             />
           </div>
-          
+
           {/* Search suggestions */}
           {searchSuggestions.length > 0 && (
             <div className="flex flex-wrap gap-1">
@@ -550,7 +526,7 @@ const ServiceCompetencySelector: React.FC<ServiceCompetencySelectorProps> = ({
               ))}
             </div>
           )}
-          
+
           {/* Search stats */}
           {searchTerm.trim() && searchResults.stats.totalResults > 0 && (
             <div className="text-xs text-muted-foreground flex items-center gap-4">
@@ -570,7 +546,7 @@ const ServiceCompetencySelector: React.FC<ServiceCompetencySelectorProps> = ({
             </div>
           )}
         </div>
-        
+
         {/* Selected Services Summary */}
         {selectedCount > 0 && (
           <div className="bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 rounded-lg p-4">
@@ -587,7 +563,7 @@ const ServiceCompetencySelector: React.FC<ServiceCompetencySelectorProps> = ({
                   advanced: 'bg-purple-100 text-purple-800 dark:bg-purple-500/20 dark:text-purple-300',
                   expert: 'bg-orange-100 text-orange-800 dark:bg-orange-500/20 dark:text-orange-300'
                 };
-                
+
                 return (
                   <div key={serviceId} className={`px-2 py-1 rounded-full text-xs font-medium ${levels[level]} flex items-center gap-1`}>
                     <span>{service?.name}</span>
@@ -611,18 +587,18 @@ const ServiceCompetencySelector: React.FC<ServiceCompetencySelectorProps> = ({
   }
 
   // Categorized View Component
-  function CategorizedView() {
+  function renderCategorizedView() {
     return (
       <div className="space-y-4">
         {Object.entries(data.services_catalog).map(([categoryId, category]) => {
           const categoryServices = (category.competencies || category.services || []).filter(service =>
             !searchTerm || filteredServices.some(fs => fs.pscCode === service.pscCode)
           );
-          
+
           if (categoryServices.length === 0) return null;
-          
+
           const isExpanded = expandedCategories.has(categoryId);
-          
+
           return (
             <div key={categoryId} className="border border-border rounded-lg">
               <button
@@ -641,20 +617,17 @@ const ServiceCompetencySelector: React.FC<ServiceCompetencySelectorProps> = ({
                 </div>
                 {isExpanded ? <ChevronDown className="w-5 h-5" /> : <ChevronRight className="w-5 h-5" />}
               </button>
-              
+
               {isExpanded && (
                 <div className="border-t border-border p-4 space-y-3">
                   {categoryServices.map(service => (
-                    <ServiceCard 
-                      key={service.pscCode} 
-                      service={{
-                        ...service, 
+                    renderServiceCard({key: service.pscCode, service: {
+                        ...service,
                         categoryId,
-                        categoryName: category.category, 
+                        categoryName: category.category,
                         categoryIcon: category.icon,
                         categoryTags: category.search_tags
-                      }} 
-                    />
+                      }})
                   ))}
                 </div>
               )}
@@ -665,29 +638,29 @@ const ServiceCompetencySelector: React.FC<ServiceCompetencySelectorProps> = ({
     );
   }
 
-  // List View Component  
-  function ListView() {
+  // List View Component
+  function renderListView() {
     return (
       <div className="space-y-2">
-        {(showSelected ? 
-          allServices.filter(s => selectedServices.has(s.pscCode)) : 
+        {(showSelected ?
+          allServices.filter(s => selectedServices.has(s.pscCode)) :
           filteredServices
         ).map(service => (
-          <ServiceCard key={service.pscCode} service={service} compact={true} />
+          renderServiceCard({key: service.pscCode, service: service, compact: true})
         ))}
       </div>
     );
   }
 
   // Grid View Component
-  function GridView() {
+  function renderGridView() {
     return (
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {(showSelected ? 
-          allServices.filter(s => selectedServices.has(s.pscCode)) : 
+        {(showSelected ?
+          allServices.filter(s => selectedServices.has(s.pscCode)) :
           filteredServices
         ).map(service => (
-          <ServiceCard key={service.pscCode} service={service} />
+          renderServiceCard({key: service.pscCode, service: service})
         ))}
       </div>
     );
@@ -714,7 +687,7 @@ const ServiceCompetencySelector: React.FC<ServiceCompetencySelectorProps> = ({
               Grid
             </TabsTrigger>
           </TabsList>
-          
+
           <div className="flex items-center gap-2">
             <Button
               type="button"
@@ -728,7 +701,7 @@ const ServiceCompetencySelector: React.FC<ServiceCompetencySelectorProps> = ({
             >
               Selected ({selectedCount})
             </Button>
-            
+
             {selectedCount > 0 && (
               <Button
                 type="button"
@@ -750,23 +723,23 @@ const ServiceCompetencySelector: React.FC<ServiceCompetencySelectorProps> = ({
 
         {/* Enhanced Search View */}
         <TabsContent value="enhanced" className="mt-6">
-          <EnhancedSearchView />
+          {renderEnhancedSearchView()}
         </TabsContent>
 
         {/* Legacy Views with Enhanced Search */}
         <TabsContent value="categorized" className="mt-6">
-          <LegacySearchControls />
-          <CategorizedView />
+          {renderLegacySearchControls()}
+          {renderCategorizedView()}
         </TabsContent>
 
         <TabsContent value="list" className="mt-6">
-          <LegacySearchControls />
-          <ListView />
+          {renderLegacySearchControls()}
+          {renderListView()}
         </TabsContent>
 
         <TabsContent value="grid" className="mt-6">
-          <LegacySearchControls />
-          <GridView />
+          {renderLegacySearchControls()}
+          {renderGridView()}
         </TabsContent>
       </Tabs>
     </div>

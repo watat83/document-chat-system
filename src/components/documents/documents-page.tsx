@@ -1,4 +1,5 @@
 'use client'
+import { useMounted } from '@/hooks/use-mounted';
 import { normalizeError } from '@/lib/errors/normalize-error';
 
 import React, { useState, useRef, useCallback, useMemo, useEffect } from 'react'
@@ -154,7 +155,7 @@ const DocumentsPage = () => {
 
 const DocumentsPageContent = () => {
   // Prevent hydration mismatches
-  const [mounted, setMounted] = useState(false)
+  const mounted = useMounted();
 
   // ALL HOOKS MUST BE CALLED FIRST - before any conditional returns
   const { userId, isSignedIn, isLoaded: authLoaded } = useAuth()
@@ -270,9 +271,7 @@ const DocumentsPageContent = () => {
   }, [storeNavigateToFolder, currentFolderId])
 
   // Set mounted state to prevent hydration mismatches
-  useEffect(() => {
-    setMounted(true)
-  }, [])
+
 
   // Initialize folder navigation from URL parameters
   useEffect(() => {
@@ -489,7 +488,7 @@ const DocumentsPageContent = () => {
   }, [getFolderChildren, currentFolderId, state.folders]);
 
   // Get all documents recursively if showRecursive is true
-  const getAllDocumentsRecursively = useCallback((folderId: string | null): Document[] => {
+  const getAllDocumentsRecursively = useCallback(function getAllDocumentsRecursively(folderId: string | null): Document[] {
     let allDocs: Document[] = [];
 
     // Get documents in current folder - use state directly
@@ -2057,7 +2056,7 @@ const DocumentsPageContent = () => {
   }, [draggedDocument, draggedFolder, moveDocument, moveFolder, state, currentFolderId, findFolder, playSound, handleFileDropUpload]);
 
   // Utility functions
-  const buildFolderHierarchy = useCallback((folders: FolderData[], parentId: string | null = null, level = 0): Array<FolderData & { level: number }> => {
+  const buildFolderHierarchy = useCallback(function buildFolderHierarchy(folders: FolderData[], parentId: string | null = null, level = 0): Array<FolderData & { level: number }> {
     const result: Array<FolderData & { level: number }> = [];
     const children = folders.filter(f => f.parentId === parentId);
 
@@ -2589,7 +2588,7 @@ const DocumentsPageContent = () => {
                 <Upload className="h-6 w-6 text-primary" />
               </div>
               <p className="text-lg font-medium text-foreground mb-2">
-                Drop in "{findFolder(dragTargetFolder)?.name || 'Unknown Folder'}"
+                Drop in &quot;{findFolder(dragTargetFolder)?.name || 'Unknown Folder'}&quot;
               </p>
               <p className="text-sm text-muted-foreground">
                 Files will be uploaded to this folder
@@ -3073,13 +3072,13 @@ const DocumentsPageContent = () => {
           {isSearching && searchQuery && (
             <div className="mb-8">
               <h2 className="text-lg font-medium mb-4">
-                Search Results for "{searchQuery}" ({searchResults.length} found)
+                Search Results for &quot;{searchQuery}&quot; ({searchResults.length} found)
               </h2>
 
               {searchResults.length === 0 ? (
                 <div className="text-center py-12 animate-in fade-in duration-300">
                   <Search size={48} className="mx-auto text-muted-foreground mb-4" />
-                  <p className="text-muted-foreground">No documents found matching "{searchQuery}"</p>
+                  <p className="text-muted-foreground">No documents found matching &quot;{searchQuery}&quot;</p>
                   <p className="text-sm text-muted-foreground mt-2">Try a different search term</p>
                   <div className="flex gap-2 justify-center mt-4">
                     <Button onClick={() => handleSearchChange('')} variant="outline" size="sm">
@@ -3408,7 +3407,7 @@ const DocumentsPageContent = () => {
                       {currentFolderId ? 'No documents in this folder yet' : 'No documents uploaded yet'}
                     </p>
                     <p className="text-sm text-muted-foreground mt-2">
-                      Click "Create Document" to add documents or drag & drop files here
+                      Click &quot;Create Document&quot; to add documents or drag & drop files here
                     </p>
                     <div className="flex gap-3 justify-center mt-6">
                       <Button onClick={() => setShowCreateDocumentModal(true)} className="hover:scale-105 transition-transform">

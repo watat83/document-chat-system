@@ -1,3 +1,4 @@
+import { AuthenticationError, RateLimitError, ValidationError, ProviderError } from './types';
 import {
   UnifiedCompletionRequest,
   UnifiedCompletionResponse,
@@ -71,12 +72,10 @@ export abstract class AIProviderAdapter {
     const message = `[${this.name}] ${context}: ${error.message || error}`;
 
     if (error.status === 401 || error.code === 'AUTHENTICATION_ERROR') {
-      const { AuthenticationError } = require('./types');
       return new AuthenticationError(message, this.name);
     }
 
     if (error.status === 429 || error.code === 'RATE_LIMIT_ERROR') {
-      const { RateLimitError } = require('./types');
       return new RateLimitError(message, {
         provider: this.name,
         retryAfter: error.retryAfter
@@ -84,7 +83,6 @@ export abstract class AIProviderAdapter {
     }
 
     if (error.status >= 400 && error.status < 500) {
-      const { ValidationError } = require('./types');
       return new ValidationError(message, {
         provider: this.name,
         details: error
@@ -92,7 +90,6 @@ export abstract class AIProviderAdapter {
     }
 
     // Generic provider error
-    const { ProviderError } = require('./types');
     const providerError = new Error(message) as any;
     providerError.provider = this.name;
     providerError.retryable = error.status >= 500;

@@ -341,7 +341,7 @@ export function LandingPageClient() {
                 </div>
                 <CardTitle>Knowledge Management</CardTitle>
                 <CardDescription>
-                  Build searchable knowledge bases, research libraries, and personal "second brains" with AI-powered recall
+                  Build searchable knowledge bases, research libraries, and personal &quot;second brains&quot; with AI-powered recall
                 </CardDescription>
               </CardHeader>
             </Card>
@@ -1323,7 +1323,7 @@ export function LandingPageClient() {
               <CardContent>
                 <p className="text-gray-600 dark:text-gray-400">
                   Yes! The optional Stripe integration lets you create subscription plans, set usage limits,
-                  and charge users for your deployment. It's completely optional - you can also run it for free without any billing features.
+                  and charge users for your deployment. It&apos;s completely optional - you can also run it for free without any billing features.
                 </p>
               </CardContent>
             </Card>

@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import { parseImageRouterCatalog } from './imagerouter-catalog';
 import { normalizeError } from '@/lib/errors/normalize-error';
 /**
@@ -488,9 +489,8 @@ export class ImageRouterAdapter extends AIProviderAdapter {
         }
       } else if (image.path) {
         // Handle file path
-        const fs = require('fs');
         const imageBuffer = await fs.promises.readFile(image.path);
-        imageBlob = new Blob([imageBuffer], { type: image.mimeType || 'image/jpeg' });
+        imageBlob = new Blob([new Uint8Array(imageBuffer)], { type: image.mimeType || 'image/jpeg' });
       } else {
         throw new ValidationError('Image must have either data or path');
       }
@@ -513,9 +513,8 @@ export class ImageRouterAdapter extends AIProviderAdapter {
             throw new ValidationError('Invalid mask data format');
           }
         } else if (mask.path) {
-          const fs = require('fs');
           const maskBuffer = await fs.promises.readFile(mask.path);
-          maskBlob = new Blob([maskBuffer], { type: mask.mimeType || 'image/jpeg' });
+          maskBlob = new Blob([new Uint8Array(maskBuffer)], { type: mask.mimeType || 'image/jpeg' });
         } else {
           throw new ValidationError('Mask must have either data or path');
         }

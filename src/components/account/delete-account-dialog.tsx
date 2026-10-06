@@ -281,7 +281,7 @@ export function DeleteAccountDialog({ open, onOpenChange }: DeleteAccountDialogP
         {/* Confirmation text */}
         <div>
           <Label htmlFor="confirmText" className="text-red-600 font-semibold">
-            Type "{REQUIRED_CONFIRM_TEXT}" to confirm *
+            Type &quot;{REQUIRED_CONFIRM_TEXT}&quot; to confirm *
           </Label>
           <Input
             id="confirmText"
@@ -293,7 +293,7 @@ export function DeleteAccountDialog({ open, onOpenChange }: DeleteAccountDialogP
           />
           {confirmText && confirmText !== REQUIRED_CONFIRM_TEXT && (
             <p className="text-sm text-red-600 mt-1">
-              Text must match exactly: "{REQUIRED_CONFIRM_TEXT}"
+              Text must match exactly: &quot;{REQUIRED_CONFIRM_TEXT}&quot;
             </p>
           )}
         </div>

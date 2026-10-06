@@ -1,21 +1,12 @@
 import { loadStripe } from '@stripe/stripe-js';
 
-// Check if we're in browser or server environment
-const isBrowser = typeof window !== 'undefined';
-
-// In browser, use environment variables directly
-// In server, use the centralized config
-const stripePublishableKey = isBrowser
-  ? process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
-  : require('@/lib/config/env').stripe?.publishableKey;
-
-const stripePriceIds = isBrowser
-  ? {
-      priceStarter: process.env.NEXT_PUBLIC_STRIPE_STARTER_PLAN_PRICE_ID,
-      priceProfessional: process.env.NEXT_PUBLIC_STRIPE_PROFESSIONAL_PLAN_PRICE_ID,
-      priceAgency: process.env.NEXT_PUBLIC_STRIPE_AGENCY_PLAN_PRICE_ID,
-    }
-  : require('@/lib/config/env').stripe;
+import { DEFAULT_PLANS } from '@/lib/config/default-plans';
+const stripePublishableKey = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY;
+const stripePriceIds = {
+  priceStarter: process.env.NEXT_PUBLIC_STRIPE_STARTER_PLAN_PRICE_ID,
+  priceProfessional: process.env.NEXT_PUBLIC_STRIPE_PROFESSIONAL_PLAN_PRICE_ID,
+  priceAgency: process.env.NEXT_PUBLIC_STRIPE_AGENCY_PLAN_PRICE_ID,
+};
 
 // Client-side Stripe instance
 export const getStripe = () => {
@@ -99,7 +90,6 @@ export const SUBSCRIPTION_PLANS = new Proxy({}, {
 
     // For development, we can provide fallback data to prevent immediate breaks
     if (process.env.NODE_ENV === 'development') {
-      const { DEFAULT_PLANS } = require('@/lib/config/default-plans');
       const planKey = String(prop).toUpperCase();
 
       if (DEFAULT_PLANS[planKey as keyof typeof DEFAULT_PLANS]) {

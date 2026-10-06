@@ -29,19 +29,6 @@ export class SimpleAIClient {
   private isOpenAI: boolean
 
   constructor(apiKey?: string) {
-    // Ensure environment variables are loaded in all contexts
-    if (
-      typeof process !== 'undefined' &&
-      process.env.NODE_ENV !== 'production'
-    ) {
-      try {
-        require('dotenv').config({ path: '.env.local' })
-      } catch (error) {
-        // Dotenv might not be available in all contexts
-        console.warn('⚠️ [AI CLIENT] Could not load .env.local file')
-      }
-    }
-
     // Explicit API key loading with debug info
     const envOpenAI = process.env.OPENAI_API_KEY
     const envOpenRouter = process.env.OPENROUTER_API_KEY

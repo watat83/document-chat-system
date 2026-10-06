@@ -66,7 +66,7 @@ export const BlockDiscussion: RenderNodeWrapper<AnyPluginConfig> = (props) => {
     return;
   }
 
-  return (props) => (
+  return function DiscussionWrapper(props) { return (
     <BlockCommentContent
       blockPath={blockPath}
       commentNodes={commentNodes}
@@ -74,7 +74,7 @@ export const BlockDiscussion: RenderNodeWrapper<AnyPluginConfig> = (props) => {
       suggestionNodes={suggestionNodes}
       {...props}
     />
-  );
+  ); };
 };
 
 const BlockCommentContent = ({

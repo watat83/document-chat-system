@@ -39,11 +39,13 @@ export const DocumentModal: React.FC<DocumentModalProps> = ({
   const [isEditingMetadata, setIsEditingMetadata] = useState(false)
   const [newTagInput, setNewTagInput] = useState('')
 
-  React.useEffect(() => {
+  const [previousDocument, setPreviousDocument] = useState(document)
+  if (previousDocument !== document) {
+    setPreviousDocument(document)
     setEditedDoc(document)
     setIsEditingMetadata(false)
     setNewTagInput('')
-  }, [document])
+  }
 
   if (!document || !editedDoc) return null
 

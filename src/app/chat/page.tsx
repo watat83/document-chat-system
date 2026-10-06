@@ -1,5 +1,6 @@
 'use client';
 
+import { useMounted } from '@/hooks/use-mounted';
 import { Header } from '@/components/layout/header';
 import { Sidebar } from '@/components/layout/sidebar';
 import { CleanAIChat } from '@/components/ai/clean-ai-chat';
@@ -24,13 +25,11 @@ export default function ChatPage() {
   const [availableDocuments, setAvailableDocuments] = useState<Array<{id: string, name: string, folderId?: string, createdAt: string}>>([]);
   const [availableFolders, setAvailableFolders] = useState<Array<{id: string, name: string}>>([]);
   const [documentsLoading, setDocumentsLoading] = useState(false);
-  const [isHydrated, setIsHydrated] = useState(false);
+  const isHydrated = useMounted();
   const [donationBannerVisible, setDonationBannerVisible] = useState(true);
 
   // Set hydration state
-  useEffect(() => {
-    setIsHydrated(true);
-  }, []);
+
 
   // Get organization ID via user sync
   useEffect(() => {

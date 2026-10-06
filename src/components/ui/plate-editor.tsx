@@ -1,4 +1,5 @@
 'use client'
+import { ErrorBoundary } from 'react-error-boundary'
 
 import React, { useState, useCallback } from 'react'
 import {
@@ -822,38 +823,14 @@ const htmlToNodes = (html: string): any[] => {
   }
 }
 
-// Word count hook
+function calculateWordCount(editor: any): WordCountState {
+  const text = editor?.api?.getText?.() || ''
+  return { words: text.trim() ? text.trim().split(/\s+/).length : 0, characters: text.length, charactersNoSpaces: text.replace(/\s/g, '').length }
+}
 const useWordCount = (editor: any, onWordCountChange?: (count: number) => void) => {
-  const [wordCount, setWordCount] = useState<WordCountState>({
-    words: 0,
-    characters: 0,
-    charactersNoSpaces: 0
-  })
-
-  const updateWordCount = useCallback(() => {
-    if (!editor) return
-
-    try {
-      // Get text content from editor
-      const text = editor.api?.getText?.() || ''
-      const words = text.trim() ? text.trim().split(/\s+/).length : 0
-      const characters = text.length
-      const charactersNoSpaces = text.replace(/\s/g, '').length
-
-      const newCount = { words, characters, charactersNoSpaces }
-      setWordCount(newCount)
-      onWordCountChange?.(words)
-    } catch (error) {
-      console.warn('Failed to calculate word count:', error)
-    }
-  }, [editor, onWordCountChange])
-
-  React.useEffect(() => {
-    if (editor) {
-      updateWordCount()
-    }
-  }, [editor, updateWordCount])
-
+  const [wordCount, setWordCount] = useState<WordCountState>(() => calculateWordCount(editor))
+  const updateWordCount = useCallback(() => { setWordCount(calculateWordCount(editor)) }, [editor])
+  React.useEffect(() => { onWordCountChange?.(wordCount.words) }, [wordCount.words, onWordCountChange])
   return { wordCount, updateWordCount }
 }
 
@@ -895,7 +872,8 @@ export const PlateEditor: React.FC<PlateEditorProps> = ({
     }
   }, [])
   // Generate unique ID if not provided to ensure editor isolation
-  const editorId = React.useMemo(() => id || `plate-editor-${Math.random().toString(36).substr(2, 9)}`, [id])
+  const generatedEditorId = React.useId()
+  const editorId = id || generatedEditorId
   const initialValue = React.useMemo(() => {
     return htmlToNodes(content || '')
   }, [content, editorId])
@@ -1150,13 +1128,13 @@ export const PlateEditor: React.FC<PlateEditorProps> = ({
               editor.tf.setValue(newNodes)
             } else {
               // Fallback: directly set editor children
-              editor.children = newNodes
+              throw new Error('Editor content transforms unavailable')
               editor.onChange()
             }
           } catch (setValueError) {
             console.warn(`PlateEditor ${editorId} setValue error:`, setValueError)
             // Try alternative approach
-            editor.children = newNodes
+            throw new Error('Editor content transforms unavailable')
             if (editor.onChange) {
               editor.onChange()
             }
@@ -1194,8 +1172,9 @@ export const PlateEditor: React.FC<PlateEditorProps> = ({
   )
 
   // PlateEditor render
-  try {
-    return (
+  return (
+    <ErrorBoundary fallback={<div className="border rounded-lg p-4 text-destructive">Editor error: Please refresh the page</div>}>
+
     <div className={containerClasses}>
       {showToolbar && (
         editor ? (
@@ -1301,17 +1280,8 @@ export const PlateEditor: React.FC<PlateEditorProps> = ({
         </div>
       )}
     </div>
+      </ErrorBoundary>
   )
-  } catch (renderError) {
-    console.error('PlateEditor render error:', renderError)
-    return (
-      <div className="border border-red-200 rounded-lg p-4 bg-red-50">
-        <div className="text-red-800 text-sm">
-          Editor error: Please refresh the page
-        </div>
-      </div>
-    )
-  }
 }
 
 export default PlateEditor

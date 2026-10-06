@@ -1,5 +1,6 @@
 'use client';
 
+import { useMounted } from '@/hooks/use-mounted';
 import { useState, useEffect } from 'react';
 import { Clock, Calendar, Zap } from 'lucide-react';
 
@@ -18,18 +19,16 @@ interface TimeRemaining {
   totalMs: number;
 }
 
-export function TrialCountdown({ 
-  trialEnd, 
-  size = 'medium', 
+export function TrialCountdown({
+  trialEnd,
+  size = 'medium',
   showIcon = true,
-  className = '' 
+  className = ''
 }: TrialCountdownProps) {
   const [timeRemaining, setTimeRemaining] = useState<TimeRemaining | null>(null);
-  const [mounted, setMounted] = useState(false);
+  const mounted = useMounted();
 
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+
 
   useEffect(() => {
     const calculateTimeRemaining = () => {
@@ -105,7 +104,7 @@ export function TrialCountdown({
   // Color based on time remaining
   const getUrgencyColor = () => {
     const daysRemaining = totalMs / (1000 * 60 * 60 * 24);
-    
+
     if (daysRemaining <= 1) {
       return 'text-red-600 bg-red-50 border-red-200';
     } else if (daysRemaining <= 3) {
@@ -201,11 +200,9 @@ export function TrialCountdown({
 // Simple text version for inline use
 export function TrialCountdownText({ trialEnd }: { trialEnd: string }) {
   const [timeText, setTimeText] = useState<string>('');
-  const [mounted, setMounted] = useState(false);
+  const mounted = useMounted();
 
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+
 
   useEffect(() => {
     const updateTimeText = () => {
@@ -220,7 +217,7 @@ export function TrialCountdownText({ trialEnd }: { trialEnd: string }) {
 
       const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
       const hours = Math.floor((diffMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-      
+
       if (days > 0) {
         if (days === 1) {
           setTimeText(`${days} day, ${hours}h left`);

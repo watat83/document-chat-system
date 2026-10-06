@@ -3,6 +3,7 @@
  * This module loads and processes the NAICS JSON data
  */
 
+import rawData from '@/data/government/codes/codes.json'
 import type { NAICSData, NAICSCode } from '@/types/naics'
 
 // Load NAICS data efficiently
@@ -10,7 +11,6 @@ let naicsData: NAICSData
 
 // Simple direct import - let Next.js handle the optimization
 try {
-  const rawData = require('@/data/government/codes/codes.json')
   naicsData = rawData as NAICSData
   
   // Validate the data loaded correctly

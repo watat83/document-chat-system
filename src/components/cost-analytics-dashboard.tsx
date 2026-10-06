@@ -65,7 +65,7 @@ export function CostAnalyticsDashboard() {
     fetchCostAnalytics()
   }, [period])
 
-  const fetchCostAnalytics = async () => {
+  async function fetchCostAnalytics() {
     setLoading(true)
     setError(null)
     

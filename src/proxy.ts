@@ -9,6 +9,7 @@ const isPublicRoute = createRouteMatcher([
   '/api/v1/webhooks/stripe',
   '/api/v1/webhooks/clerk',
   '/api/v1/pricing/plans',
+  '/api/v1/health(.*)',
   '/shared/(.*)',
   '/api/v1/shared/(.*)',
   '/api/inngest(.*)', // Inngest background job endpoint
