@@ -1700,3 +1700,12 @@ model SavedSearch {
   @@index([organizationId, isShared, deletedAt])
   @@map("saved_searches")
 }
+
+model RateLimitCounter {
+  key     String   @id
+  count   Int
+  resetAt DateTime @db.Timestamptz(6)
+
+  @@index([resetAt], map: "rate_limit_counters_reset_at_idx")
+  @@map("rate_limit_counters")
+}

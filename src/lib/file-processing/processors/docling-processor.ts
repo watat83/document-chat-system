@@ -29,7 +29,9 @@ export class DoclingProcessor implements IFileProcessor {
     // For development: Use localhost
     this.serviceUrl = process.env.DOCLING_SERVICE_URL || 'http://localhost:8001'
 
-    this.enabled = process.env.DOCLING_ENABLED !== 'false'
+    // Private documents require an authenticated worker in production.
+    this.enabled = process.env.DOCLING_ENABLED !== 'false' &&
+      (process.env.NODE_ENV !== 'production' || Boolean(process.env.DOCLING_API_TOKEN))
     this.timeout = parseInt(process.env.DOCLING_TIMEOUT || '30000', 10)
   }
 

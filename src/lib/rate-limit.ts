@@ -1,6 +1,7 @@
 import { auth } from '@clerk/nextjs/server'
 import { NextRequest, NextResponse } from 'next/server'
 import { redis, isRedisConfigured } from '@/lib/redis'
+import { incrementDatabaseRateLimit } from '@/lib/database-rate-limit'
 import { logRateLimitExceeded } from '@/lib/security-monitoring'
 import { rateLimit, app } from '@/lib/config/env';
 
@@ -104,7 +105,6 @@ export async function checkRateLimit(
   }
 
   try {
-    if (!isRedisConfigured) throw new Error('Redis enforcement is not configured');
     const key = config.keyGenerator ?
                 config.keyGenerator(request) :
                 await generateKey(request, prefix)
@@ -113,10 +113,12 @@ export async function checkRateLimit(
     const windowKey = `${key}:${window}`
 
     // Get current count for this window
-    const current = await redis.incr(windowKey)
+    const current = isRedisConfigured
+      ? await redis.incr(windowKey)
+      : await incrementDatabaseRateLimit(windowKey, new Date((window + 1) * config.windowMs))
 
     // Set expiration for this window key
-    if (current === 1) {
+    if (isRedisConfigured && current === 1) {
       await redis.expire(windowKey, Math.ceil(config.windowMs / 1000))
     }
 

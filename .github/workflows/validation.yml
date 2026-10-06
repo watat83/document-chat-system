@@ -44,3 +44,16 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npm run db:generate
       - run: npm test -- --runInBand --watch=false
+  build-and-migrations:
+    runs-on: ubuntu-latest
+    env:
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_ZXhhbXBsZS50ZXN0JA
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run test:migrations
+      - run: npm run build
