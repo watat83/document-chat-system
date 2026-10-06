@@ -1,3 +1,4 @@
+import { isPlatformAdmin } from '@/lib/security/platform-admin';
 import { NextRequest, NextResponse } from 'next/server';
 import { AIServiceManager } from '@/lib/ai';
 import { auth } from '@clerk/nextjs/server';
@@ -244,134 +245,15 @@ export async function GET() {
 }
 
 
-export async function PUT(request: NextRequest) {
-  try {
-    const { userId } = await auth();
-    
-    if (!userId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    const body = await request.json();
-    const validation = configUpdateSchema.safeParse(body);
-
-    if (!validation.success) {
-      return NextResponse.json({
-        error: 'Invalid configuration parameters',
-        details: validation.error.errors
-      }, { status: 400 });
-    }
-
-    const aiService = getAIService();
-    const updates = validation.data;
-
-    // Update the configuration
-    aiService.updateConfiguration(updates);
-
-    // Validate the new configuration
-    const configValidation = aiService.validateConfiguration();
-    
-    if (!configValidation.isValid) {
-      return NextResponse.json({
-        error: 'Configuration validation failed',
-        errors: configValidation.errors,
-        warnings: configValidation.warnings
-      }, { status: 400 });
-    }
-
-    const updatedConfig = aiService.getConfiguration();
-
-    return NextResponse.json({
-      success: true,
-      message: 'Configuration updated successfully',
-      configuration: updatedConfig,
-      validation: configValidation,
-      updatedAt: new Date().toISOString()
-    });
-
-  } catch (error) {
-    console.error('AI configuration update failed:', error);
-    return handleApiError(error);
-  }
+export async function PUT(_request: NextRequest) {
+  const { userId } = await auth();
+  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!isPlatformAdmin(userId)) return NextResponse.json({ error: 'Platform administrator access required' }, { status: 403 });
+  return NextResponse.json({ error: 'AI configuration is deployment controlled. Update server environment settings and redeploy.' }, { status: 405, headers: { Allow: 'GET' } });
 }
-
-export async function POST(request: NextRequest) {
-  try {
-    const { userId } = await auth();
-    
-    if (!userId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    const body = await request.json();
-    const { action } = body;
-
-    const aiService = getAIService();
-
-    switch (action) {
-      case 'check_budget':
-        // Budget check action
-        const { estimatedCost = 0, currentSpend = 0, organizationId } = body;
-        const limit = 5.0; // $5 demo limit
-        const remaining = Math.max(0, limit - currentSpend);
-        
-        return NextResponse.json({
-          canProceed: remaining >= estimatedCost,
-          estimatedCost,
-          currentSpend,
-          limit,
-          remaining,
-          warningThreshold: limit * 0.8,
-          routingDecision: body.useVercelOptimized ? 'vercel' : 'default',
-          organizationId
-        });
-
-      case 'reload':
-        aiService.reloadConfiguration();
-        const reloadedConfig = aiService.getConfiguration();
-        const validation = aiService.validateConfiguration();
-        
-        return NextResponse.json({
-          success: true,
-          message: 'Configuration reloaded from environment',
-          configuration: reloadedConfig,
-          validation,
-          reloadedAt: new Date().toISOString()
-        });
-
-      case 'validate':
-        const validationResult = aiService.validateConfiguration();
-        return NextResponse.json({
-          validation: validationResult,
-          validatedAt: new Date().toISOString()
-        });
-
-      case 'reset':
-        // Reset to default configuration
-        const defaultConfig = {
-          enableFallback: true,
-          enableCircuitBreaker: true,
-          enableCaching: true,
-          defaultTimeout: 30000,
-          maxConcurrentRequests: 100
-        };
-        
-        aiService.updateConfiguration(defaultConfig);
-        const resetConfig = aiService.getConfiguration();
-        
-        return NextResponse.json({
-          success: true,
-          message: 'Configuration reset to defaults',
-          configuration: resetConfig,
-          resetAt: new Date().toISOString()
-        });
-
-      default:
-        return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
-    }
-
-  } catch (error) {
-    console.error('AI configuration action failed:', error);
-    return handleApiError(error);
-  }
+export async function POST(_request: NextRequest) {
+  const { userId } = await auth();
+  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!isPlatformAdmin(userId)) return NextResponse.json({ error: 'Platform administrator access required' }, { status: 403 });
+  return NextResponse.json({ error: 'AI configuration is deployment controlled. Update server environment settings and redeploy.' }, { status: 405, headers: { Allow: 'GET' } });
 }

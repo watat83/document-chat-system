@@ -1,3 +1,4 @@
+import { getPinecone } from './pinecone-client'
 /**
  * Embedding Service
  *
@@ -35,7 +36,7 @@ export interface PineconeMetadata {
 }
 
 export class EmbeddingService {
-  private pinecone: Pinecone
+  private get pinecone(): Pinecone { return getPinecone() }
   private aiManager: AIServiceManager
   private namespaceManager: PineconeNamespaceManager
   private config: EmbeddingConfig
@@ -49,9 +50,7 @@ export class EmbeddingService {
     }
 
     // Initialize Pinecone
-    this.pinecone = new Pinecone({
-      apiKey: process.env.PINECONE_API_KEY!,
-    })
+
 
     // Get AI service manager instance
     this.aiManager = AIServiceManager.getInstance()
@@ -239,7 +238,7 @@ export class EmbeddingService {
         console.warn(`Failed chunk IDs:`, failedChunkIds)
 
         // If more than 50% of batches failed, throw error
-        if (failedBatches > totalBatches / 2) {
+        if (failedBatches > 0) {
           throw new Error(
             `Embedding generation critically failed: ${failedBatches}/${totalBatches} batches failed. ` +
             `Only ${successfulChunks}/${chunks.length} chunks processed successfully.`
@@ -542,30 +541,11 @@ export class EmbeddingService {
     const index = this.pinecone.index(process.env.PINECONE_INDEX_NAME!)
     const namespacedIndex = index.namespace(organizationNamespace)
 
-    // Query to find all vectors for this document using metadata filters in organization namespace
-    const queryResponse = await namespacedIndex.query({
-      vector: Array(1536).fill(0), // Dummy dense vector for metadata-only query (OpenAI text-embedding-3-small dimensions)
-      topK: 10000, // High number to get all vectors
-      includeMetadata: true,
-      filter: {
-        documentId: documentId, // organizationId filter not needed since we're in the org namespace
-      },
-    })
-
-    if (queryResponse.matches && queryResponse.matches.length > 0) {
-      const vectorIds = queryResponse.matches.map((match) => match.id)
-      console.log(`🔍 Found ${vectorIds.length} vectors to delete for document in namespace ${organizationNamespace}`)
-
-      // Delete vectors by ID from organization namespace
-      await namespacedIndex.deleteMany(vectorIds)
-      console.log(
-        `✅ Deleted ${vectorIds.length} vectors from namespace ${organizationNamespace}`
-      )
-    } else {
-      console.log(
-        `ℹ️ No vectors found for document ${documentId} in namespace ${organizationNamespace}`
-      )
+    await namespacedIndex.deleteMany({ documentId: { $eq: documentId }, organizationId: { $eq: organizationId } });
+    if (process.env.ENABLE_PGVECTOR_FALLBACK === 'true') {
+      await prisma.$executeRaw`DELETE FROM document_vectors WHERE organization_id = ${organizationId} AND document_id = ${documentId}`;
     }
+
   }
 }
 

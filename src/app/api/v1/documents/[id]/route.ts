@@ -1,3 +1,6 @@
+import { defaultEmbeddingService } from '@/lib/ai/services/embedding-service';
+import { defaultVectorSearchCache } from '@/lib/ai/services/vector-search-cache';
+import { canAccessDocument } from '@/lib/security/access-policy';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { prisma } from '@/lib/prisma';
@@ -394,7 +397,7 @@ export async function PUT(
     // Get user info
     const user = await prisma.user.findUnique({
       where: { clerkId: userId },
-      select: { id: true, organizationId: true }
+      select: { id: true, organizationId: true, role: true }
     })
 
     if (!user) {
@@ -409,7 +412,8 @@ export async function PUT(
       where: { id: documentId },
       select: { 
         id: true, 
-        organizationId: true, 
+        organizationId: true,
+        uploadedById: true, sharing: true, deletedAt: true,
         folderId: true,
         name: true,
         mimeType: true,
@@ -429,7 +433,7 @@ export async function PUT(
     }
 
     // Verify user has access to the document's organization
-    if (existingDocument.organizationId !== user.organizationId) {
+    if (!canAccessDocument(user, existingDocument, 'WRITE')) {
       return NextResponse.json(
         { success: false, error: 'Access denied' },
         { status: 403 }
@@ -1027,7 +1031,7 @@ export async function PATCH(
     // Get user info
     const user = await prisma.user.findUnique({
       where: { clerkId: userId },
-      select: { id: true, organizationId: true }
+      select: { id: true, organizationId: true, role: true }
     })
 
     if (!user) {
@@ -1043,7 +1047,7 @@ export async function PATCH(
       select: {
         id: true,
         organizationId: true,
-        uploadedById: true,
+        uploadedById: true, deletedAt: true,
         name: true,
         tags: true,
         documentType: true,
@@ -1066,7 +1070,7 @@ export async function PATCH(
     }
 
     // Verify user has access to the document's organization
-    if (existingDocument.organizationId !== user.organizationId) {
+    if (!canAccessDocument(user, existingDocument, section === 'sharing' ? 'SHARE' : 'WRITE')) {
       return NextResponse.json(
         { success: false, error: 'Access denied' },
         { status: 403 }
@@ -1576,46 +1580,10 @@ async function checkSectionPermission(
   user: { id: string; organizationId: string }, 
   document: any
 ): Promise<{ allowed: boolean; error?: string }> {
-  const isOwner = document.uploadedById === user.id
-
-  // Always allow owners
-  if (isOwner) {
-    return { allowed: true }
-  }
-
-  // For non-owners, check specific permissions based on section
-  switch (section) {
-    case 'entities':
-    case 'content':
-    case 'analysis':
-    case 'embeddings':
-    case 'revisions':
-      // These require READ permission for viewing or WRITE for modification
-      return { allowed: true } // For now, allow if user has access to document
-    
-    case 'sharing':
-      if (action === 'add_permission' || action === 'remove_permission' || action === 'create_share' || action === 'update_share' || action === 'delete_share') {
-        // Check if user has SHARE permission
-        const sharing = (document.sharing as any) || { permissions: [] }
-        const hasSharePermission = sharing.permissions?.some((p: any) => 
-          p.userId === user.id && p.permission === 'SHARE' && 
-          (!p.expiresAt || new Date(p.expiresAt) > new Date())
-        )
-        
-        if (!hasSharePermission) {
-          return { allowed: false, error: 'SHARE permission required for sharing operations' }
-        }
-      }
-      return { allowed: true }
-    
-    case 'processing':
-      // Processing updates typically require system/admin permissions
-      // For now, allow document owners and users with access
-      return { allowed: true }
-    
-    default:
-      return { allowed: false, error: `Unknown section: ${section}` }
-  }
+  const permission = section === 'sharing' ? 'SHARE' : 'WRITE';
+  return canAccessDocument(user, document, permission)
+    ? { allowed: true }
+    : { allowed: false, error: `${permission} permission required` };
 }
 
 // Section update implementations
@@ -1671,7 +1639,9 @@ async function updateSharingSection(documentId: string, body: any, action: strin
   switch (action) {
     case 'add_permission':
       const permissionData = body.data?.permission || body.permission
-      if (!permissionData) throw new Error('Permission data required')
+      if (!permissionData || !['READ', 'WRITE', 'DELETE', 'SHARE'].includes(permissionData.permission)) throw new Error('Valid permission data required');
+      const recipient = await prisma.user.findFirst({ where: { id: permissionData.userId, organizationId: user.organizationId, deletedAt: null } });
+      if (!recipient) throw new Error('Recipient must belong to this organization');
       
       const newPermission = {
         id: `perm_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
@@ -1691,41 +1661,12 @@ async function updateSharingSection(documentId: string, body: any, action: strin
       break
 
     case 'create_share':
-      if (currentSharing.share) throw new Error('Share link already exists')
-      
-      const shareData = body.data?.share || body.share || {}
-      const shareToken = generateShareToken()
-      const shareUrl = generateShareUrl(shareToken)
-      
-      currentSharing.share = {
-        id: `share_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-        shareUrl,
-        shareToken,
-        isShared: true,
-        expiresAt: shareData.expiresAt || null,
-        allowDownload: shareData.allowDownload ?? true,
-        allowPreview: shareData.allowPreview ?? true,
-        trackViews: shareData.trackViews ?? true,
-        viewCount: 0,
-        lastViewedAt: null,
-        password: shareData.password || null
-      }
-      break
-
     case 'update_share':
-      if (!currentSharing.share) throw new Error('No share link exists')
-      const updateData = body.data?.share || body.share || {}
-      Object.assign(currentSharing.share, updateData)
-      break
-
     case 'delete_share':
-      currentSharing.share = null
-      currentSharing.shareViews = []
-      break
+      throw new Error('Use the document /share endpoint to manage share links');
 
     default:
-      // Replace entire sharing section
-      Object.assign(currentSharing, body.data || body)
+      throw new Error('Specify add_permission or remove_permission');
   }
 
   await prisma.document.update({
@@ -2043,7 +1984,7 @@ export async function DELETE(
     // Get user info
     const user = await prisma.user.findUnique({
       where: { clerkId: userId },
-      select: { id: true, organizationId: true }
+      select: { id: true, organizationId: true, role: true }
     });
 
     if (!user) {
@@ -2059,6 +2000,7 @@ export async function DELETE(
       select: {
         id: true,
         organizationId: true,
+        uploadedById: true, sharing: true, deletedAt: true,
         filePath: true,
         name: true
       }
@@ -2072,11 +2014,21 @@ export async function DELETE(
     }
 
     // Verify user has access to the document's organization
-    if (document.organizationId !== user.organizationId) {
+    if (!canAccessDocument(user, { ...document, deletedAt: null }, 'DELETE')) {
       return NextResponse.json(
         { error: 'Access denied' },
         { status: 403 }
       );
+    }
+
+    await prisma.document.update({ where: { id: documentId }, data: { deletedAt: new Date() } });
+    defaultVectorSearchCache.clear();
+    try {
+      await defaultEmbeddingService.deleteDocumentEmbeddings(documentId, document.organizationId);
+    } catch (error) {
+      // Keep the tombstone so all retrieval paths reject stale vector content. Retryable cleanup.
+      console.error('Document vector cleanup failed', error);
+      return NextResponse.json({ error: 'Document access revoked; cleanup failed. Please retry deletion.' }, { status: 503 });
     }
 
     console.log(`🗑️  Starting deletion process for document: ${document.name} (ID: ${documentId})`);

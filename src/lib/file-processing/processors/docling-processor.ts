@@ -136,6 +136,7 @@ export class DoclingProcessor implements IFileProcessor {
       const response = await fetch(`${this.serviceUrl}/process`, {
         method: 'POST',
         headers: {
+          ...(process.env.DOCLING_API_TOKEN ? { Authorization: `Bearer ${process.env.DOCLING_API_TOKEN}` } : {}),
           'Content-Type': `multipart/form-data; boundary=${boundary}`,
           'Content-Length': String(body.length)
         },
@@ -228,6 +229,7 @@ export class DoclingProcessor implements IFileProcessor {
       const response = await fetch(`${this.serviceUrl}/process-url`, {
         method: 'POST',
         headers: {
+          ...(process.env.DOCLING_API_TOKEN ? { Authorization: `Bearer ${process.env.DOCLING_API_TOKEN}` } : {}),
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
@@ -338,6 +340,7 @@ export class DoclingProcessor implements IFileProcessor {
       const response = await fetch(`${this.serviceUrl}/extract-page-images`, {
         method: 'POST',
         headers: {
+          ...(process.env.DOCLING_API_TOKEN ? { Authorization: `Bearer ${process.env.DOCLING_API_TOKEN}` } : {}),
           'Content-Type': `multipart/form-data; boundary=${boundary}`,
         },
         body: body,

@@ -97,11 +97,6 @@ export function SavedSearchDropdown({
   }>({ isOpen: false })
   const notify = useNotify()
 
-  // Don't render for unauthenticated users
-  if (!isLoaded || !user) {
-    return null
-  }
-
   // Load saved searches
   const loadSavedSearches = useCallback(async () => {
     setIsLoading(true)
@@ -290,6 +285,11 @@ export function SavedSearchDropdown({
 
   const mySearches = savedSearches.filter(s => s.userId === s.user?.id)
   const sharedSearches = savedSearches.filter(s => s.isShared && s.userId !== s.user?.id)
+
+  // Don't render for unauthenticated users
+  if (!isLoaded || !user) {
+    return null
+  }
 
   return (
     <>

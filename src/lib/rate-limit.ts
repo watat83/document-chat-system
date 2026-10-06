@@ -1,5 +1,6 @@
+import { auth } from '@clerk/nextjs/server'
 import { NextRequest, NextResponse } from 'next/server'
-import { redis } from '@/lib/redis'
+import { redis, isRedisConfigured } from '@/lib/redis'
 import { logRateLimitExceeded } from '@/lib/security-monitoring'
 import { rateLimit, app } from '@/lib/config/env';
 
@@ -73,15 +74,14 @@ export const rateLimitConfigs = {
 } as const
 
 // Generate rate limit key based on IP and user ID
-function generateKey(request: NextRequest, prefix: string): string {
+async function generateKey(request: NextRequest, prefix: string): Promise<string> {
   const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 
             request.headers.get('x-real-ip') || 
             request.headers.get('cf-connecting-ip') ||
             'unknown'
   
   // Try to get user ID from authorization header or request
-  const userAgent = request.headers.get('user-agent') || 'unknown'
-  const userId = request.headers.get('x-user-id') || 'anonymous'
+  const { userId } = await auth()
   
   // Combine IP and user ID for more accurate rate limiting
   return `rate_limit:${prefix}:${ip}:${userId}`
@@ -104,9 +104,10 @@ export async function checkRateLimit(
   }
   
   try {
+    if (!isRedisConfigured) throw new Error('Redis enforcement is not configured');
     const key = config.keyGenerator ? 
                 config.keyGenerator(request) : 
-                generateKey(request, prefix)
+                await generateKey(request, prefix)
     
     const window = Math.floor(Date.now() / config.windowMs)
     const windowKey = `${key}:${window}`
@@ -149,12 +150,13 @@ export async function checkRateLimit(
     
   } catch (error) {
     console.error('Rate limiting error:', error)
-    // If Redis is down, allow the request through (fail open)
+    // Reject work when enforcement is unavailable in production.
     return {
-      success: true,
+      success: false,
       limit: config.maxRequests,
-      remaining: config.maxRequests,
-      resetTime: new Date(Date.now() + config.windowMs)
+      remaining: 0,
+      resetTime: new Date(Date.now() + config.windowMs),
+      error: 'Rate limit service unavailable'
     }
   }
 }

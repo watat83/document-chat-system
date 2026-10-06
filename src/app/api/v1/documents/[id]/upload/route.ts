@@ -1,3 +1,4 @@
+import { guardDocumentMutation } from '@/lib/security/document-route-guard';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { prisma } from '@/lib/db';
@@ -69,6 +70,9 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const permissionError = await guardDocumentMutation((await params).id, 'WRITE');
+  if (permissionError) return permissionError;
+
   try {
     const { userId } = await auth();
     if (!userId) {
@@ -223,7 +227,7 @@ export async function POST(
     
     try {
       // Import document processor
-      const { documentProcessor } = require('@/lib/ai/document-processor');
+      const { documentProcessor } = await import('@/lib/ai/document-processor');
       
       // Process document immediately
       const processingResult = await documentProcessor.processDocumentBasic(

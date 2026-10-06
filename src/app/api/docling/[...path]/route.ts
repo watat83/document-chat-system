@@ -1,3 +1,4 @@
+import { auth } from '@clerk/nextjs/server';
 /**
  * Docling Service Proxy
  *
@@ -17,31 +18,23 @@ const DOCLING_SERVICE_URL = process.env.DOCLING_SERVICE_URL || 'http://localhost
 const DOCLING_ENABLED = process.env.DOCLING_ENABLED !== 'false';
 const DOCLING_TIMEOUT = parseInt(process.env.DOCLING_TIMEOUT || '60000'); // 60 seconds for Railway cold starts
 
-export async function GET(
-  request: NextRequest,
-  { params }: { params: { path: string[] } }
-) {
+export async function GET(request: NextRequest, props: { params: Promise<{ path: string[] }> }) {
+  const params = await props.params;
   return handleDoclingRequest(request, params.path, 'GET');
 }
 
-export async function POST(
-  request: NextRequest,
-  { params }: { params: { path: string[] } }
-) {
+export async function POST(request: NextRequest, props: { params: Promise<{ path: string[] }> }) {
+  const params = await props.params;
   return handleDoclingRequest(request, params.path, 'POST');
 }
 
-export async function PUT(
-  request: NextRequest,
-  { params }: { params: { path: string[] } }
-) {
+export async function PUT(request: NextRequest, props: { params: Promise<{ path: string[] }> }) {
+  const params = await props.params;
   return handleDoclingRequest(request, params.path, 'PUT');
 }
 
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: { path: string[] } }
-) {
+export async function DELETE(request: NextRequest, props: { params: Promise<{ path: string[] }> }) {
+  const params = await props.params;
   return handleDoclingRequest(request, params.path, 'DELETE');
 }
 
@@ -50,7 +43,11 @@ async function handleDoclingRequest(
   pathSegments: string[],
   method: string
 ) {
-  // Check if Docling is enabled
+  const { userId } = await auth();
+  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (process.env.NODE_ENV === 'production' && !process.env.DOCLING_API_TOKEN) return NextResponse.json({ error: 'Private processing service is not configured' }, { status: 503 });
+  if (pathSegments.some(segment => !/^[a-zA-Z0-9_-]+$/.test(segment)) || !['health', 'process', 'supported-formats'].includes(pathSegments[0])) return NextResponse.json({ error: 'Unsupported processing endpoint' }, { status: 404 });
+    // Check if Docling is enabled
   if (!DOCLING_ENABLED) {
     return NextResponse.json(
       {
@@ -72,12 +69,10 @@ async function handleDoclingRequest(
 
     // Prepare headers
     const headers = new Headers();
-    request.headers.forEach((value, key) => {
-      // Skip host header to avoid conflicts
-      if (key.toLowerCase() !== 'host') {
-        headers.set(key, value);
-      }
-    });
+    const contentTypeHeader = request.headers.get('content-type');
+    if (contentTypeHeader) headers.set('Content-Type', contentTypeHeader);
+    headers.set('Accept', 'application/json');
+    if (process.env.DOCLING_API_TOKEN) headers.set('Authorization', `Bearer ${process.env.DOCLING_API_TOKEN}`);
 
     // Create abort controller for timeout handling
     const controller = new AbortController();
@@ -111,37 +106,9 @@ async function handleDoclingRequest(
       }
     }
 
-    // Make the request to Docling service (with retry for Railway cold start)
-    let response;
-    try {
-      response = await fetch(fullUrl, fetchOptions);
-      clearTimeout(timeoutId);
-    } catch (fetchError: any) {
-      clearTimeout(timeoutId);
-
-      // If timeout or connection refused, Railway might be waking up
-      if (fetchError.name === 'AbortError' || fetchError.code === 'ECONNREFUSED') {
-        console.log('⏰ Railway cold start detected, waiting 20s and retrying...');
-
-        // Wait 20 seconds for Railway to wake up
-        await new Promise(resolve => setTimeout(resolve, 20000));
-
-        // Retry once
-        const retryController = new AbortController();
-        const retryTimeoutId = setTimeout(() => retryController.abort(), DOCLING_TIMEOUT);
-
-        try {
-          response = await fetch(fullUrl, { ...fetchOptions, signal: retryController.signal });
-          clearTimeout(retryTimeoutId);
-          console.log('✅ Railway woke up successfully');
-        } catch (retryError) {
-          clearTimeout(retryTimeoutId);
-          throw retryError;
-        }
-      } else {
-        throw fetchError;
-      }
-    }
+    let response: Response;
+    try { response = await fetch(fullUrl, fetchOptions); }
+    finally { clearTimeout(timeoutId); }
 
     // Get response body
     const contentType = response.headers.get('content-type');
@@ -170,7 +137,6 @@ async function handleDoclingRequest(
       {
         error: 'Failed to proxy request to Docling service',
         message: error instanceof Error ? error.message : 'Unknown error',
-        service_url: DOCLING_SERVICE_URL,
       },
       { status: 502 }
     );

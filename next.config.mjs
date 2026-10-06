@@ -1,17 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  eslint: {
-    // Warning: This allows production builds to successfully complete even if
-    // your project has ESLint errors.
-    ignoreDuringBuilds: true,
-  },
-  typescript: {
-    // Warning: This allows production builds to successfully complete even if
-    // your project has type errors.
-    ignoreBuildErrors: true,
-  },
+  typedRoutes: true,
   experimental: {
-    typedRoutes: true,
     optimizeCss: true, // Enable CSS optimization to reduce preload warnings
   },
   // Optimize CSS loading to reduce preload warnings
@@ -79,18 +69,6 @@ const nextConfig = {
             value: "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://api.clerk.dev https://clerk.dev https://*.clerk.accounts.dev https://supreme-tadpole-66.clerk.accounts.dev https://js.stripe.com https://www.google.com https://www.gstatic.com https://www.recaptcha.net https://hcaptcha.com https://*.hcaptcha.com https://challenges.cloudflare.com https://assets.turnstile.com https://cdnjs.cloudflare.com https://unpkg.com http://unpkg.com https://va.vercel-scripts.com; script-src-elem 'self' 'unsafe-inline' https://api.clerk.dev https://clerk.dev https://*.clerk.accounts.dev https://supreme-tadpole-66.clerk.accounts.dev https://js.stripe.com https://www.google.com https://www.gstatic.com https://www.recaptcha.net https://hcaptcha.com https://*.hcaptcha.com https://challenges.cloudflare.com https://assets.turnstile.com https://cdnjs.cloudflare.com https://unpkg.com http://unpkg.com https://va.vercel-scripts.com; worker-src 'self' blob: https://cdnjs.cloudflare.com https://unpkg.com http://unpkg.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://*.clerk.accounts.dev https://cdnjs.cloudflare.com; font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com; img-src 'self' data: https: blob: https://*.gettyimages.com https://*.shutterstock.com https://*.unsplash.com; media-src 'self' blob: data: https:; connect-src 'self' https://api.clerk.dev https://clerk.dev https://*.clerk.accounts.dev https://supreme-tadpole-66.clerk.accounts.dev https://clerk-telemetry.com https://api.stripe.com https://*.stripe.com https://r.stripe.com https://billing.stripe.com wss://clerk.dev wss://*.clerk.accounts.dev ws://localhost:* http://localhost:* https://www.google.com https://www.gstatic.com https://www.recaptcha.net https://hcaptcha.com https://*.hcaptcha.com https://challenges.cloudflare.com https://assets.turnstile.com https://*.ingest.sentry.io https://*.ingest.us.sentry.io https://unpkg.com http://unpkg.com https://va.vercel-scripts.com https://vitals.vercel-insights.com; frame-src 'self' blob: data: https://js.stripe.com https://checkout.stripe.com https://*.stripe.com https://*.clerk.accounts.dev https://www.google.com https://www.gstatic.com https://www.recaptcha.net https://hcaptcha.com https://*.hcaptcha.com https://challenges.cloudflare.com https://view.officeapps.live.com https://docs.google.com https://www.youtube.com https://youtube.com https://player.vimeo.com https://vimeo.com https://www.dailymotion.com https://dailymotion.com https://fast.wistia.net https://wistia.com https://www.loom.com https://loom.com https://player.twitch.tv https://twitch.tv https://www.instagram.com https://instagram.com https://www.tiktok.com https://tiktok.com https://cdn.openai.com; object-src 'self' blob: data: https://*.gov https://*.mil; base-uri 'self'; form-action 'self'",
           },
         ],
-      },
-    ];
-  },
-  async rewrites() {
-    return [
-      {
-        // Proxy Docling service requests through main domain in production
-        // This allows deploying Docling separately (e.g., Railway) while maintaining single domain
-        source: '/api/docling/:path*',
-        destination: process.env.DOCLING_SERVICE_URL
-          ? `${process.env.DOCLING_SERVICE_URL}/:path*`
-          : 'http://localhost:8001/:path*',
       },
     ];
   },

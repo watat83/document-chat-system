@@ -58,10 +58,8 @@ import { auditCrudLogger } from '@/lib/audit/crud-audit-logger'
  */
 
 // POST /api/v1/saved-searches/[id]/execute - Execute saved search
-export async function POST(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
+export async function POST(request: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   try {
     const authResult = await auth()
     const userId = authResult?.userId

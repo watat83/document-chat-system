@@ -14,6 +14,10 @@ import os
 import io
 import tempfile
 import base64
+import secrets
+import threading
+from functools import lru_cache
+from starlette.concurrency import run_in_threadpool
 from typing import Optional, Dict, Any, List
 from pathlib import Path
 
@@ -45,31 +49,32 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Lazy initialization of Docling converter to save memory
-# Only create converter when actually processing documents
-_converter = None
+@app.middleware("http")
+async def require_worker_token(request, call_next):
+    if request.url.path == "/health":
+        return await call_next(request)
+    token = os.getenv("DOCLING_API_TOKEN")
+    if not token:
+        if os.getenv("DOCLING_ALLOW_UNAUTHENTICATED_LOCAL", "false").lower() != "true":
+            return JSONResponse(status_code=503, content={"error": "Private worker authentication is not configured"})
+    elif not secrets.compare_digest(request.headers.get("authorization", ""), f"Bearer {token}"):
+        return JSONResponse(status_code=401, content={"error": "Unauthorized"})
+    return await call_next(request)
 
-def get_converter():
-    """Get or create the Docling converter (lazy initialization)"""
-    global _converter
-    if _converter is None:
-        # OCR disabled by default to stay within Railway's 512MB free tier limit
-        # Set DOCLING_ENABLE_OCR=true environment variable to enable (requires Hobby plan)
-        enable_ocr = os.getenv("DOCLING_ENABLE_OCR", "false").lower() == "true"
+_conversion_lock = threading.Lock()
 
-        pipeline_options = PdfPipelineOptions()
-        pipeline_options.do_ocr = enable_ocr  # OCR adds ~200MB memory usage
-        pipeline_options.do_table_structure = True  # Table extraction (minimal memory impact)
+@lru_cache(maxsize=1)
+def get_converter(ocr_enabled=False, extract_tables=True, extract_images=True):
+    options = PdfPipelineOptions()
+    options.do_ocr = ocr_enabled
+    options.do_table_structure = extract_tables
+    options.generate_picture_images = extract_images
+    return DocumentConverter(format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=options)})
 
-        _converter = DocumentConverter(
-            format_options={
-                InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options)
-            }
-        )
-
-        print(f"📊 Docling initialized - OCR: {enable_ocr}, Tables: True")
-    return _converter
-
+def convert_local_document(path, ocr_enabled, extract_tables, extract_images):
+    # Bound memory and avoid concurrent use of mutable model instances.
+    with _conversion_lock:
+        return get_converter(ocr_enabled, extract_tables, extract_images).convert(path)
 
 class ProcessingOptions(BaseModel):
     """Options for document processing"""
@@ -121,7 +126,7 @@ async def health_check():
 async def process_document(
     file: UploadFile = File(...),
     export_format: str = Form(default="markdown"),
-    ocr_enabled: bool = Form(default=True),
+    ocr_enabled: bool = Form(default=False),
     extract_tables: bool = Form(default=True),
     extract_images: bool = Form(default=True),
     preserve_layout: bool = Form(default=True)
@@ -142,10 +147,22 @@ async def process_document(
     """
     import time
     start_time = time.time()
+    if ocr_enabled and os.getenv("DOCLING_ENABLE_OCR", "false").lower() != "true":
+        raise HTTPException(status_code=422, detail="OCR is disabled on this worker. Enable DOCLING_ENABLE_OCR to use it.")
+    if not preserve_layout:
+        raise HTTPException(status_code=422, detail="This worker supports structured layout extraction only.")
 
     try:
         # Read file content
-        file_content = await file.read()
+        maximum = int(os.getenv("DOCLING_MAX_UPLOAD_BYTES", str(50 * 1024 * 1024)))
+        chunks = []
+        size = 0
+        while chunk := await file.read(1024 * 1024):
+            size += len(chunk)
+            if size > maximum:
+                raise HTTPException(status_code=413, detail="Document exceeds processing size limit")
+            chunks.append(chunk)
+        file_content = b"".join(chunks)
 
         # Create temporary file for Docling processing
         # Docling works best with file paths
@@ -155,7 +172,7 @@ async def process_document(
 
         try:
             # Process document with Docling
-            result = get_converter().convert(tmp_file_path)
+            result = await run_in_threadpool(convert_local_document, tmp_file_path, ocr_enabled, extract_tables, extract_images)
 
             # Extract content based on format
             if export_format == "markdown":
@@ -169,6 +186,10 @@ async def process_document(
 
             # Extract metadata
             metadata = {
+                "ocr_enabled": ocr_enabled,
+                "extract_tables": extract_tables,
+                "extract_images": extract_images,
+                "preserve_layout": preserve_layout,
                 "filename": file.filename,
                 "content_type": file.content_type,
                 "size_bytes": len(file_content),
@@ -226,6 +247,8 @@ async def process_document(
             except:
                 pass
 
+    except HTTPException:
+        raise
     except Exception as e:
         processing_time_ms = int((time.time() - start_time) * 1000)
         return ProcessingResponse(
@@ -237,55 +260,7 @@ async def process_document(
 
 @app.post("/process-url")
 async def process_document_url(url: str, export_format: str = "markdown"):
-    """
-    Process a document from a URL.
-
-    Args:
-        url: URL of the document to process
-        export_format: Output format (markdown, json, html)
-
-    Returns:
-        ProcessingResponse with extracted content and metadata
-    """
-    import time
-    start_time = time.time()
-
-    try:
-        # Docling can process URLs directly
-        result = get_converter().convert(url)
-
-        # Extract content based on format
-        if export_format == "markdown":
-            content = result.document.export_to_markdown()
-        elif export_format == "json":
-            content = result.document.export_to_json()
-        elif export_format == "html":
-            content = result.document.export_to_html()
-        else:
-            content = result.document.export_to_markdown()
-
-        metadata = {
-            "source": url,
-            "num_pages": len(result.document.pages) if hasattr(result.document, 'pages') else None,
-            "format": export_format
-        }
-
-        processing_time_ms = int((time.time() - start_time) * 1000)
-
-        return ProcessingResponse(
-            success=True,
-            content=content,
-            metadata=metadata,
-            processing_time_ms=processing_time_ms
-        )
-
-    except Exception as e:
-        processing_time_ms = int((time.time() - start_time) * 1000)
-        return ProcessingResponse(
-            success=False,
-            error=f"URL processing failed: {str(e)}",
-            processing_time_ms=processing_time_ms
-        )
+    raise HTTPException(status_code=410, detail="Remote URL processing is disabled. Upload a local file instead.")
 
 
 @app.post("/extract-page-images")
@@ -357,6 +332,8 @@ async def extract_page_images(
             "processing_time_ms": processing_time_ms
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         processing_time_ms = int((time.time() - start_time) * 1000)
         return {

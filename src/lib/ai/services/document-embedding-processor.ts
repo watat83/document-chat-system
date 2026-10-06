@@ -65,7 +65,7 @@ export class DocumentEmbeddingProcessor {
       if (!options.forceReprocess && document.embeddings) {
         const embeddings = document.embeddings as DocumentEmbeddings
         console.log(`🔍 Existing embeddings found:`, embeddings)
-        if (embeddings.chunks && embeddings.chunks.length > 0) {
+        if (!(embeddings as any).partialFailure && embeddings.chunks && embeddings.chunks.length === embeddings.totalChunks) {
           console.log(`⏭️ Skipping processing - ${embeddings.chunks.length} embeddings already exist (use forceReprocess=true to regenerate)`)
           return {
             success: true,

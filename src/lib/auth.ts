@@ -1,3 +1,4 @@
+import { provisionUser } from './auth/provision-user'
 import { auth, currentUser } from '@clerk/nextjs/server'
 import { db } from './db'
 import { User, UserRole } from '@prisma/client'
@@ -37,37 +38,7 @@ export async function getCurrentUser(): Promise<User | null> {
         // This should be handled by webhooks, but as a fallback, we'll create the user
         console.warn('User exists in Clerk but not in database, creating fallback user...')
         
-        try {
-          // Create a personal organization for the user
-          const organization = await db.organization.create({
-            data: {
-              name: `${clerkUser.firstName || ''} ${clerkUser.lastName || ''}'s Organization`.trim() || 'My Organization',
-              slug: `org-${clerkUser.id.slice(0, 8)}`,
-            },
-          })
-
-          // Create the user in our database
-          const newUser = await db.user.create({
-            data: {
-              clerkId: clerkUser.id,
-              email: clerkUser.emailAddresses[0]?.emailAddress || '',
-              firstName: clerkUser.firstName,
-              lastName: clerkUser.lastName,
-              imageUrl: clerkUser.imageUrl,
-              organizationId: organization.id,
-              role: 'OWNER', // First user in organization is owner
-              lastActiveAt: new Date(),
-            },
-            include: {
-              organization: true,
-            },
-          })
-
-          return newUser
-        } catch (error) {
-          console.error('Error creating fallback user:', error)
-          return null
-        }
+        return await provisionUser(clerkUser)
       }
     }
 
@@ -209,12 +180,14 @@ export async function syncUserFromClerk(clerkUser: any, organizationId?: string)
     lastActiveAt: new Date(),
   }
 
+  if (!organizationId) return await provisionUser(clerkUser)
+
   return await db.user.upsert({
     where: { clerkId: clerkUser.id },
     update: userData,
     create: {
       clerkId: clerkUser.id,
-      organizationId: organizationId || 'default', // This should be handled properly in production
+      organizationId,
       role: 'MEMBER',
       ...userData,
     },

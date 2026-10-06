@@ -8,7 +8,7 @@ import { db } from '@/lib/db'
 export async function getOrganizationId(userId: string): Promise<string | null> {
   try {
     const user = await db.user.findUnique({
-      where: { clerkId: userId },
+      where: { clerkId: userId, deletedAt: null },
       select: { organizationId: true }
     })
     

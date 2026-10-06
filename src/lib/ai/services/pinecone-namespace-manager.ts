@@ -1,3 +1,4 @@
+import { getPinecone } from './pinecone-client'
 /**
  * Pinecone Namespace Manager Service
  *
@@ -25,15 +26,13 @@ export interface NamespaceValidationResult {
 }
 
 export class PineconeNamespaceManager {
-  private pinecone: Pinecone
+  private get pinecone(): Pinecone { return getPinecone() }
   private namespaceCache: Map<string, NamespaceInfo> = new Map()
   private cacheExpiryMs = 5 * 60 * 1000 // 5 minutes cache
   private lastCacheClean = Date.now()
 
   constructor() {
-    this.pinecone = new Pinecone({
-      apiKey: process.env.PINECONE_API_KEY!,
-    })
+
   }
 
   /**

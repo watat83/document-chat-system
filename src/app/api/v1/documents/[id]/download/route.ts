@@ -94,7 +94,7 @@ export async function GET(
 
     if (userId !== 'test-user-id') {
       user = await prisma.user.findUnique({
-        where: { clerkId: userId },
+        where: { clerkId: userId, deletedAt: null },
         select: { id: true, organizationId: true },
       })
     } else {
@@ -121,7 +121,7 @@ export async function GET(
     let document = null
     try {
       document = await prisma.document.findUnique({
-        where: { id: documentId },
+        where: { id: documentId, deletedAt: null },
         select: {
           id: true,
           organizationId: true,
@@ -221,7 +221,7 @@ export async function GET(
           'Content-Type': document.mimeType || 'text/plain',
           'Content-Length': textContent.byteLength.toString(),
           'Content-Disposition': `inline; filename="${document.name}"`,
-          'Cache-Control': 'private, max-age=300',
+          'Cache-Control': 'private, no-store',
           'X-Document-Type': 'created',
         },
       })
@@ -279,7 +279,7 @@ export async function GET(
           'Content-Type': contentType,
           'Content-Length': demoContent.byteLength.toString(),
           'Content-Disposition': `inline; filename="${document.name}"`,
-          'Cache-Control': 'private, max-age=300', // Cache for 5 minutes
+          'Cache-Control': 'private, no-store', // Cache for 5 minutes
           'X-Demo-File': 'true', // Indicate this is a demo file
         },
       })
@@ -398,7 +398,7 @@ export async function GET(
         'Content-Type': document.mimeType || 'application/octet-stream',
         'Content-Length': document.size?.toString() || '',
         'Content-Disposition': `inline; filename="${document.name}"`,
-        'Cache-Control': 'private, max-age=3600', // Cache for 1 hour
+        'Cache-Control': 'private, no-store', // Cache for 1 hour
       },
     })
   } catch (error) {

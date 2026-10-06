@@ -64,6 +64,8 @@ model Organization {
   auditLogExports    AuditLogExport[]
   securityIncidents  SecurityIncident[]
 
+  conversations Conversation[]
+
   @@map("organizations")
 }
 
@@ -110,6 +112,8 @@ model User {
   // Profile Relations
   createdProfiles Profile[] @relation("ProfileCreatedBy")
   updatedProfiles Profile[] @relation("ProfileUpdatedBy")
+
+  conversations Conversation[]
 
   @@map("users")
 }
@@ -313,6 +317,7 @@ model BillingEvent {
   stripeEventId String    @unique
   processed     Boolean   @default(false)
   processedAt   DateTime?
+  processingStartedAt DateTime?
 
   // Event Data
   data Json // Raw Stripe event data
@@ -1634,4 +1639,19 @@ enum OrganizationLevel {
   COUNTY
   ENTERPRISE
   DEPARTMENT
+}
+
+model Conversation {
+  id String @id @default(cuid())
+  organizationId String
+  userId String
+  title String @default("New conversation")
+  messages Json
+  revision Int @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([organizationId, userId, updatedAt])
+  @@map("conversations")
 }

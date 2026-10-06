@@ -1,5 +1,7 @@
 'use client'
 
+import { useOptionalNotifications } from '@/contexts/notification-context'
+
 import { useState, useEffect, useCallback, useRef } from 'react'
 
 // Network connection types
@@ -75,33 +77,21 @@ export function useNetworkStatus(config: NetworkStatusConfig = {}) {
     maxReconnectAttempts = 5
   } = config
 
-  // Optional notification functions - will be available if NotificationProvider exists
-  let showInfo: ((title: string, message?: string, options?: any) => void) | undefined
-  let showWarning: ((title: string, message?: string, options?: any) => void) | undefined  
-  let showSuccess: ((title: string, message?: string, options?: any) => void) | undefined
+  const notifications = useOptionalNotifications();
+  const showInfo = notifications?.info;
+  const showWarning = notifications?.warning;
+  const showSuccess = notifications?.success;
 
-  try {
-    // Only import and use notifications if we're in a NotificationProvider context
-    const { useNotifications } = require('@/contexts/notification-context')
-    const notifications = useNotifications()
-    showInfo = notifications.info
-    showWarning = notifications.warning
-    showSuccess = notifications.success
-  } catch (error) {
-    // Notifications not available - will work without them
-    console.log('Network status: notifications not available, running without them')
-  }
-  
   // Refs for stable notification functions
   const showSuccessRef = useRef(showSuccess)
   const showWarningRef = useRef(showWarning)
   const showInfoRef = useRef(showInfo)
   
   // Refs for stable callback functions
-  const updateStatusRef = useRef<() => Promise<void>>()
-  const attemptReconnectionRef = useRef<() => Promise<void>>()
-  const resetReconnectionRef = useRef<() => void>()
-  const performPingRef = useRef<() => Promise<boolean>>()
+  const updateStatusRef = useRef<(() => Promise<void>) | undefined>(undefined)
+  const attemptReconnectionRef = useRef<(() => Promise<void>) | undefined>(undefined)
+  const resetReconnectionRef = useRef<(() => void) | undefined>(undefined)
+  const performPingRef = useRef<(() => Promise<boolean>) | undefined>(undefined)
   
   // Update refs when functions change
   useEffect(() => {

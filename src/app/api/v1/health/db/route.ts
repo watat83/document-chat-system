@@ -217,7 +217,7 @@ export async function GET() {
   
   try {
     // Check if this is an authenticated request for detailed metrics
-    const headersList = headers()
+    const headersList = await headers()
     const isDetailed = headersList.get('x-detailed-health') === 'true'
     
     const healthMetrics: DatabaseHealthMetrics = {

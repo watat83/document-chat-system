@@ -19,9 +19,9 @@ import { crudAuditLogger } from '@/lib/audit/crud-audit-logger';
 const prisma = new PrismaClient();
 
 interface RouteParams {
-  params: {
+  params: Promise<{
     keyId: string;
-  };
+  }>;
 }
 
 /**
@@ -99,7 +99,8 @@ interface RouteParams {
  *       500:
  *         $ref: '#/components/responses/InternalServerError'
  */
-export async function GET(request: NextRequest, { params }: RouteParams) {
+export async function GET(request: NextRequest, props: RouteParams) {
+  const params = await props.params;
   try {
     // Check authentication
     const { userId } = await auth();
@@ -243,7 +244,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
  *       500:
  *         $ref: '#/components/responses/InternalServerError'
  */
-export async function DELETE(request: NextRequest, { params }: RouteParams) {
+export async function DELETE(request: NextRequest, props: RouteParams) {
+  const params = await props.params;
   try {
     // Validate CSRF token
     const csrfValidation = await validateCSRFInAPIRoute(request);

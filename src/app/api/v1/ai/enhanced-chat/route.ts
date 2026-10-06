@@ -1,3 +1,4 @@
+import { guardUsage } from '@/lib/billing/usage-guard';
 import { NextRequest } from 'next/server';
 import { streamText } from 'ai';
 import { openai } from '@ai-sdk/openai';
@@ -1031,7 +1032,10 @@ export async function POST(req: NextRequest) {
 
     // Get organization ID for usage tracking
     const organizationId = await getOrganizationId(userId);
-    console.log('🏢 Organization ID for usage tracking:', organizationId);
+    if (!organizationId) return Response.json({ error: 'Account unavailable' }, { status: 403 });
+    const usageError = await guardUsage(organizationId, UsageType.AI_QUERY);
+    if (usageError) return usageError;
+
 
     // Parse and validate request body
     const requestBody = await req.json();

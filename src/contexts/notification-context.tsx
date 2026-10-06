@@ -224,6 +224,10 @@ function NotificationContainer({ notifications, onDismiss }: NotificationContain
   );
 }
 
+export function useOptionalNotifications() {
+  return useContext(NotificationContext);
+}
+
 export function useNotifications() {
   const context = useContext(NotificationContext);
   if (context === undefined) {

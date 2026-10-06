@@ -1,3 +1,4 @@
+import { getPinecone } from './pinecone-client'
 /**
  * Vector Search Service
  *
@@ -49,7 +50,7 @@ export interface SearchOptions {
 }
 
 export class VectorSearchService {
-  private pinecone: Pinecone
+  private get pinecone(): Pinecone { return getPinecone() }
   private aiManager: AIServiceManager
   private namespaceManager: PineconeNamespaceManager
   private pgVectorService: PgVectorSearchService
@@ -58,9 +59,7 @@ export class VectorSearchService {
   private useFallback: boolean = false
 
   constructor() {
-    this.pinecone = new Pinecone({
-      apiKey: process.env.PINECONE_API_KEY!,
-    })
+
     this.aiManager = AIServiceManager.getInstance()
     this.namespaceManager = defaultNamespaceManager
     this.pgVectorService = new PgVectorSearchService()
@@ -68,7 +67,7 @@ export class VectorSearchService {
     this.hybridSearchService = defaultHybridSearchService
     
     // Check if pgvector fallback should be enabled
-    this.useFallback = process.env.ENABLE_PGVECTOR_FALLBACK === 'true'
+    this.useFallback = process.env.ENABLE_PGVECTOR_FALLBACK === 'true' && process.env.PGVECTOR_BACKFILL_COMPLETE === 'true'
   }
 
   /**
@@ -79,6 +78,7 @@ export class VectorSearchService {
     filters: SearchFilters,
     options: SearchOptions = {}
   ): Promise<SearchResult[]> {
+    if (filters.documentIds && filters.documentIds.length === 0) return [];
     const startTime = Date.now()
     console.log('🔍 Starting optimized similarity search:', { query: query.substring(0, 50), filters, options })
 
@@ -106,7 +106,7 @@ export class VectorSearchService {
         const cachedResults = this.cache.get(query, filters, options)
         if (cachedResults) {
           console.log(`✅ Returning cached results due to timeout (${cachedResults.length} results)`)
-          return cachedResults
+          return await this.filterActiveResults(cachedResults, filters)
         }
         
         // Strategy 2: Try pgvector fallback if enabled and no cached results
@@ -148,7 +148,7 @@ export class VectorSearchService {
       const cachedResults = this.cache.get(query, filters, options)
       if (cachedResults) {
         console.log(`🎯 Returning ${cachedResults.length} cached results`)
-        return cachedResults
+        return await this.filterActiveResults(cachedResults, filters)
       }
     }
 
@@ -206,7 +206,7 @@ export class VectorSearchService {
       }
 
       // Return hybrid results (which extend SearchResult)
-      return hybridResults as SearchResult[]
+      return await this.filterActiveResults(hybridResults as SearchResult[], filters)
     }
 
     // Cache results if appropriate
@@ -214,7 +214,7 @@ export class VectorSearchService {
       this.cache.set(query, filters, options, results)
     }
 
-    return results
+    return await this.filterActiveResults(results, filters)
   }
 
   /**
@@ -337,7 +337,7 @@ export class VectorSearchService {
       console.log('📊 Pinecone query response:', {
         namespace: organizationNamespace,
         matchesCount: queryResponse.matches?.length || 0,
-        matches: queryResponse.matches?.map((m) => ({
+        matches: queryResponse.matches?.map((m: any) => ({
           id: m.id,
           score: m.score,
         })),
@@ -345,7 +345,7 @@ export class VectorSearchService {
 
       // Process results and retrieve full chunk content from database
       const filteredMatches = (queryResponse.matches || []).filter(
-        (match) => match.score! >= minScore
+        (match: any) => match.score! >= minScore
       )
 
       console.log(
@@ -355,17 +355,24 @@ export class VectorSearchService {
       // Get full chunk content from database for complete search results
       let results: SearchResult[] = []
 
+      const activeDocuments = await prisma.document.findMany({
+        where: { id: { in: [...new Set<string>(filteredMatches.map((m: any) => m.metadata?.documentId as string).filter(Boolean))] }, organizationId: filters.organizationId, deletedAt: null },
+        select: { id: true, embeddings: true, name: true },
+      });
+      const documentMap = new Map(activeDocuments.map(d => [d.id, d]));
       for (const match of filteredMatches) {
         const documentId = match.metadata?.documentId as string
         const chunkIndex = match.metadata?.chunkIndex as number
 
-        let fullChunkText = (match.metadata?.chunkText as string) || ''
+        const activeDocument = documentMap.get(documentId);
+        if (!activeDocument) continue;
+        let fullChunkText = ''
 
         // Get full chunk content from document embeddings
         if (documentId && chunkIndex !== undefined) {
           try {
-            const document = await this.getDocumentWithEmbeddings(documentId)
-            const chunkData = document?.embeddings?.chunks?.find(
+            const document = activeDocument
+            const chunkData = (document?.embeddings as any)?.chunks?.find(
               (c: any) => c.chunkIndex === chunkIndex
             )
             if (chunkData?.content) {
@@ -386,6 +393,7 @@ export class VectorSearchService {
           }
         }
 
+        if (!fullChunkText) continue;
         results.push({
           documentId: documentId || 'unknown',
           documentTitle:
@@ -411,7 +419,7 @@ export class VectorSearchService {
         results = await this.rerankResults(query, results, topK)
       }
 
-      return results
+      return await this.filterActiveResults(results, filters)
     } catch (error) {
       console.error('❌ Vector search error:', error)
       throw error
@@ -610,20 +618,22 @@ export class VectorSearchService {
   /**
    * Retrieve document with embeddings from database
    */
-  private async getDocumentWithEmbeddings(documentId: string) {
-    try {
-      const document = await prisma.document.findUnique({
-        where: { id: documentId },
-        select: {
-          id: true,
-          embeddings: true,
-        },
-      })
-      return document
-    } catch (error) {
-      console.error(`❌ Error fetching document ${documentId}:`, error)
-      return null
-    }
+  private async filterActiveResults(results: SearchResult[], filters: SearchFilters): Promise<SearchResult[]> {
+    if (!results.length) return [];
+    const active = await prisma.document.findMany({
+      where: { organizationId: filters.organizationId, deletedAt: null,
+        id: { in: results.map(r => r.documentId) } },
+      select: { id: true, embeddings: true },
+    });
+    const docs = new Map(active.map(d => [d.id, d]));
+    return results.flatMap(result => {
+      if (filters.documentId && filters.documentId !== result.documentId) return [];
+      if (filters.documentIds && !filters.documentIds.includes(result.documentId)) return [];
+      const document = docs.get(result.documentId);
+      const chunk = (document?.embeddings as any)?.chunks?.find((c: any) => c.chunkIndex === result.chunkIndex);
+      // Old vector previews cannot survive deletion, reprocessing or removed embeddings.
+      return chunk?.content ? [{ ...result, chunkText: chunk.content }] : [];
+    });
   }
 
   /**
@@ -716,6 +726,7 @@ export class VectorSearchService {
    * Force fallback to pgvector for testing
    */
   async forceFallbackMode(enabled: boolean): Promise<void> {
+    if (enabled && process.env.PGVECTOR_BACKFILL_COMPLETE !== 'true') throw new Error('pgvector fallback requires a completed and verified index backfill');
     this.useFallback = enabled
     console.log(`🔧 Fallback mode ${enabled ? 'enabled' : 'disabled'}`)
   }

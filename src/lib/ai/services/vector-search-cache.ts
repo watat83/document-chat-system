@@ -26,7 +26,7 @@ export class VectorSearchCache {
       this.cleanup()
     }, 2 * 60 * 1000) // Cleanup every 2 minutes
 
-    console.log('✅ Vector search cache initialized')
+    this.cleanupInterval.unref?.();
   }
 
   /**
@@ -41,9 +41,9 @@ export class VectorSearchCache {
       query: query.toLowerCase().trim(),
       filters,
       options: {
-        topK: options.topK || 10,
-        minScore: options.minScore || 0.1,
-        rerank: options.rerank || false,
+        ...options,
+        topK: options.topK ?? 10,
+        minScore: options.minScore ?? 0.1,
       }
     }
     

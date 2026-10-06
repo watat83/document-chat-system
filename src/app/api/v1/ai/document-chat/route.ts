@@ -1,3 +1,6 @@
+import { checkRateLimit, rateLimitConfigs } from '@/lib/rate-limit';
+import { guardUsage } from '@/lib/billing/usage-guard';
+import { UsageType } from '@/lib/usage-tracking';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { streamText } from 'ai';
@@ -7,6 +10,7 @@ import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { AIServiceManager } from '@/lib/ai/ai-service-manager';
 import { UsageTrackingService } from '@/lib/usage-tracking';
+import type { SearchFilters } from '@/lib/ai/services/vector-search';
 import { defaultVectorSearch } from '@/lib/ai/services/vector-search';
 import { crudAuditLogger } from '@/lib/audit/crud-audit-logger';
 
@@ -52,7 +56,7 @@ const documentChatSchema = z.object({
   temperature: z.number().min(0).max(2).optional()
     .describe("Response creativity control for document-based chat. Lower values (0-0.3) recommended for factual document analysis and compliance checking. Higher values (0.7-1.0) for creative interpretation and strategic insights."),
   
-  maxTokens: z.number().optional()
+  maxTokens: z.number().int().min(1).max(8000).optional()
     .describe("Maximum response length for document chat. Longer responses may be needed for comprehensive document analysis, opportunity summaries, and detailed requirement breakdowns. Defaults to model-appropriate limits.")
 });
 
@@ -61,7 +65,6 @@ async function getDocumentContext(documentId: string, organizationId: string, in
     where: {
       id: documentId,
       organizationId,
-      uploadedById: internalUserId, // Use internal user ID, not Clerk ID
       deletedAt: null
     },
     select: {
@@ -81,28 +84,24 @@ async function getDocumentContext(documentId: string, organizationId: string, in
 }
 
 async function getMultipleDocumentsContext(
-  documentContext: z.infer<typeof documentChatSchema>['documentContext'],
+  documentContext: NonNullable<z.infer<typeof documentChatSchema>['documentContext']>,
   organizationId: string,
   internalUserId: string
 ) {
   const whereClause: Record<string, any> = {
     organizationId,
-    uploadedById: internalUserId,
     deletedAt: null
   };
 
   // Add specific filters based on context mode
   switch (documentContext.mode) {
     case 'current-folder':
-      if (documentContext.folderId) {
-        whereClause.folderId = documentContext.folderId;
-      }
+      if (!documentContext.folderId) throw new Error('Folder selection required');
+      whereClause.folderId = documentContext.folderId;
       break;
     
     case 'selected-documents':
-      if (documentContext.documentIds?.length) {
-        whereClause.id = { in: documentContext.documentIds };
-      }
+      whereClause.id = { in: documentContext.documentIds ?? [] };
       break;
     
     // 'all-documents' - no additional filters needed
@@ -117,7 +116,6 @@ async function getMultipleDocumentsContext(
       summary: true,
       mimeType: true
     },
-    take: 20, // Limit to prevent token overflow
     orderBy: { updatedAt: 'desc' }
   });
 
@@ -127,7 +125,7 @@ async function getMultipleDocumentsContext(
 interface DocumentData {
   id: string;
   name: string;
-  extractedText: string;
+  extractedText: string | null;
   summary: string | null;
   mimeType: string;
 }
@@ -153,14 +151,14 @@ Instructions:
 Remember: You can only reference information that is explicitly contained in the document content provided above.`;
 }
 
-function buildMultiDocumentSystemPrompt(documents: DocumentData[], documentContext: z.infer<typeof documentChatSchema>['documentContext']): string {
+function buildMultiDocumentSystemPrompt(documents: DocumentData[], documentContext: NonNullable<z.infer<typeof documentChatSchema>['documentContext']>): string {
   const contextDescription = documentContext.mode === 'current-folder' 
     ? `documents from the "${documentContext.folderName}" folder`
     : documentContext.mode === 'selected-documents'
     ? `${documents.length} selected documents`
     : `all ${documents.length} documents in your account`;
 
-  const documentList = documents.map((doc, index) => 
+  const documentList = documents.slice(0, 50).map((doc, index) =>
     `${index + 1}. ${doc.name} (${doc.mimeType})`
   ).join('\n');
 
@@ -168,6 +166,7 @@ function buildMultiDocumentSystemPrompt(documents: DocumentData[], documentConte
 
 Documents available:
 ${documentList}
+${documents.length > 50 ? "Additional documents are included in semantic retrieval." : ""}
 
 Instructions:
 1. Answer questions by searching across ALL available documents
@@ -183,39 +182,19 @@ When the user asks a question, I will perform a semantic search across these doc
 
 async function performDocumentSearch(
   query: string,
-  documentContext: z.infer<typeof documentChatSchema>['documentContext'],
+  documentContext: NonNullable<z.infer<typeof documentChatSchema>['documentContext']>,
   organizationId: string,
   loadedDocuments: DocumentData[]
 ) {
   try {
     // Build search filters based on document context
-    const searchFilters: Record<string, any> = {
+    const searchFilters: SearchFilters = {
       organizationId
     };
 
-    switch (documentContext.mode) {
-      case 'current-folder':
-        // Get all document IDs in the folder
-        const folderDocs = await prisma.document.findMany({
-          where: {
-            folderId: documentContext.folderId,
-            organizationId,
-            deletedAt: null
-          },
-          select: { id: true }
-        });
-        searchFilters.documentIds = folderDocs.map(d => d.id);
-        break;
-      
-      case 'selected-documents':
-        searchFilters.documentIds = documentContext.documentIds;
-        break;
-      
-      case 'all-documents':
-        // Use the loaded documents' IDs to ensure we only search within the context
-        searchFilters.documentIds = loadedDocuments.map(d => d.id);
-        break;
-    }
+    searchFilters.documentIds = loadedDocuments.map(d => d.id);
+    if (!searchFilters.documentIds.length) return [];
+
 
     console.log(`🔍 [Document Search] Performing semantic search:`, {
       query: query.substring(0, 100) + '...',
@@ -247,7 +226,7 @@ async function performDocumentSearch(
     return searchResults;
   } catch (error) {
     console.error('Document search error:', error);
-    return [];
+    throw new Error('Document retrieval is temporarily unavailable. Please retry.');
   }
 }
 
@@ -284,7 +263,7 @@ export async function POST(request: NextRequest) {
     const userOrg = await prisma.user.findFirst({
       where: {
         clerkId: userId,
-        organizationId
+        organizationId, deletedAt: null
       }
     });
 
@@ -295,8 +274,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const rateLimit = await checkRateLimit(request, rateLimitConfigs.ai, 'document-chat');
+    if (!rateLimit.success) return NextResponse.json({ error: 'Please try again later' }, { status: 429 });
+    const usageError = await guardUsage(userOrg.organizationId, UsageType.AI_QUERY);
+    if (usageError) return usageError;
+
     // Get document context based on scope
-    let documents = [];
+    let documents: DocumentData[] = [];
     let enhancedMessages = [...messages];
     let systemPrompt = '';
 
@@ -348,8 +332,8 @@ export async function POST(request: NextRequest) {
         ];
       } catch {
         return NextResponse.json(
-          { error: 'Failed to load document context' },
-          { status: 404 }
+          { error: 'Document context or retrieval unavailable. Please retry.' },
+          { status: 503 }
         );
       }
     }
@@ -367,8 +351,8 @@ export async function POST(request: NextRequest) {
         ];
       } catch {
         return NextResponse.json(
-          { error: 'Failed to load document context' },
-          { status: 404 }
+          { error: 'Document context or retrieval unavailable. Please retry.' },
+          { status: 503 }
         );
       }
     }
@@ -386,7 +370,7 @@ export async function POST(request: NextRequest) {
       } else if (model.startsWith('claude-')) {
         aiModel = anthropic(model);
       } else {
-        aiModel = openai('gpt-4o'); // Default fallback
+        return NextResponse.json({ error: 'Choose an OpenAI GPT or Anthropic Claude model for document chat' }, { status: 400 });
       }
 
       try {
@@ -395,6 +379,7 @@ export async function POST(request: NextRequest) {
           messages: enhancedMessages,
           temperature,
           maxTokens,
+          abortSignal: request.signal,
           onFinish: async (completion) => {
             // Track usage after completion
             const endTime = Date.now();
@@ -415,7 +400,9 @@ export async function POST(request: NextRequest) {
               'CREATE',
               `document_chat_${Date.now()}`,
               `Document Chat: ${userPrompt.substring(0, 100)}`,
-              null,
+              'Document chat',
+              0,
+              model,
               {
                 model,
                 temperature,
@@ -464,7 +451,7 @@ export async function POST(request: NextRequest) {
 
         return new Response(stream, {
           headers: {
-            'Content-Type': 'text/plain; charset=utf-8',
+            'Content-Type': 'text/event-stream; charset=utf-8',
             'Cache-Control': 'no-cache',
             'Connection': 'keep-alive'
           }
@@ -488,10 +475,7 @@ export async function POST(request: NextRequest) {
     } else {
       // Use our existing AI service manager for non-streaming or fallback
       try {
-        const aiService = new AIServiceManager({
-          enableFallback: true,
-          enableVercelAI: false // Use custom system for non-streaming
-        });
+        const aiService = AIServiceManager.getInstance();
 
         const response = await aiService.generateCompletion({
           messages: enhancedMessages,
@@ -519,7 +503,9 @@ export async function POST(request: NextRequest) {
           'CREATE',
           `document_chat_${Date.now()}`,
           `Document Chat: ${userPrompt.substring(0, 100)}`,
-          null,
+          'Document chat',
+          0,
+          model,
           {
             model,
             temperature,
@@ -541,7 +527,7 @@ export async function POST(request: NextRequest) {
           usage: response.usage,
           metadata: {
             documentId,
-            documentName: documentContext?.originalName,
+            documentName: documents[0]?.name,
             latency,
             provider: response.metadata?.provider
           }

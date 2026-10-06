@@ -63,7 +63,7 @@ export async function POST(request: NextRequest) {
       uploadType: type
     })
 
-    if (!file) {
+    if (!(file instanceof File)) {
       return NextResponse.json(
         { success: false, error: 'No file provided' },
         { status: 400 }
@@ -95,6 +95,9 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       )
     }
+
+      const bucket = await supabaseAdmin.storage.getBucket('documents');
+      if (bucket.error || bucket.data?.public !== false) return NextResponse.json({ error: 'Documents require a private storage bucket' }, { status: 503 });
 
     // Generate unique filename with proper folder structure
     const timestamp = Date.now()
@@ -165,57 +168,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Try to get public URL first, fallback to signed URL
-    let fileUrl: string
-    
-    // First try public URL (for public buckets)
-    const { data: publicData } = supabaseAdmin.storage
-      .from('documents')
-      .getPublicUrl(fileName)
-    
-    if (publicData?.publicUrl) {
-      // Test if the public URL actually works by making a quick HEAD request with timeout
-      try {
-        const controller = new AbortController()
-        const timeoutId = setTimeout(() => controller.abort(), 5000) // 5 second timeout
-        
-        const testResponse = await fetch(publicData.publicUrl, { 
-          method: 'HEAD',
-          signal: controller.signal
-        })
-        clearTimeout(timeoutId)
-        
-        if (testResponse.ok) {
-          fileUrl = publicData.publicUrl
-          console.log('Generated public URL:', fileUrl)
-        } else {
-          throw new Error(`Public URL not accessible: ${testResponse.status} ${testResponse.statusText}`)
-        }
-      } catch (error) {
-        console.log('Public URL not accessible, creating long-term signed URL...', error instanceof Error ? error.message : 'Unknown error')
-        // Fallback to signed URL with very long expiry (10 years for profile images)
-        const { data: signedData, error: signedError } = await supabaseAdmin.storage
-          .from('documents')
-          .createSignedUrl(fileName, 60 * 60 * 24 * 365 * 10) // 10 years expiry
-        
-        if (signedError || !signedData?.signedUrl) {
-          console.error('Failed to generate signed URL:', signedError)
-          return NextResponse.json(
-            { success: false, error: 'Failed to generate file URL' },
-            { status: 500 }
-          )
-        }
-        
-        fileUrl = signedData.signedUrl
-        console.log('Generated signed URL:', fileUrl)
-      }
-    } else {
-      console.error('Failed to generate public URL for file:', fileName)
-      return NextResponse.json(
-        { success: false, error: 'Failed to generate file URL' },
-        { status: 500 }
-      )
-    }
+    const fileUrl = `/api/v1/storage/download?path=${encodeURIComponent(fileName)}`;
 
     return NextResponse.json({
       success: true,

@@ -1,3 +1,8 @@
+import { checkRateLimit, rateLimitConfigs } from '@/lib/rate-limit';
+import { guardUsage } from '@/lib/billing/usage-guard';
+import { UsageType } from '@/lib/usage-tracking';
+import { getCurrentUser } from '@/lib/auth';
+import { canAccessOrganization } from '@/lib/security/access-policy';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { z } from 'zod';
@@ -33,6 +38,7 @@ export async function POST(request: NextRequest) {
     // Parse form data
     const formData = await request.formData();
     const file = formData.get('file') as File;
+    if (!(file instanceof File)) return NextResponse.json({ error: 'File required' }, { status: 400 });
     const organizationId = formData.get('organizationId') as string;
     const folderId = formData.get('folderId') as string | null;
     const tagsParam = formData.get('tags') as string | null;
@@ -42,10 +48,10 @@ export async function POST(request: NextRequest) {
     let tags: string[] = [];
     if (tagsParam) {
       try {
-        tags = JSON.parse(tagsParam);
+        tags = z.array(z.string().max(100)).max(50).parse(JSON.parse(tagsParam));
       } catch (error) {
         console.warn('Failed to parse tags:', error);
-        tags = [];
+        return NextResponse.json({ error: 'Tags must be a JSON array of strings' }, { status: 400 });
       }
     }
     
@@ -63,7 +69,7 @@ export async function POST(request: NextRequest) {
     // Validate input
     const inputValidation = uploadSchema.safeParse({ 
       organizationId,
-      documentType: documentTypeParam 
+      documentType: documentTypeParam ?? undefined
     });
     if (!inputValidation.success) {
       console.error('❌ Input validation failed:', inputValidation.error.format());
@@ -104,46 +110,10 @@ export async function POST(request: NextRequest) {
       console.log(`[API DEBUG] File MIME type corrected: "${file.type}" → "${fileValidation.correctedMimeType}"`);
     }
 
-    // Verify user access to organization - use direct relationship with fallback creation
-    let user = await prisma.user.findUnique({
-      where: { clerkId: userId },
-      select: { id: true, organizationId: true, email: true }
-    });
-
-    console.log('🔍 Upload authorization debug:', {
-      clerkUserId: userId,
-      requestOrgId: organizationId,
-      userFromDB: user ? { id: user.id, organizationId: user.organizationId, email: user.email } : null,
-      userExists: !!user,
-      userIdType: typeof user?.id
-    });
-
-    // If user doesn't exist in database, create them with default organization
-    if (!user) {
-      console.log('🔧 User not found in database, creating with default organization...');
-      try {
-        user = await prisma.user.create({
-          data: {
-            clerkId: userId,
-            email: 'temp@example.com', // Will be updated by webhook later
-            organizationId: 'default',
-            role: 'MEMBER'
-          },
-          select: { id: true, organizationId: true, email: true }
-        });
-        console.log('✅ Created user with default organization:', user);
-      } catch (error) {
-        console.error('❌ Failed to create user:', error);
-        return NextResponse.json(
-          { error: 'Failed to create user account' },
-          { status: 500 }
-        );
-      }
-    }
-
-    // Allow access to default organization or user's assigned organization
-    const hasAccess = user.organizationId === organizationId || 
-                     (organizationId === 'default' && user.organizationId);
+    // Resolve the verified identity and require an exact tenant match.
+    const user = await getCurrentUser();
+    if (!user) return NextResponse.json({ error: 'Account unavailable' }, { status: 403 });
+    const hasAccess = canAccessOrganization(user, organizationId);
 
     if (!hasAccess) {
       console.error('❌ Organization access denied:', {
@@ -160,6 +130,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    if (user.role === 'VIEWER') return NextResponse.json({ error: 'Upload permission required' }, { status: 403 });
+    const rateLimit = await checkRateLimit(request, rateLimitConfigs.upload, 'document-upload');
+    if (!rateLimit.success) return NextResponse.json({ error: 'Please try again later' }, { status: 429 });
+    const usageError = await guardUsage(organizationId, UsageType.DOCUMENT_PROCESSING);
+    if (usageError) return usageError;
+
     // Generate unique file ID and path with new structure
     const documentId = nanoid();
     const fileExtension = file.name.split('.').pop() || 'bin';
@@ -171,12 +147,15 @@ export async function POST(request: NextRequest) {
     let storageUrl: string;
 
     if (supabaseAdmin) {
+      const bucket = await supabaseAdmin.storage.getBucket('documents');
+      if (bucket.error || bucket.data?.public !== false) return NextResponse.json({ error: 'Documents require a private storage bucket' }, { status: 503 });
+
       // Use Supabase storage
       const fileBuffer = await file.arrayBuffer();
       const { data, error: uploadError } = await supabaseAdmin.storage
         .from('documents')
         .upload(filePath, fileBuffer, {
-          contentType: file.type,
+          contentType: effectiveMimeType,
           upsert: false
         });
 
@@ -201,12 +180,9 @@ export async function POST(request: NextRequest) {
       // Update filePath with the actual path returned by Supabase
       filePath = data.path;
 
-      // Get public URL from Supabase
-      const { data: { publicUrl } } = supabaseAdmin.storage
-        .from('documents')
-        .getPublicUrl(filePath);
-      storageUrl = publicUrl;
+      storageUrl = `/api/v1/documents/${documentId}/download`;
     } else {
+      if (process.env.NODE_ENV === 'production') return NextResponse.json({ error: 'Private document storage is not configured' }, { status: 503 });
       // Fallback to local storage for development
       console.log('📁 Using local file storage (Supabase not configured)');
       const localResult = await uploadToLocal(processedFile, organizationId);
@@ -229,10 +205,10 @@ export async function POST(request: NextRequest) {
 
     // Validate and prepare document type
     const validDocumentTypes = ['PROPOSAL', 'CONTRACT', 'CERTIFICATION', 'COMPLIANCE', 'TEMPLATE', 'OTHER', 'SOLICITATION', 'AMENDMENT', 'CAPABILITY_STATEMENT', 'PAST_PERFORMANCE'];
-    const validDocumentType = validDocumentTypes.includes(documentTypeParam) ? documentTypeParam : 'OTHER';
+    const validDocumentType = inputValidation.data.documentType || 'OTHER';
     
     // Validate folderId if provided
-    const validFolderId = folderId === 'null' || folderId === '' ? null : folderId;
+    let validFolderId = folderId === 'null' || folderId === '' ? null : folderId;
     if (validFolderId) {
       try {
         const folderExists = await prisma.folder.findFirst({
@@ -242,10 +218,10 @@ export async function POST(request: NextRequest) {
           }
         });
         if (!folderExists) {
-          console.warn(`⚠️ Folder ${validFolderId} not found, using root folder instead`);
+          validFolderId = null;
         }
       } catch (error) {
-        console.warn('⚠️ Error validating folder, using root folder:', error);
+        validFolderId = null;
       }
     }
 
@@ -309,7 +285,7 @@ export async function POST(request: NextRequest) {
       
       try {
         // Import document processor
-        const { documentProcessor } = require('@/lib/ai/document-processor');
+        const { documentProcessor } = await import('@/lib/ai/document-processor');
         
         // Process document with basic processing only (text extraction + sections)
         const processingResult = await documentProcessor.processDocumentBasic(
@@ -372,6 +348,10 @@ export async function POST(request: NextRequest) {
       });
       
     } catch (dbError) {
+      if (supabaseAdmin) {
+        const cleanup = await supabaseAdmin.storage.from('documents').remove([filePath]);
+        if (cleanup.error) console.error('Orphan upload cleanup failed', cleanup.error);
+      }
       console.error('❌ Database error creating document:', dbError);
       console.error('❌ Database error details:', {
         message: dbError.message,
@@ -434,44 +414,10 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Verify user access to organization - use direct relationship with fallback creation
-    let user = await prisma.user.findUnique({
-      where: { clerkId: userId },
-      select: { id: true, organizationId: true, email: true }
-    });
-
-    console.log('🔍 Upload authorization debug:', {
-      clerkUserId: userId,
-      requestOrgId: organizationId,
-      userFromDB: user ? { id: user.id, organizationId: user.organizationId } : null
-    });
-
-    // If user doesn't exist in database, create them with default organization
-    if (!user) {
-      console.log('🔧 User not found in database, creating with default organization...');
-      try {
-        user = await prisma.user.create({
-          data: {
-            clerkId: userId,
-            email: 'temp@example.com', // Will be updated by webhook later
-            organizationId: 'default',
-            role: 'MEMBER'
-          },
-          select: { id: true, organizationId: true, email: true }
-        });
-        console.log('✅ Created user with default organization:', user);
-      } catch (error) {
-        console.error('❌ Failed to create user:', error);
-        return NextResponse.json(
-          { error: 'Failed to create user account' },
-          { status: 500 }
-        );
-      }
-    }
-
-    // Allow access to default organization or user's assigned organization
-    const hasAccess = user.organizationId === organizationId || 
-                     (organizationId === 'default' && user.organizationId);
+    // Resolve the verified identity and require an exact tenant match.
+    const user = await getCurrentUser();
+    if (!user) return NextResponse.json({ error: 'Account unavailable' }, { status: 403 });
+    const hasAccess = canAccessOrganization(user, organizationId);
 
     if (!hasAccess) {
       console.error('❌ Organization access denied:', {

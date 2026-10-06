@@ -18,9 +18,9 @@ import { PrismaClient } from '@prisma/client';
 const prisma = new PrismaClient();
 
 interface RouteParams {
-  params: {
+  params: Promise<{
     keyId: string;
-  };
+  }>;
 }
 
 /**
@@ -78,7 +78,8 @@ interface RouteParams {
  *       500:
  *         $ref: '#/components/responses/InternalServerError'
  */
-export async function POST(request: NextRequest, { params }: RouteParams) {
+export async function POST(request: NextRequest, props: RouteParams) {
+  const params = await props.params;
   try {
     // Validate CSRF token
     const csrfValidation = await validateCSRFInAPIRoute(request);

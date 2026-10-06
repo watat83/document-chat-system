@@ -1,3 +1,4 @@
+import { getPinecone } from './pinecone-client'
 /**
  * Vector Index Management Service
  * 
@@ -34,13 +35,10 @@ export interface OptimizationResult {
 }
 
 export class VectorIndexManager {
-  private pinecone: Pinecone
+  private get pinecone(): Pinecone { return getPinecone() }
   private pgVectorService: PgVectorSearchService
 
   constructor() {
-    this.pinecone = new Pinecone({
-      apiKey: process.env.PINECONE_API_KEY!,
-    })
     this.pgVectorService = new PgVectorSearchService()
   }
 

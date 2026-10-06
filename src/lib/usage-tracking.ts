@@ -249,23 +249,7 @@ export class UsageTrackingService {
     const check = await this.checkUsageLimit(organizationId, usageType, quantity);
     
     if (!check.allowed) {
-      const isDeveloper = await this.isDeveloperUser(organizationId);
-      const errorMessage = `Usage limit exceeded. Current usage: ${check.currentUsage}/${check.limit} for ${usageType}. Requested: ${quantity}, Remaining: ${check.remainingUsage}`;
-      
-      if (isDeveloper) {
-        console.warn('👨‍💻 [DEVELOPER BYPASS] Usage limit would be exceeded for regular users:', {
-          usageType,
-          currentUsage: check.currentUsage,
-          limit: check.limit,
-          requested: quantity,
-          remaining: check.remainingUsage,
-          percentUsed: check.percentUsed,
-          message: 'Action allowed for developer testing but would be blocked for regular users'
-        });
-        // Allow the action for developer but log the warning
-        return;
-      }
-      
+      const errorMessage = `Usage limit exceeded for ${usageType}. Remaining: ${check.remainingUsage}`;
       // For regular users, throw the error
       const error = new Error(errorMessage);
       (error as any).usageCheck = check;
@@ -277,29 +261,6 @@ export class UsageTrackingService {
   /**
    * Check if the current user is the developer (yourpersonalmarketer123@gmail.com)
    */
-  private static async isDeveloperUser(organizationId: string): Promise<boolean> {
-    try {
-      // Get organization members to find users with developer email
-      const developerUser = await db.user.findFirst({
-        where: {
-          organizationId,
-          email: 'yourpersonalmarketer123@gmail.com'
-        }
-      });
-      
-      console.log('🔍 Developer user check:', {
-        organizationId,
-        developerEmail: 'yourpersonalmarketer123@gmail.com',
-        found: !!developerUser,
-        userId: developerUser?.id
-      });
-      
-      return !!developerUser;
-    } catch (error) {
-      console.warn('Error checking developer status:', error);
-      return false;
-    }
-  }
 
   /**
    * Check usage limits and return detailed information for UI display

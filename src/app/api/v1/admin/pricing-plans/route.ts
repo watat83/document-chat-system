@@ -1,3 +1,4 @@
+import { isPlatformAdmin } from '@/lib/security/platform-admin'
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@clerk/nextjs/server'
 import { db } from '@/lib/db'
@@ -43,26 +44,6 @@ const updatePricingPlanSchema = createPricingPlanSchema.partial().extend({
   stripeYearlyPriceId: z.string().optional()
 })
 
-// Helper to check if user is admin
-async function isAdmin(userId: string): Promise<boolean> {
-  const user = await db.user.findUnique({
-    where: { clerkId: userId },
-    select: { 
-      role: true,
-      email: true,
-      organization: {
-        select: {
-          stripeCustomerId: true
-        }
-      }
-    }
-  })
-  
-  // Allow OWNER and ADMIN roles, or specific admin emails
-  const adminEmails = ['yourpersonalmarketer123@gmail.com']
-  return user?.role === 'OWNER' || user?.role === 'ADMIN' || adminEmails.includes(user?.email || '')
-}
-
 // GET: List all pricing plans
 export async function GET(request: NextRequest) {
   try {
@@ -72,7 +53,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Check if user is admin
-    if (!(await isAdmin(userId))) {
+    if (!(isPlatformAdmin(userId))) {
       return NextResponse.json({ error: 'Forbidden: Admin access required' }, { status: 403 })
     }
 
@@ -164,7 +145,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Check if user is admin
-    if (!(await isAdmin(userId))) {
+    if (!(isPlatformAdmin(userId))) {
       return NextResponse.json({ error: 'Forbidden: Admin access required' }, { status: 403 })
     }
 
@@ -306,7 +287,7 @@ export async function PUT(request: NextRequest) {
     }
 
     // Check if user is admin
-    if (!(await isAdmin(userId))) {
+    if (!(isPlatformAdmin(userId))) {
       return NextResponse.json({ error: 'Forbidden: Admin access required' }, { status: 403 })
     }
 
@@ -458,7 +439,7 @@ export async function DELETE(request: NextRequest) {
     }
 
     // Check if user is admin
-    if (!(await isAdmin(userId))) {
+    if (!(isPlatformAdmin(userId))) {
       return NextResponse.json({ error: 'Forbidden: Admin access required' }, { status: 403 })
     }
 

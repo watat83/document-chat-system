@@ -1,5 +1,8 @@
 'use client';
 
+import { useConversationHistory } from '@/hooks/use-conversation-history';
+import { readSSEData } from '@/lib/ai/sse-reader';
+
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useAuth, SignInButton } from '@clerk/nextjs';
 import { useNotify } from '@/contexts/notification-context';
@@ -214,6 +217,8 @@ export function CleanAIChat({ organizationId, className, onCitationsUpdate, chat
   
   // Chat state
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const history = useConversationHistory(userId, organizationId, messages, setMessages);
+  const requestAbort = useRef<AbortController | null>(null);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
@@ -222,8 +227,8 @@ export function CleanAIChat({ organizationId, className, onCitationsUpdate, chat
   
   // Compute overall loading state including AI models loading
   const isInputDisabled = useMemo(() => {
-    return isLoading || ai.loading || models.length === 0;
-  }, [isLoading, ai.loading, models.length]);
+    return isLoading || ai.loading || models.length === 0 || (!history.ready && !history.error);
+  }, [isLoading, ai.loading, models.length, history.ready, history.error]);
   const [currentStreamingMessage, setCurrentStreamingMessage] = useState('');
   
   // Image generation mode toggle
@@ -844,8 +849,9 @@ export function CleanAIChat({ organizationId, className, onCitationsUpdate, chat
     // Don't clear uploaded documents - keep them for follow-up questions
     // setDocuments([]);
     
+    requestAbort.current = new AbortController();
     setIsThinking(true);
-    setIsLoading(false);
+    setIsLoading(true);
     setIsStreaming(false);
     setStreamProgress(0);
 
@@ -943,9 +949,6 @@ export function CleanAIChat({ organizationId, className, onCitationsUpdate, chat
 
       setCurrentlyUsedModel(modelToUse);
       
-      // Add thinking delay (1.5-3 seconds) - This delay does NOT count toward usage
-      const thinkingDelay = Math.random() * 1500 + 1500; // 1.5-3 seconds
-      await new Promise(resolve => setTimeout(resolve, thinkingDelay));
       
       // Switch from thinking to typing
       setIsThinking(false);
@@ -1213,7 +1216,7 @@ Provide accurate, helpful, and professional assistance.`
           ...requestBody,
           documentContext: chatState.documentScope,
           useVercelOptimized: true,
-          model: 'gpt-4o', // Use OpenAI for document chat
+          model: selectedModel.replace(/^(openai|anthropic)\//, ''),
           temperature: 0.3, // Lower temperature for factual responses
         };
       }
@@ -1223,7 +1226,8 @@ Provide accurate, helpful, and professional assistance.`
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(requestBody)
+        body: JSON.stringify(requestBody),
+        signal: requestAbort.current?.signal
       });
       
       console.log('✅ Fetch completed, response status:', response.status);
@@ -1384,51 +1388,23 @@ Provide accurate, helpful, and professional assistance.`
         setIsStreaming(true);
         setCurrentStreamingMessage('');
         
-        const decoder = new TextDecoder();
         let fullContent = '';
         let streamingModel: string | null = null;
-        
-        try {
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            
-            const chunk = decoder.decode(value, { stream: true });
-            const lines = chunk.split('\n');
-            
-            for (const line of lines) {
-              if (line.startsWith('data: ')) {
-                const data = line.slice(6);
-                if (data === '[DONE]') {
-                  break;
-                }
-                
-                try {
-                  const parsed = JSON.parse(data);
-                  
-                  // Extract model information from the first chunk
-                  if (parsed.model && !streamingModel) {
-                    streamingModel = parsed.model;
-                    setCurrentlyUsedModel(streamingModel);
-                  }
-                  
-                  if (parsed.choices && parsed.choices[0] && parsed.choices[0].delta && parsed.choices[0].delta.content) {
-                    const newContent = parsed.choices[0].delta.content;
-                    // Ensure content is always a string
-                    const stringContent = ensureStringContent(newContent);
-                    fullContent += stringContent;
-                    setCurrentStreamingMessage(fullContent);
-                  }
-                } catch (e) {
-                  // Skip malformed JSON
-                }
-              }
-            }
+        for await (const data of readSSEData(reader)) {
+          if (data === '[DONE]') break;
+          const parsed = JSON.parse(data);
+          if (parsed.error) throw new Error(typeof parsed.error === 'string' ? parsed.error : 'AI response failed');
+          if (parsed.model && !streamingModel) {
+            streamingModel = parsed.model;
+            setCurrentlyUsedModel(streamingModel);
           }
-        } finally {
-          reader.releaseLock();
+          const content = parsed.choices?.[0]?.delta?.content;
+          if (content) {
+            fullContent += ensureStringContent(content);
+            setCurrentStreamingMessage(fullContent);
+          }
         }
-        
+
         // Extract file citations from the final content
         const fileCitations = extractFileCitations(fullContent, attachedFiles);
         
@@ -1480,6 +1456,7 @@ Provide accurate, helpful, and professional assistance.`
       }
       
     } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') return;
       console.error('Real AI API error:', error);
       
       // Handle specific error types
@@ -1505,7 +1482,11 @@ Provide accurate, helpful, and professional assistance.`
     try {
       
       // Check if user is authenticated for media generation
-      if (!isSignedIn) {
+      if (isSignedIn && !history.ready && !history.error) {
+    return <div className="flex h-full items-center justify-center text-muted-foreground">Loading your conversation…</div>;
+  }
+
+  if (!isSignedIn) {
         notifyWarning('Please sign in to use image generation features.');
         return null;
       }
@@ -2115,6 +2096,7 @@ Would you like me to dive deeper into any aspects of your question?
       
       {/* Main Chat Area */}
       <div className="flex-1 flex flex-col">
+        {history.error && <p role="status" className="border-b bg-amber-50 px-4 py-2 text-sm text-amber-900 dark:bg-amber-950 dark:text-amber-100">{history.error}</p>}
         {/* Chat Messages */}
         <div className="flex-1 overflow-hidden">
           <ScrollArea className="h-full" onScrollCapture={handleScroll}>
@@ -2753,6 +2735,7 @@ Would you like me to dive deeper into any aspects of your question?
                   </button>
                 </div>
 
+                {(isLoading || isThinking || isStreaming) && <button type="button" onClick={() => requestAbort.current?.abort()} className="absolute bottom-3 right-14 rounded-md border bg-background px-3 py-1.5 text-sm" aria-label="Stop response">Stop</button>}
                 {/* Send Button */}
                 <div className="absolute bottom-2 sm:bottom-3 right-2 sm:right-3">
                   <button

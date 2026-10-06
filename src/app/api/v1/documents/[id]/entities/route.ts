@@ -1,3 +1,4 @@
+import { guardDocumentMutation } from '@/lib/security/document-route-guard';
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@clerk/nextjs/server'
 import { z } from 'zod'
@@ -206,10 +207,8 @@ const updateEntitySchema = z.object({
  *       500:
  *         description: Internal server error
  */
-export async function GET(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
+export async function GET(request: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   try {
     const { userId } = await auth()
     if (!userId) {
@@ -248,13 +247,13 @@ export async function GET(
 
     // Check if user has permission to view document (must have READ or be owner)
     const canViewDocument = document.uploadedById === user.id || 
-      await prisma.documentPermission.findFirst({
+      (await prisma.documentPermission.findFirst({
         where: {
           documentId,
           userId: user.id,
           permission: { in: ['READ', 'WRITE', 'DELETE', 'SHARE', 'COMMENT'] }
         }
-      })
+      }))
 
     if (!canViewDocument) {
       return NextResponse.json({ error: 'Access denied' }, { status: 403 })
@@ -322,10 +321,11 @@ export async function GET(
   }
 }
 
-export async function POST(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
+export async function POST(request: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const permissionError = await guardDocumentMutation((await props.params).id, 'WRITE');
+  if (permissionError) return permissionError;
+
+  const params = await props.params;
   try {
     const { userId } = await auth()
     if (!userId) {
@@ -377,13 +377,13 @@ export async function POST(
 
     // Check if user has permission to modify document (must have WRITE or be owner)
     const canModifyDocument = document.uploadedById === user.id || 
-      await prisma.documentPermission.findFirst({
+      (await prisma.documentPermission.findFirst({
         where: {
           documentId,
           userId: user.id,
           permission: { in: ['WRITE', 'DELETE'] }
         }
-      })
+      }))
 
     if (!canModifyDocument) {
       return NextResponse.json({ error: 'Access denied' }, { status: 403 })

@@ -204,10 +204,8 @@ async function findOwnSavedSearch(id: string, userId: string, orgId: string) {
 }
 
 // GET /api/v1/saved-searches/[id] - Get saved search by ID
-export async function GET(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
+export async function GET(request: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   try {
     const authResult = await auth()
     const userId = authResult?.userId
@@ -269,10 +267,8 @@ export async function GET(
 }
 
 // PUT /api/v1/saved-searches/[id] - Update saved search
-export async function PUT(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
+export async function PUT(request: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   try {
     const authResult = await auth()
     const userId = authResult?.userId
@@ -373,10 +369,8 @@ export async function PUT(
 }
 
 // DELETE /api/v1/saved-searches/[id] - Delete saved search
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
+export async function DELETE(request: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   try {
     const authResult = await auth()
     const userId = authResult?.userId

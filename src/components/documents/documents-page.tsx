@@ -478,37 +478,6 @@ const DocumentsPageContent = () => {
   // If we have data available or auth has timed out, bypass auth loading
   const hasDataOrTimeout = (state.documents?.length > 0 || state.folders?.length > 0) || authTimeout;
   
-  // Render loading/error states without early returns
-  if (isLoading && !hasDataOrTimeout) {
-    return <div className="flex items-center justify-center min-h-screen">
-      <div className="text-center">
-        <Folder className="h-12 w-12 text-gray-400 mx-auto mb-4 animate-pulse" />
-        <h2 className="text-xl font-semibold text-gray-900 mb-2">Loading...</h2>
-        <p className="text-gray-600">Please wait while we set up your workspace.</p>
-      </div>
-    </div>
-  }
-  
-  if (isNotSignedIn) {
-    return <div className="flex items-center justify-center min-h-screen">
-      <div className="text-center">
-        <p className="text-xl font-semibold mb-4">Authentication Required</p>
-        <p className="text-sm text-muted-foreground">Please sign in to access this page.</p>
-      </div>
-    </div>
-  }
-  
-  if (isMissingUser) {
-    return <div className="flex items-center justify-center min-h-screen">
-      <div className="text-center">
-        <p className="text-xl font-semibold mb-4">User Data Missing</p>
-        <p className="text-sm text-muted-foreground">Unable to load user information. Please try refreshing the page.</p>
-      </div>
-    </div>
-  }
-
-  // All hooks have been moved to the top to prevent React Hooks order violations
-
   // Computed data using store selectors
   const currentFolders = useMemo(() => {
     const result = getFolderChildren(currentFolderId);
@@ -2678,6 +2647,37 @@ const DocumentsPageContent = () => {
       </div>
     );
   }
+
+  // Render loading/error states without early returns
+  if (isLoading && !hasDataOrTimeout) {
+    return <div className="flex items-center justify-center min-h-screen">
+      <div className="text-center">
+        <Folder className="h-12 w-12 text-gray-400 mx-auto mb-4 animate-pulse" />
+        <h2 className="text-xl font-semibold text-gray-900 mb-2">Loading...</h2>
+        <p className="text-gray-600">Please wait while we set up your workspace.</p>
+      </div>
+    </div>
+  }
+
+  if (isNotSignedIn) {
+    return <div className="flex items-center justify-center min-h-screen">
+      <div className="text-center">
+        <p className="text-xl font-semibold mb-4">Authentication Required</p>
+        <p className="text-sm text-muted-foreground">Please sign in to access this page.</p>
+      </div>
+    </div>
+  }
+
+  if (isMissingUser) {
+    return <div className="flex items-center justify-center min-h-screen">
+      <div className="text-center">
+        <p className="text-xl font-semibold mb-4">User Data Missing</p>
+        <p className="text-sm text-muted-foreground">Unable to load user information. Please try refreshing the page.</p>
+      </div>
+    </div>
+  }
+
+  // All hooks have been moved to the top to prevent React Hooks order violations
 
   return (
     <AppLayout>

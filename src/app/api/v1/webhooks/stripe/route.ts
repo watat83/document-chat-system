@@ -1,3 +1,5 @@
+import { getInvoiceSubscriptionId } from '@/lib/billing/invoice-subscription';
+import { claimWebhook } from '@/lib/billing/webhook-lease';
 import { headers } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
 import { stripe, STRIPE_WEBHOOK_EVENTS } from '@/lib/stripe-server';
@@ -53,35 +55,20 @@ export async function POST(request: NextRequest) {
   // Log the event for debugging
   console.log(`Received Stripe webhook: ${event.type} - ${event.id}`);
 
+  let lease: Awaited<ReturnType<typeof claimWebhook>> | undefined;
   try {
-    // Check if we've already processed this event
-    const existingEvent = await db.billingEvent.findUnique({
-      where: { stripeEventId: event.id }
-    });
-
-    if (existingEvent) {
-      console.log(`Event ${event.id} already processed`);
-      return NextResponse.json({ received: true });
-    }
-
-    // Create billing event record
-    const billingEvent = await db.billingEvent.create({
-      data: {
-        eventType: event.type,
-        stripeEventId: event.id,
-        data: event as any,
-        processed: false,
-      }
-    });
+    lease = await claimWebhook(db, event);
+    if (lease.status === 'completed') return NextResponse.json({ received: true });
+    if (lease.status === 'busy') return NextResponse.json({ error: 'Event is processing; retry later' }, { status: 503, headers: { 'Retry-After': '30' } });
 
     // Process the event based on type
     switch (event.type) {
       case STRIPE_WEBHOOK_EVENTS.CUSTOMER_SUBSCRIPTION_CREATED:
-        await handleSubscriptionCreated(event.data.object as Stripe.Subscription);
+        await handleSubscriptionCreated(await stripe.subscriptions.retrieve((event.data.object as Stripe.Subscription).id));
         break;
         
       case STRIPE_WEBHOOK_EVENTS.CUSTOMER_SUBSCRIPTION_UPDATED:
-        await handleSubscriptionUpdated(event.data.object as Stripe.Subscription);
+        await handleSubscriptionUpdated(await stripe.subscriptions.retrieve((event.data.object as Stripe.Subscription).id));
         break;
         
       case STRIPE_WEBHOOK_EVENTS.CUSTOMER_SUBSCRIPTION_DELETED:
@@ -129,14 +116,15 @@ export async function POST(request: NextRequest) {
     }
 
     // Mark event as processed
-    await db.billingEvent.update({
-      where: { id: billingEvent.id },
+    const completed = await db.billingEvent.updateMany({
+      where: { id: lease.id, processingStartedAt: lease.startedAt, processed: false },
       data: { 
         processed: true, 
-        processedAt: new Date() 
+        processedAt: new Date(), processingStartedAt: null
       }
     });
 
+    if (completed.count !== 1) throw new Error('Webhook processing lease expired');
     return NextResponse.json({ received: true });
 
   } catch (error) {
@@ -144,9 +132,10 @@ export async function POST(request: NextRequest) {
     
     // Update event with error
     try {
-      await db.billingEvent.updateMany({
-        where: { stripeEventId: event.id },
+      if (lease?.status === 'claimed') await db.billingEvent.updateMany({
+        where: { stripeEventId: event.id, processed: false, ...(lease && 'startedAt' in lease ? { processingStartedAt: lease.startedAt } : {}) },
         data: { 
+          processingStartedAt: null,
           processingError: error instanceof Error ? error.message : 'Unknown error',
           retryCount: { increment: 1 }
         }
@@ -256,51 +245,23 @@ async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
   // Note: No cache to invalidate since subscription caching is disabled
 }
 
+async function syncInvoiceSubscription(invoice: Stripe.Invoice) {
+  const subscriptionId = getInvoiceSubscriptionId(invoice);
+  if (!subscriptionId) return;
+  const current = await stripe.subscriptions.retrieve(subscriptionId);
+  const customerId = typeof current.customer === 'string' ? current.customer : current.customer.id;
+  const organization = await db.organization.findFirst({ where: { stripeCustomerId: customerId } });
+  if (!organization) throw new Error('Invoice organization is not synchronized yet');
+  // Delivery order does not define the current billing state; retrieve it from Stripe.
+  await SubscriptionManager.syncSubscriptionToDatabase(current, organization.id);
+}
+
 async function handleInvoicePaymentSucceeded(invoice: Stripe.Invoice) {
-  console.log('Processing successful payment for invoice:', invoice.id);
-  
-  if (invoice.subscription) {
-    const subscription = await db.subscription.findFirst({
-      where: { stripeSubscriptionId: invoice.subscription as string }
-    });
-
-    if (subscription) {
-      // Update subscription status if it was past due
-      if (subscription.status === 'PAST_DUE') {
-        await db.subscription.update({
-          where: { id: subscription.id },
-          data: { status: 'ACTIVE' }
-        });
-
-        await db.organization.update({
-          where: { id: subscription.organizationId },
-          data: { subscriptionStatus: 'ACTIVE' }
-        });
-      }
-    }
-  }
+  await syncInvoiceSubscription(invoice);
 }
 
 async function handleInvoicePaymentFailed(invoice: Stripe.Invoice) {
-  console.log('Processing failed payment for invoice:', invoice.id);
-  
-  if (invoice.subscription) {
-    const subscription = await db.subscription.findFirst({
-      where: { stripeSubscriptionId: invoice.subscription as string }
-    });
-
-    if (subscription) {
-      await db.subscription.update({
-        where: { id: subscription.id },
-        data: { status: 'PAST_DUE' }
-      });
-
-      await db.organization.update({
-        where: { id: subscription.organizationId },
-        data: { subscriptionStatus: 'PAST_DUE' }
-      });
-    }
-  }
+  await syncInvoiceSubscription(invoice);
 }
 
 async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session) {
@@ -353,8 +314,9 @@ async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session) 
       console.log(`✅ ${actionType} completed successfully for organization ${organizationId}`);
       
       // Create billing event for audit trail
-      await db.billingEvent.create({
-        data: {
+      await db.billingEvent.upsert({
+        where: { stripeEventId: `checkout_${session.id}` }, update: {},
+        create: {
           eventType: 'subscription_checkout_completed',
           stripeEventId: `checkout_${session.id}`,
           data: {
@@ -377,8 +339,9 @@ async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session) 
       console.error('❌ Error processing checkout session completion:', error);
       
       // Create error billing event
-      await db.billingEvent.create({
-        data: {
+      await db.billingEvent.upsert({
+        where: { stripeEventId: `checkout_error_${session.id}` }, update: {},
+        create: {
           eventType: 'subscription_checkout_error',
           stripeEventId: `checkout_error_${session.id}`,
           data: {

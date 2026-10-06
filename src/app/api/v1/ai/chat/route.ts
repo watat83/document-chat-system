@@ -1,3 +1,5 @@
+import { guardUsage } from '@/lib/billing/usage-guard';
+import { UsageTrackingService, UsageType } from '@/lib/usage-tracking';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { z } from 'zod';
@@ -6,9 +8,7 @@ import { prisma } from '@/lib/db';
 import { crudAuditLogger } from '@/lib/audit/crud-audit-logger';
 import { checkRateLimit, rateLimitConfigs } from '@/lib/rate-limit';
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+function getOpenAI() { return new OpenAI({ apiKey: process.env.OPENAI_API_KEY }); }
 
 const chatRequestSchema = z.object({
   messages: z.array(z.object({
@@ -126,6 +126,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    const account = await prisma.user.findFirst({ where: { clerkId: userId, deletedAt: null } });
+    if (!account) return NextResponse.json({ error: 'Account unavailable' }, { status: 403 });
+    const usageError = await guardUsage(account.organizationId, UsageType.AI_QUERY);
+    if (usageError) return usageError;
+
     // Rate limiting for AI requests (prevents cost explosion)
     const rateLimitResult = await checkRateLimit(request, rateLimitConfigs.ai, 'ai-chat');
     if (!rateLimitResult.success) {
@@ -181,13 +186,15 @@ export async function POST(request: NextRequest) {
 
     // Call OpenAI API
     console.log('🚀 Calling OpenAI API...');
-    const completion = await openai.chat.completions.create({
+    const completion = await getOpenAI().chat.completions.create({
       model,
       messages,
       temperature,
       max_tokens,
       stream: false
     });
+
+    await UsageTrackingService.trackUsage({ organizationId: account.organizationId, usageType: UsageType.AI_QUERY, quantity: 1, resourceType: 'chat' });
 
     console.log('✅ OpenAI response received:', {
       choices: completion.choices.length,

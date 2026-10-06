@@ -186,19 +186,6 @@ export const FilePreview: React.FC<FilePreviewProps> = ({ document: doc, classNa
     });
   }
   
-  // If it's a created document, show "No file" message or hide preview
-  if (isCreatedDocument) {
-    return (
-      <div className="flex flex-col items-center justify-center text-muted-foreground h-full">
-        <div className="text-4xl mb-3">
-          <FileText />
-        </div>
-        <p className="text-sm">No file</p>
-        <p className="text-xs mt-1">Created Document</p>
-      </div>
-    );
-  }
-  
   // Removed debug logging to prevent continuous re-render logs
 
   // Check if file is valid (using duck typing only - no instanceof)
@@ -488,6 +475,19 @@ export const FilePreview: React.FC<FilePreviewProps> = ({ document: doc, classNa
       }
   }
 
+  // If it's a created document, show "No file" message or hide preview
+  if (isCreatedDocument) {
+    return (
+      <div className="flex flex-col items-center justify-center text-muted-foreground h-full">
+        <div className="text-4xl mb-3">
+          <FileText />
+        </div>
+        <p className="text-sm">No file</p>
+        <p className="text-xs mt-1">Created Document</p>
+      </div>
+    );
+  }
+
   // Handle PDF files
   const isPdfType = doc.type === 'pdf' || doc.mimeType === 'application/pdf';
 
@@ -739,6 +739,7 @@ export const FilePreview: React.FC<FilePreviewProps> = ({ document: doc, classNa
 
   // Default fallback - use CanvasPreviewWithFetch for any other file types
   // This ensures all file types get some kind of preview
+
   return (
     <div className={`w-full h-full ${className}`}>
       <CanvasPreviewWithFetch document={doc} className="w-full h-full" />
