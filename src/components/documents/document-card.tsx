@@ -82,7 +82,7 @@ export const DocumentCard: React.FC<DocumentCardProps> = ({
       <div className="flex items-start justify-between mb-3">
         <div className="flex items-center gap-3 flex-1 min-w-0">
           <div className="flex-shrink-0">
-            <DocumentThumbnail 
+            <DocumentThumbnail
               document={doc}
               size={24}
             />
@@ -96,7 +96,7 @@ export const DocumentCard: React.FC<DocumentCardProps> = ({
               <span>•</span>
               <span>{formatDateOnly(doc.lastModified)}</span>
             </div>
-            
+
             {/* Processing Status */}
             {doc.processing?.currentStatus && doc.processing.currentStatus !== 'COMPLETED' && (
               <div className="mt-1">
@@ -110,7 +110,7 @@ export const DocumentCard: React.FC<DocumentCardProps> = ({
             )}
           </div>
         </div>
-        
+
         <div className="flex items-center gap-2">
           <Badge
             variant="outline"
@@ -118,7 +118,7 @@ export const DocumentCard: React.FC<DocumentCardProps> = ({
           >
             {fileType.toUpperCase()}
           </Badge>
-          
+
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
@@ -141,7 +141,7 @@ export const DocumentCard: React.FC<DocumentCardProps> = ({
                 <Eye size={16} />
                 Preview
               </DropdownMenuItem>
-              
+
               <DropdownMenuItem
                 onClick={(e) => {
                   e.stopPropagation()
@@ -152,7 +152,7 @@ export const DocumentCard: React.FC<DocumentCardProps> = ({
                 <Edit3 size={16} />
                 Edit metadata
               </DropdownMenuItem>
-              
+
               {onAnalyze && doc.processing?.currentStatus !== 'PROCESSING' && (
                 <DropdownMenuItem
                   onClick={(e) => {
@@ -165,9 +165,9 @@ export const DocumentCard: React.FC<DocumentCardProps> = ({
                   AI Analysis
                 </DropdownMenuItem>
               )}
-              
+
               <DropdownMenuSeparator />
-              
+
               <DropdownMenuItem
                 onClick={(e) => {
                   e.stopPropagation()
@@ -178,7 +178,7 @@ export const DocumentCard: React.FC<DocumentCardProps> = ({
                 <Download size={16} />
                 Download
               </DropdownMenuItem>
-              
+
               <DropdownMenuItem
                 onClick={(e) => {
                   e.stopPropagation()
@@ -189,9 +189,9 @@ export const DocumentCard: React.FC<DocumentCardProps> = ({
                 <Share size={16} />
                 Share
               </DropdownMenuItem>
-              
+
               <DropdownMenuSeparator />
-              
+
               <DropdownMenuSub>
                 <DropdownMenuSubTrigger className="flex items-center gap-2">
                   <Move size={16} />
@@ -216,17 +216,17 @@ export const DocumentCard: React.FC<DocumentCardProps> = ({
                         onMove(doc.id)
                       }}
                       className="flex items-center gap-2"
-                      style={{ color: folder.color }}
+                      style={{ color: folder.color || undefined }}
                     >
-                      <FolderIcon size={16} style={{ color: folder.color }} />
+                      <FolderIcon size={16} style={{ color: folder.color || undefined }} />
                       {folder.name}
                     </DropdownMenuItem>
                   ))}
                 </DropdownMenuSubContent>
               </DropdownMenuSub>
-              
+
               <DropdownMenuSeparator />
-              
+
               <DropdownMenuItem
                 onClick={(e) => {
                   e.stopPropagation()
@@ -241,7 +241,7 @@ export const DocumentCard: React.FC<DocumentCardProps> = ({
           </DropdownMenu>
         </div>
       </div>
-      
+
       {doc.tags && doc.tags.length > 0 && (
         <div className="flex flex-wrap gap-1 mb-2">
           {doc.tags.slice(0, 3).map((tag) => (

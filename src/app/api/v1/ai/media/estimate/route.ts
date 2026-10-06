@@ -98,6 +98,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
+import { prisma } from '@/lib/db';
 import { z } from 'zod';
 import { AIServiceManager } from '@/lib/ai/ai-service-manager';
 import { ImageRouterAdapter } from '@/lib/ai/providers/imagerouter-adapter';
@@ -123,7 +124,7 @@ type CostEstimationRequest = z.infer<typeof costEstimationSchema>;
 export async function POST(request: NextRequest) {
   try {
     // Authentication
-    const { userId, orgId } = await auth();
+    const { userId } = await auth();
     if (!userId) {
       return NextResponse.json(
         { success: false, error: 'Unauthorized' },
@@ -131,20 +132,22 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const user = await prisma.user.findFirst({ where: { clerkId: userId, deletedAt: null, organization: { deletedAt: null } } });
+    if (!user) return NextResponse.json({ success: false, error: 'Authenticated organization required' }, { status: 403 });
+
     // Rate limiting (more permissive for cost estimation)
-    const rateLimitResult = await rateLimit({
-      request,
-      identifier: userId,
+    const rateLimitResult = await rateLimit(request, {
+      keyGenerator: () => `rate_limit:media-estimate:${userId}`,
       windowMs: 60000, // 1 minute
       maxRequests: 100, // 100 cost estimations per minute
     });
 
     if (!rateLimitResult.success) {
       return NextResponse.json(
-        { 
-          success: false, 
+        {
+          success: false,
           error: 'Rate limit exceeded',
-          retryAfter: rateLimitResult.retryAfter 
+          retryAfter: Math.max(1, Math.ceil((rateLimitResult.resetTime.getTime() - Date.now()) / 1000))
         },
         { status: 429 }
       );
@@ -154,10 +157,10 @@ export async function POST(request: NextRequest) {
     const validation = await validateRequest(request, costEstimationSchema);
     if (!validation.success) {
       return NextResponse.json(
-        { 
-          success: false, 
+        {
+          success: false,
           error: 'Invalid request format',
-          details: validation.errors 
+          details: validation.error
         },
         { status: 400 }
       );
@@ -168,43 +171,22 @@ export async function POST(request: NextRequest) {
     // Get AI service manager and ImageRouter adapter
     const aiManager = AIServiceManager.getInstance();
     const imageRouterAdapter = aiManager.getProvider('imagerouter') as ImageRouterAdapter;
-    
+
     if (!imageRouterAdapter) {
       return NextResponse.json(
-        { 
-          success: false, 
-          error: 'ImageRouter provider not available' 
+        {
+          success: false,
+          error: 'ImageRouter provider not available'
         },
         { status: 503 }
       );
     }
 
-    // Build unified request for estimation
-    const unifiedRequest: UnifiedMediaGenerationRequest = {
-      prompt: requestData.prompt,
-      type: requestData.type,
-      model: requestData.model,
-      metadata: {
-        organizationId: orgId || undefined,
-        userId: userId
-      }
-    };
-
-    // Add type-specific properties
-    if (requestData.type === 'image') {
-      (unifiedRequest as any).quality = requestData.quality;
-      (unifiedRequest as any).count = requestData.count;
-    } else if (requestData.type === 'video') {
-      // Video-specific properties
-    } else if (requestData.type === 'edit') {
-      // For cost estimation, create mock images array
-      const imageCount = requestData.imageCount || 1;
-      (unifiedRequest as any).images = Array(imageCount).fill(null).map(() => ({
-        data: 'mock_data_for_estimation',
-        mimeType: 'image/jpeg'
-      }));
-      (unifiedRequest as any).quality = requestData.quality;
-    }
+    const base = { prompt: requestData.prompt, model: requestData.model, metadata: { organizationId: user.organizationId, userId: user.id } };
+    const unifiedRequest: UnifiedMediaGenerationRequest = requestData.type === 'image'
+      ? { ...base, type: 'image', quality: requestData.quality, count: requestData.count }
+      : requestData.type === 'video' ? { ...base, type: 'video' }
+      : { ...base, type: 'edit', images: Array.from({ length: requestData.imageCount ?? 1 }, () => ({ data: 'estimation-only', mimeType: 'image/jpeg' })), quality: requestData.quality };
 
     // Get cost estimate
     const costEstimate = await imageRouterAdapter.estimateMediaCost(unifiedRequest);
@@ -221,8 +203,8 @@ export async function POST(request: NextRequest) {
     // Handle specific error types
     if (error.message?.includes('Usage limit exceeded')) {
       return NextResponse.json(
-        { 
-          success: false, 
+        {
+          success: false,
           error: error.message,
           canProceed: false
         },
@@ -232,8 +214,8 @@ export async function POST(request: NextRequest) {
 
     // Generic error response
     return NextResponse.json(
-      { 
-        success: false, 
+      {
+        success: false,
         error: 'Failed to estimate media generation cost',
         details: process.env.NODE_ENV === 'development' ? error.message : undefined
       },

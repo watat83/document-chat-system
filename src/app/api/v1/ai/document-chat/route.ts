@@ -378,7 +378,7 @@ export async function POST(request: NextRequest) {
           model: aiModel,
           messages: enhancedMessages,
           temperature,
-          maxTokens,
+          maxOutputTokens: maxTokens,
           abortSignal: request.signal,
           onEnd: async (completion) => {
             // Track usage after completion

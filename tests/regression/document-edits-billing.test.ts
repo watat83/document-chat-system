@@ -74,3 +74,18 @@ test('document responses omit share credentials and do not invent analysis resul
   assert.equal(result.aiData.analysis.confidence, undefined);
   assert.equal(result.securityAnalysis, undefined);
 });
+
+test('processing transitions preserve history, zero progress and failed event flags', async () => {
+  const { processingSnapshot, processingTransition } = await import('../../src/lib/documents/processing-state');
+  const legacy = { status: 'PROCESSING', progress: 0, history: [{ id: 'old-event', success: false }], metadata: { source: 'upload' } };
+  assert.equal(processingSnapshot(legacy).currentStatus, 'PROCESSING');
+  const failed = processingTransition(legacy, 'FAILED', 'Provider unavailable', '2026-10-06T00:00:00Z');
+  assert.equal(failed.progress, 0);
+  assert.deepEqual(failed.events[0], legacy.history[0]);
+  assert.equal(failed.events[1].success, false);
+  assert.equal(failed.events[1].eventType, 'FAILED');
+  assert.deepEqual(failed.metadata, legacy.metadata);
+  const cancelled = processingTransition(failed, 'CANCELLED');
+  assert.equal(cancelled.currentStatus, 'CANCELLED');
+  assert.equal(cancelled.events.at(-1)?.success, false);
+});

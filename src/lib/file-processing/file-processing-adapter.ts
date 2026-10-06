@@ -156,25 +156,11 @@ export class FileProcessingAdapter {
   ): Promise<FileProcessingResult> {
     const processingOptions = { ...this.defaultOptions, ...options }
 
-    // First attempt with the specified MIME type
-    let result = await this.processFile(buffer, mimeType, processingOptions)
-
-    if (result.success) {
-      return result
-    }
-
-    // Try to detect MIME type from buffer content
-    const detectedMimeType = this.detectMimeType(buffer)
-    if (detectedMimeType && detectedMimeType !== mimeType) {
-      result = await this.processFile(
-        buffer,
-        detectedMimeType,
-        processingOptions
-      )
-      if (result.success) {
-        return result
-      }
-    }
+    // Prefer recognizable signatures to a generic or incorrect upload MIME type.
+    const detectedMimeType = this.detectMimeType(buffer);
+    const effectiveMimeType = detectedMimeType || mimeType;
+    const result = await this.processFile(buffer, effectiveMimeType, processingOptions);
+    if (result.success || detectedMimeType) return result;
 
     // Try with all compatible processors as fallback
     for (const processor of this.processors) {

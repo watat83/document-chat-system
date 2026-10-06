@@ -612,7 +612,7 @@ export function getErrorAnalytics(timeRange?: { start: Date; end: Date }): Error
 }
 
 // Export types
-export type { ErrorContext, ErrorReport, BreadcrumbEntry, ErrorAnalytics }
+
 
 // Default export
 export default getErrorRegistry

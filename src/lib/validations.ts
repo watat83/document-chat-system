@@ -1,11 +1,11 @@
 import { z } from 'zod'
 import DOMPurify from 'isomorphic-dompurify'
-import { 
-  BrandVoice, 
-  BrandTone, 
-  OrganizationLevel, 
+import {
+  BrandVoice,
+  BrandTone,
+  OrganizationLevel,
   TravelWillingness,
-  GeographicPreferenceType 
+  GeographicPreferenceType
 } from '@/types/profile'
 
 // Security validation helpers
@@ -20,14 +20,7 @@ const sanitizeRichText = (str: string) => {
       'p', 'br', 'strong', 'em', 'u', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
       'ul', 'ol', 'li', 'blockquote', 'code', 'pre', 'a', 'img', 'span', 'div'
     ],
-    ALLOWED_ATTR: {
-      a: ['href', 'title', 'target'],
-      img: ['src', 'alt', 'title', 'width', 'height'],
-      p: ['style'],
-      div: ['style'],
-      span: ['style'],
-      '*': ['class']
-    },
+    ALLOWED_ATTR: ['href', 'title', 'target', 'src', 'alt', 'width', 'height', 'class'],
     ALLOWED_URI_REGEXP: /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|sms|cid|xmpp):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i
   })
 }
@@ -381,15 +374,15 @@ export const ProfileUpdateSchema = z
       .or(z.literal(''))
       .refine((val) => {
         if (!val || val === '') return true
-        
+
         // Allow any reasonable phone number format - let the react-phone-number-input library handle validation
         // Accept digits, spaces, hyphens, parentheses, periods, and plus signs
         const validCharacters = /^[\+]?[\d\s\-\(\)\.]{7,25}$/.test(val)
         if (!validCharacters) return false
-        
+
         // Extract digits only for length check
         const digitsOnly = val.replace(/[^\d]/g, '')
-        
+
         // Be flexible with international numbers - some countries have shorter numbers
         // Minimum 7 digits (like some European numbers), maximum 15 digits (ITU-T E.164 standard)
         return digitsOnly.length >= 7 && digitsOnly.length <= 15
@@ -1055,7 +1048,7 @@ export const ProfileUpdateSchema = z
                 .describe(
                   `Alternative field name for completion year. Used for backward compatibility with legacy data.`
                 ),
-              
+
               // Enhanced fields for better profile enrichment and match scoring
               agency: createSafeOptionalString(200).describe(
                 'Government agency served (e.g., Department of Defense, GSA). Used for agency-specific match scoring and expertise demonstration.'
@@ -1079,7 +1072,7 @@ export const ProfileUpdateSchema = z
               securityClearanceRequired: createSafeOptionalString(50).describe(
                 'Security clearance level required for the project. Used for cleared opportunity matching.'
               ),
-              
+
               // Geographic information
               performanceLocation: z
                 .object({
@@ -1093,7 +1086,7 @@ export const ProfileUpdateSchema = z
                 .describe(
                   'Geographic location where the project work was performed. Used for location-based opportunity matching and travel requirements assessment.'
                 ),
-              
+
               // Contract details
               contractDuration: createSafeOptionalString(50).describe(
                 'Contract duration (e.g., 1 year, 2 years, 36 months). Used for timeline experience assessment.'
@@ -1115,7 +1108,7 @@ export const ProfileUpdateSchema = z
                 .describe(
                   'Size of team working on the project. Used for scale and capacity assessment.'
                 ),
-              
+
               // Performance metrics (removed onTimeDelivery and onBudgetDelivery)
               customerSatisfactionRating: z
                 .number()
@@ -1133,7 +1126,7 @@ export const ProfileUpdateSchema = z
                 .describe(
                   'Award fee earned if applicable (in US dollars). Used for performance incentive track record.'
                 ),
-              
+
               // Key achievements and technologies
               keyAchievements: z
                 .array(createSafeString(1, 500))

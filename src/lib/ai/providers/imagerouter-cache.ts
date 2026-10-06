@@ -398,6 +398,7 @@ export class ImageRouterCache {
     if (avgAccessInterval < this.config.tiers.l1.ttl * 0.5) {
       recommendations.push('Reduce L1 TTL to improve cache efficiency');
       newConfig.tiers = {
+        ...this.config.tiers,
         ...newConfig.tiers,
         l1: { ...this.config.tiers.l1, ttl: Math.max(60, avgAccessInterval * 2) }
       };
@@ -922,7 +923,7 @@ export class ImageRouterCache {
 
   // Additional placeholder methods for optimization features
   private async calculateOptimalTierSizes(): Promise<{ l1: number; l2: number; l3: number }> {
-    return this.config.tiers;
+    return { l1: this.config.tiers.l1.size, l2: this.config.tiers.l2.size, l3: this.config.tiers.l3.size };
   }
 
   private async calculateOptimalTTLs(): Promise<{ l1: number; l2: number; l3: number }> {

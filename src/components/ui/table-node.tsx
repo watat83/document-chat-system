@@ -35,14 +35,7 @@ import {
   Trash2Icon,
   XIcon,
 } from 'lucide-react';
-import {
-  type TElement,
-  type TTableCellElement,
-  type TTableElement,
-  type TTableRowElement,
-  KEYS,
-  PathApi,
-} from 'platejs';
+import { type TElement, type TTableCellElement, type TTableElement, type TTableRowElement, KEYS, PathApi } from 'platejs';
 import {
   type PlateElementProps,
   PlateElement,

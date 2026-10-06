@@ -163,7 +163,7 @@ export async function GET() {
           periodStart: invoice.period_start ? new Date(invoice.period_start * 1000).toISOString() : null,
           periodEnd: invoice.period_end ? new Date(invoice.period_end * 1000).toISOString() : null,
           subtotal: invoice.subtotal,
-          tax: invoice.tax || 0,
+          tax: invoice.total_taxes?.reduce((sum, tax) => sum + tax.amount, 0) ?? 0,
           amountPaid: invoice.amount_paid,
           amountDue: invoice.amount_due
         };

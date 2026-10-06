@@ -83,6 +83,7 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ providerId: string }> }
 ) {
+  const { providerId } = await params;
   try {
     const { userId } = await auth();
 
@@ -90,7 +91,6 @@ export async function GET(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { providerId } = await params;
     const { searchParams } = new URL(request.url);
     const forceRefresh = searchParams.get('force') === 'true';
 
@@ -105,7 +105,7 @@ export async function GET(
       case 'openai':
         adapter = new OpenAIAdapter({
           apiKey: ai.openaiApiKey,
-          organizationId: ai.openaiOrgId,
+          organizationId: ai.openaiOrganizationId,
           maxRetries: 1,
           timeout: 3000
         });
@@ -279,7 +279,7 @@ export async function POST(
       case 'openai':
         adapter = new OpenAIAdapter({
           apiKey: ai.openaiApiKey,
-          organizationId: ai.openaiOrgId,
+          organizationId: ai.openaiOrganizationId,
           maxRetries: 1,
           timeout: 3000
         });

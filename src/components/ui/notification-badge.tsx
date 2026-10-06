@@ -25,7 +25,7 @@ export function NotificationBadge({ className }: NotificationBadgeProps) {
     if (!notification.read) {
       markAsRead(notification.id)
     }
-    
+
     if (notification.actionUrl) {
       window.location.href = notification.actionUrl
     }
@@ -33,15 +33,15 @@ export function NotificationBadge({ className }: NotificationBadgeProps) {
 
   const getTypeIcon = (type: BadgeNotification['type']) => {
     switch (type) {
-      case 'opportunity':
+      case 'OPPORTUNITY':
         return '🎯'
-      case 'system':
+      case 'SYSTEM':
         return '⚙️'
-      case 'update':
+      case 'UPDATE':
         return '📢'
-      case 'warning':
+      case 'WARNING':
         return '⚠️'
-      case 'success':
+      case 'SUCCESS':
         return '✅'
       default:
         return '📣'
@@ -50,15 +50,15 @@ export function NotificationBadge({ className }: NotificationBadgeProps) {
 
   const getTypeColor = (type: BadgeNotification['type']) => {
     switch (type) {
-      case 'opportunity':
+      case 'OPPORTUNITY':
         return 'bg-blue-50 text-blue-700 border-blue-200'
-      case 'system':
+      case 'SYSTEM':
         return 'bg-gray-50 text-gray-700 border-gray-200'
-      case 'update':
+      case 'UPDATE':
         return 'bg-green-50 text-green-700 border-green-200'
-      case 'warning':
+      case 'WARNING':
         return 'bg-yellow-50 text-yellow-700 border-yellow-200'
-      case 'success':
+      case 'SUCCESS':
         return 'bg-emerald-50 text-emerald-700 border-emerald-200'
       default:
         return 'bg-gray-50 text-gray-700 border-gray-200'
@@ -92,7 +92,7 @@ export function NotificationBadge({ className }: NotificationBadgeProps) {
           )}
         </Button>
       </DropdownMenuTrigger>
-      
+
       <DropdownMenuContent align="end" className="w-96 p-0">
         <div className="flex items-center justify-between p-4 border-b">
           <h3 className="font-semibold text-sm">Notifications</h3>
@@ -110,7 +110,7 @@ export function NotificationBadge({ className }: NotificationBadgeProps) {
             )}
           </div>
         </div>
-        
+
         {notifications.length === 0 ? (
           <div className="p-8 text-center text-muted-foreground">
             <Bell className="h-8 w-8 mx-auto mb-2 opacity-50" />
@@ -135,7 +135,7 @@ export function NotificationBadge({ className }: NotificationBadgeProps) {
                       )}>
                         {getTypeIcon(notification.type)}
                       </div>
-                      
+
                       <div className="flex-1 min-w-0">
                         <div className="flex items-start justify-between gap-2">
                           <div className="flex-1 min-w-0">
@@ -162,7 +162,7 @@ export function NotificationBadge({ className }: NotificationBadgeProps) {
                               )}
                             </div>
                           </div>
-                          
+
                           <Button
                             variant="ghost"
                             size="sm"
@@ -179,7 +179,7 @@ export function NotificationBadge({ className }: NotificationBadgeProps) {
                       </div>
                     </div>
                   </div>
-                  
+
                   {index < notifications.length - 1 && (
                     <div className="h-px bg-border mx-3" />
                   )}
@@ -188,7 +188,7 @@ export function NotificationBadge({ className }: NotificationBadgeProps) {
             </div>
           </ScrollArea>
         )}
-        
+
         {notifications.length > 0 && (
           <>
             <DropdownMenuSeparator />

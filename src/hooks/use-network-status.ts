@@ -57,7 +57,7 @@ const DEFAULT_RECONNECT_DELAY = 5000 // 5 seconds
 
 /**
  * Network Status Hook
- * 
+ *
  * Provides comprehensive network monitoring with:
  * - Online/offline detection
  * - Connection quality assessment
@@ -86,20 +86,20 @@ export function useNetworkStatus(config: NetworkStatusConfig = {}) {
   const showSuccessRef = useRef(showSuccess)
   const showWarningRef = useRef(showWarning)
   const showInfoRef = useRef(showInfo)
-  
+
   // Refs for stable callback functions
-  const updateStatusRef = useRef<(() => Promise<void>) | undefined>(undefined)
-  const attemptReconnectionRef = useRef<(() => Promise<void>) | undefined>(undefined)
+  const updateStatusRef = useRef<((forceOnlineCheck?: boolean) => Promise<void>) | undefined>(undefined)
+  const attemptReconnectionRef = useRef<((forceOnlineCheck?: boolean) => Promise<void>) | undefined>(undefined)
   const resetReconnectionRef = useRef<(() => void) | undefined>(undefined)
   const performPingRef = useRef<(() => Promise<boolean>) | undefined>(undefined)
-  
+
   // Update refs when functions change
   useEffect(() => {
     showSuccessRef.current = showSuccess
     showWarningRef.current = showWarning
     showInfoRef.current = showInfo
   }, [showSuccess, showWarning, showInfo])
-  
+
   // Update callback refs
   useEffect(() => {
     updateStatusRef.current = updateStatus
@@ -136,7 +136,7 @@ export function useNetworkStatus(config: NetworkStatusConfig = {}) {
     }
 
     const connection = (navigator as any).connection
-    
+
     return {
       connectionType: connection.type || ConnectionType.UNKNOWN,
       effectiveConnection: mapEffectiveType(connection.effectiveType),
@@ -217,14 +217,14 @@ export function useNetworkStatus(config: NetworkStatusConfig = {}) {
         mode: 'no-cors' // Allow cross-origin pings
       })
       const endTime = performance.now()
-      
+
       // Update RTT based on ping
       const pingRtt = Math.round(endTime - startTime)
       setStatus(prev => ({
         ...prev,
         rtt: prev.rtt !== null ? Math.round((prev.rtt + pingRtt) / 2) : pingRtt
       }))
-      
+
       return true
     } catch (error) {
       console.log('Network ping failed:', error)
@@ -238,7 +238,7 @@ export function useNetworkStatus(config: NetworkStatusConfig = {}) {
   const updateStatus = useCallback(async (forceOnlineCheck = false) => {
     const isOnline = navigator.onLine
     const connectionInfo = getConnectionInfo()
-    
+
     // Perform actual connectivity check if online or forced
     let actuallyOnline = isOnline
     if (isOnline && forceOnlineCheck) {
@@ -276,7 +276,7 @@ export function useNetworkStatus(config: NetworkStatusConfig = {}) {
 
         if (qualityChanged && notifyOnQualityChange && actuallyOnline) {
           const qualityImproved = getQualityScore(quality) > getQualityScore(prev.quality)
-          
+
           if (qualityImproved && quality === NetworkQuality.EXCELLENT) {
             showInfoRef.current?.(
               'Network Quality',
@@ -344,7 +344,7 @@ export function useNetworkStatus(config: NetworkStatusConfig = {}) {
 
     // Check if we're actually back online
     const isOnline = await performPing()
-    
+
     if (isOnline) {
       console.log('Reconnection successful!')
       updateStatus(true)
@@ -359,7 +359,7 @@ export function useNetworkStatus(config: NetworkStatusConfig = {}) {
       if (currentStatus.reconnectAttempts + 1 < maxReconnectAttempts) {
         const delay = reconnectDelay * Math.pow(2, currentStatus.reconnectAttempts)
         console.log(`Next reconnection attempt in ${delay / 1000}s`)
-        
+
         reconnectTimeoutRef.current = setTimeout(() => {
           isReconnectingRef.current = false
           attemptReconnection()
@@ -448,7 +448,7 @@ export function useNetworkStatus(config: NetworkStatusConfig = {}) {
     return () => {
       window.removeEventListener('online', handleOnline)
       window.removeEventListener('offline', handleOffline)
-      
+
       if ('connection' in navigator) {
         const connection = (navigator as any).connection
         connection.removeEventListener('change', handleConnectionChange)

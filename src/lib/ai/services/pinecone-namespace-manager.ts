@@ -75,7 +75,7 @@ export class PineconeNamespaceManager {
     } else {
       console.log(`✅ Namespace already exists: ${namespaceInfo.namespace}`)
       namespaceInfo.created = false
-      
+
       // Get vector count for existing namespace
       try {
         const stats = await this.getNamespaceStats(namespaceInfo.namespace)
@@ -136,26 +136,26 @@ export class PineconeNamespaceManager {
    */
   private validateNamespace(namespace: string): NamespaceValidationResult {
     const errors: string[] = []
-    
+
     // Pinecone namespace requirements:
     // - Must be 1-45 characters
     // - Can contain alphanumeric characters, hyphens, and underscores
     // - Cannot start or end with hyphen or underscore
-    
+
     if (!namespace || namespace.length === 0) {
       errors.push('Namespace cannot be empty')
     }
-    
+
     if (namespace.length > 45) {
       errors.push('Namespace cannot exceed 45 characters')
     }
-    
+
     if (!/^[a-zA-Z0-9][a-zA-Z0-9\-_]*[a-zA-Z0-9]$|^[a-zA-Z0-9]$/.test(namespace)) {
       errors.push('Namespace can only contain alphanumeric characters, hyphens, and underscores, and cannot start or end with hyphen or underscore')
     }
 
     const sanitizedNamespace = this.sanitizeNamespacePart(namespace)
-    
+
     return {
       isValid: errors.length === 0,
       sanitizedNamespace,
@@ -169,18 +169,16 @@ export class PineconeNamespaceManager {
   private async namespaceExists(namespace: string): Promise<boolean> {
     try {
       const index = this.pinecone.index(process.env.PINECONE_INDEX_NAME!)
-      
+
       // Try to get stats for the specific namespace
-      const stats = await index.describeIndexStats({
-        filter: {}
-      })
-      
+      const stats = await index.describeIndexStats()
+
       // Check if namespace exists in the namespaces object
       if (stats.namespaces && namespace in stats.namespaces) {
-        console.log(`✅ Namespace ${namespace} exists with ${stats.namespaces[namespace].vectorCount} vectors`)
+        console.log(`✅ Namespace ${namespace} exists with ${stats.namespaces[namespace].recordCount} vectors`)
         return true
       }
-      
+
       console.log(`📋 Namespace ${namespace} does not exist yet`)
       return false
     } catch (error) {
@@ -196,7 +194,7 @@ export class PineconeNamespaceManager {
   private async createNamespace(namespace: string): Promise<void> {
     try {
       const index = this.pinecone.index(process.env.PINECONE_INDEX_NAME!)
-      
+
       // Create a temporary vector to initialize the namespace
       // This vector will be deleted immediately after creation
       const tempVectorId = `temp_init_${namespace}_${Date.now()}`
@@ -211,13 +209,13 @@ export class PineconeNamespaceManager {
       }
 
       console.log(`📋 Creating namespace ${namespace} with temporary vector...`)
-      
+
       // Upsert temporary vector to create namespace
       await index.namespace(namespace).upsert([tempVector])
-      
+
       // Immediately delete the temporary vector
       await index.namespace(namespace).deleteOne(tempVectorId)
-      
+
       console.log(`✅ Namespace ${namespace} created and temporary vector removed`)
     } catch (error) {
       console.error(`❌ Failed to create namespace ${namespace}:`, error)
@@ -231,18 +229,16 @@ export class PineconeNamespaceManager {
   async getNamespaceStats(namespace: string): Promise<{ vectorCount: number; indexFullness: number }> {
     try {
       const index = this.pinecone.index(process.env.PINECONE_INDEX_NAME!)
-      const stats = await index.describeIndexStats({
-        filter: {}
-      })
-      
+      const stats = await index.describeIndexStats()
+
       if (stats.namespaces && namespace in stats.namespaces) {
         const namespaceStats = stats.namespaces[namespace]
         return {
-          vectorCount: namespaceStats.vectorCount || 0,
+          vectorCount: namespaceStats.recordCount || 0,
           indexFullness: stats.indexFullness || 0
         }
       }
-      
+
       return { vectorCount: 0, indexFullness: 0 }
     } catch (error) {
       console.error(`❌ Failed to get stats for namespace ${namespace}:`, error)
@@ -256,19 +252,17 @@ export class PineconeNamespaceManager {
   async listOrganizationNamespaces(organizationId: string): Promise<string[]> {
     try {
       const index = this.pinecone.index(process.env.PINECONE_INDEX_NAME!)
-      const stats = await index.describeIndexStats({
-        filter: {}
-      })
-      
+      const stats = await index.describeIndexStats()
+
       if (!stats.namespaces) {
         return []
       }
-      
+
       // Filter namespaces that end with the organization ID
-      const orgNamespaces = Object.keys(stats.namespaces).filter(namespace => 
+      const orgNamespaces = Object.keys(stats.namespaces).filter(namespace =>
         namespace.endsWith(`_${organizationId}`)
       )
-      
+
       console.log(`📋 Found ${orgNamespaces.length} namespaces for organization ${organizationId}:`, orgNamespaces)
       return orgNamespaces
     } catch (error) {
@@ -283,17 +277,27 @@ export class PineconeNamespaceManager {
   async deleteNamespace(namespace: string): Promise<void> {
     try {
       const index = this.pinecone.index(process.env.PINECONE_INDEX_NAME!)
-      
+
       // Delete all vectors in the namespace
       await index.namespace(namespace).deleteAll()
-      
+
       console.log(`✅ Deleted all vectors in namespace: ${namespace}`)
-      
+
       // Remove from cache
       this.clearNamespaceCache(namespace)
     } catch (error) {
       console.error(`❌ Failed to delete namespace ${namespace}:`, error)
       throw error
+    }
+  }
+
+  /** Purge every historical tenant namespace, including names preceding organization renames. */
+  async deleteOrganizationNamespaces(organizationId: string): Promise<void> {
+    if (!organizationId || organizationId.includes('/')) throw new Error('Invalid organization identifier');
+    const index = this.pinecone.index(process.env.PINECONE_INDEX_NAME!);
+    const stats = await index.describeIndexStats();
+    for (const namespace of Object.keys(stats.namespaces ?? {})) {
+      if (namespace.endsWith(`_${organizationId}`)) await this.deleteNamespace(namespace);
     }
   }
 
@@ -306,7 +310,7 @@ export class PineconeNamespaceManager {
         where: { id: organizationId },
         select: { id: true, name: true, slug: true }
       })
-      
+
       return organization
     } catch (error) {
       console.error(`❌ Failed to get organization data for ${organizationId}:`, error)
@@ -322,7 +326,7 @@ export class PineconeNamespaceManager {
       ...namespaceInfo,
       created: true // Mark as cached
     })
-    
+
     // Clean cache periodically
     this.cleanCacheIfNeeded()
   }

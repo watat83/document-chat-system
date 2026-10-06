@@ -155,8 +155,8 @@ export async function GET(
       id: formattedDocument.id,
       name: formattedDocument.name,
       status: formattedDocument.status,
-      sectionsCount: formattedDocument.content?.sections?.length || 0,
-      entitiesCount: formattedDocument.entities?.entities?.length || 0,
+      sectionsCount: Array.isArray(formattedDocument.content?.sections) ? formattedDocument.content.sections.length : 0,
+      entitiesCount: Array.isArray(formattedDocument.entities?.entities) ? formattedDocument.entities.entities.length : 0,
       hasSharing: !!formattedDocument.sharing,
       hasAnalysis: !!formattedDocument.analysis
     })
@@ -696,7 +696,7 @@ export async function PATCH(
           section: section || 'general',
           action: action || 'update',
           changedFields: Object.keys(updateData),
-          isConfidential: transformedDocument.securityAnalysis?.classification !== 'PUBLIC'
+          isConfidential: transformedDocument.securityClassification !== 'PUBLIC'
         }
       );
     } catch (auditError) {

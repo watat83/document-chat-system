@@ -16,7 +16,7 @@ export class DocumentSectionsAnalyzer {
   async analyzeSections(
     extractedText: string,
     documentName: string,
-    documentType: DocumentType = 'GENERAL'
+    documentType: DocumentType = 'OTHER'
   ): Promise<{
     success: boolean
     sections?: DocumentSection[]

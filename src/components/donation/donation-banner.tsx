@@ -26,11 +26,6 @@ export function DonationBanner({
   const [isVisible, setIsVisible] = useState(false)
   const [isMounted, setIsMounted] = useState(false)
 
-  // Don't render if no email is configured
-  if (!email) {
-    return null
-  }
-
   useEffect(() => {
     setIsMounted(true)
 
@@ -59,6 +54,8 @@ export function DonationBanner({
       onVisibilityChange?.(true)
     }
   }, [onVisibilityChange])
+
+  if (!email) return null
 
   const handleDismiss = () => {
     setIsVisible(false)

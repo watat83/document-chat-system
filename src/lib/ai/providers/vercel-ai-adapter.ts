@@ -321,6 +321,9 @@ export class VercelAIAdapter extends AIProviderAdapter {
     };
   }
 
+  async loadAvailableModels(): Promise<ModelInfo[]> { return this.getAvailableModels(); }
+  async refreshModels(): Promise<void> { await this.loadAvailableModels(); }
+
   getAvailableModels(): ModelInfo[] {
     return [
       {

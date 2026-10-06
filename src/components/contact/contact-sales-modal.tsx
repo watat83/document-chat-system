@@ -54,7 +54,7 @@ Organization Details:
 I would appreciate the opportunity to schedule a demo and discuss how Document Chat System can help streamline our document management processes.
 
 Best regards,`,
-    
+
     pricing: `Hello Document Chat System Sales Team,
 
 I'm interested in learning more about ${planName ? `the ${planName} plan` : 'your pricing options'} for my organization.
@@ -75,7 +75,7 @@ Organization Details:
 I would like to schedule a demo to see how Document Chat System can help with our document management needs.
 
 Best regards,`,
-    
+
     general: `Hello Document Chat System Sales Team,
 
 I'm interested in learning more about Document Chat System for my organization.
@@ -109,7 +109,7 @@ export function ContactSalesModal({ isOpen, onClose, context = 'general', planNa
   const [inquiryId, setInquiryId] = useState<string>('')
   const [submissionTime, setSubmissionTime] = useState<string>('')
   const prefilledContent = getPrefilledContent(context, planName)
-  
+
   const [formData, setFormData] = useState<ContactSalesFormData>({
     name: '',
     email: '',
@@ -133,10 +133,10 @@ export function ContactSalesModal({ isOpen, onClose, context = 'general', planNa
 
     try {
       const validatedData = contactSalesSchema.parse(formData)
-      
+
       // Get user's timezone
       const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone
-      
+
       const response = await fetch('/api/v1/sales-inquiry', {
         method: 'POST',
         headers: {
@@ -155,10 +155,10 @@ export function ContactSalesModal({ isOpen, onClose, context = 'general', planNa
       }
 
       const result = await response.json()
-      
+
       // Set inquiry ID and show confirmation
       setInquiryId(result.inquiryId || 'N/A')
-      
+
       // Capture submission time in user's local timezone
       const now = new Date()
       const localTime = now.toLocaleString('en-US', {
@@ -172,9 +172,9 @@ export function ContactSalesModal({ isOpen, onClose, context = 'general', planNa
         timeZoneName: 'short'
       })
       setSubmissionTime(localTime)
-      
+
       setShowConfirmation(true)
-      
+
       // Reset form data
       setFormData({
         name: '',
@@ -183,7 +183,7 @@ export function ContactSalesModal({ isOpen, onClose, context = 'general', planNa
         subject: prefilledContent.subject,
         message: prefilledContent.message
       })
-      
+
     } catch (error) {
       if (error instanceof z.ZodError) {
         const fieldErrors: Partial<Record<keyof ContactSalesFormData, string>> = {}
@@ -195,6 +195,7 @@ export function ContactSalesModal({ isOpen, onClose, context = 'general', planNa
         setErrors(fieldErrors)
       } else {
         toast({
+          type: 'error',
           title: 'Error',
           description: 'Failed to send message. Please try again.'
         })
@@ -216,7 +217,7 @@ export function ContactSalesModal({ isOpen, onClose, context = 'general', planNa
         <DialogHeader>
           <DialogTitle>{showConfirmation ? 'Thank You!' : 'Contact Sales'}</DialogTitle>
         </DialogHeader>
-        
+
         {showConfirmation ? (
           <div className="space-y-6 py-4">
             {/* Success Animation and Header */}
@@ -229,7 +230,7 @@ export function ContactSalesModal({ isOpen, onClose, context = 'general', planNa
                 </div>
                 <div className="absolute inset-0 mx-auto w-20 h-20 bg-green-400 rounded-full animate-ping opacity-20"></div>
               </div>
-              
+
               <div className="space-y-2">
                 <h3 className="text-2xl font-bold text-gray-900">Successfully Submitted!</h3>
                 <p className="text-base text-gray-600 max-w-md mx-auto">
@@ -333,7 +334,7 @@ export function ContactSalesModal({ isOpen, onClose, context = 'general', planNa
               />
               {errors.name && <p className="text-sm text-red-500 mt-1">{errors.name}</p>}
             </div>
-            
+
             <div>
               <Label htmlFor="phone">Phone Number *</Label>
               <Input

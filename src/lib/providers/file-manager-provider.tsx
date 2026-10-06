@@ -8,7 +8,7 @@ interface FileOperations {
   validateFile: (file: File, maxSize?: number) => ReturnType<typeof validateFile>;
   getEffectiveMimeType: (validation: ReturnType<typeof validateFile>) => string;
   createCorrectedFile: (file: File, correctedMimeType: string) => File;
-  extractExifData: (file: File) => Promise<ReturnType<typeof extractExifData>>;
+  extractExifData: (file: File) => ReturnType<typeof extractExifData>;
   createFileWithUpdatedMetadata: (file: File, metadata: EditableExifData) => File;
 }
 
@@ -32,11 +32,11 @@ interface FileManagerContextType {
   fileOps: FileOperations;
   folderOps: FolderOperations;
   storageOps: StorageOperations;
-  
+
   // State
   isUploading: boolean;
   uploadProgress: number;
-  
+
   // Utilities
   formatFileSize: (bytes: number) => string;
   getFileIcon: (type: string) => React.ReactNode;
@@ -76,18 +76,18 @@ export const FileManagerProvider: React.FC<FileManagerProviderProps> = ({ childr
       // Check if folder has subfolders
       const hasSubfolders = folders.some(folder => folder.parentId === folderId);
       if (hasSubfolders) {
-        return { 
-          canDelete: false, 
-          reason: 'Cannot delete folder that contains subfolders. Please delete or move all subfolders first.' 
+        return {
+          canDelete: false,
+          reason: 'Cannot delete folder that contains subfolders. Please delete or move all subfolders first.'
         };
       }
 
       // Check if folder has documents
       const hasDocuments = documents.some(doc => doc.folderId === folderId);
       if (hasDocuments) {
-        return { 
-          canDelete: false, 
-          reason: 'Cannot delete folder that contains files. Please delete or move all files first.' 
+        return {
+          canDelete: false,
+          reason: 'Cannot delete folder that contains files. Please delete or move all files first.'
         };
       }
 
@@ -104,10 +104,10 @@ export const FileManagerProvider: React.FC<FileManagerProviderProps> = ({ childr
 
     getFolderPath: useCallback((folderId: string | null, folders: any[]) => {
       if (!folderId) return [];
-      
+
       const path = [];
       let currentId = folderId;
-      
+
       while (currentId) {
         const folder = folders.find(f => f.id === currentId);
         if (folder) {
@@ -117,7 +117,7 @@ export const FileManagerProvider: React.FC<FileManagerProviderProps> = ({ childr
           break;
         }
       }
-      
+
       return path;
     }, []),
 
@@ -137,11 +137,11 @@ export const FileManagerProvider: React.FC<FileManagerProviderProps> = ({ childr
       }
 
       // Check for duplicate names in the same parent folder
-      const siblingFolders = folders.filter(f => 
-        f.parentId === parentId && 
+      const siblingFolders = folders.filter(f =>
+        f.parentId === parentId &&
         f.id !== excludeId
       );
-      
+
       if (siblingFolders.some(f => f.name.toLowerCase() === name.toLowerCase())) {
         return { isValid: false, error: 'A folder with this name already exists in this location' };
       }
@@ -155,7 +155,7 @@ export const FileManagerProvider: React.FC<FileManagerProviderProps> = ({ childr
     uploadFile: useCallback(async (file: File, organizationId: string, folderId?: string | null) => {
       setIsUploading(true);
       setUploadProgress(0);
-      
+
       try {
         // Validate file first
         const validation = fileOps.validateFile(file);
@@ -181,7 +181,7 @@ export const FileManagerProvider: React.FC<FileManagerProviderProps> = ({ childr
         });
 
         const result = await response.json();
-        
+
         if (!response.ok) {
           return { success: false, error: result.error || 'Upload failed' };
         }
@@ -240,7 +240,7 @@ export const FileManagerProvider: React.FC<FileManagerProviderProps> = ({ childr
       try {
         // TODO: Replace with actual API call
         const response = await fetch(`/api/v1/documents/${fileId}/download`);
-        
+
         if (!response.ok) {
           const result = await response.json();
           return { success: false, error: result.error || 'Download failed' };
@@ -248,7 +248,7 @@ export const FileManagerProvider: React.FC<FileManagerProviderProps> = ({ childr
 
         const blob = await response.blob();
         const url = URL.createObjectURL(blob);
-        
+
         return { success: true, url };
       } catch (error) {
         console.error('Download error:', error);

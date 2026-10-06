@@ -14,15 +14,15 @@ interface CanvasPreviewWithFetchProps {
 }
 
 // Component for handling canvas preview with fetched file content
-export const CanvasPreviewWithFetch: React.FC<CanvasPreviewWithFetchProps> = ({ 
-  document: doc, 
-  className = '' 
+export const CanvasPreviewWithFetch: React.FC<CanvasPreviewWithFetchProps> = ({
+  document: doc,
+  className = ''
 }) => {
   const [fetchedFile, setFetchedFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [retryCount, setRetryCount] = useState(0);
-  
+
   // Circuit breaker state to prevent infinite retries
   const [isFailed, setIsFailed] = useState(false);
   const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -51,9 +51,9 @@ export const CanvasPreviewWithFetch: React.FC<CanvasPreviewWithFetchProps> = ({
     if (status && (status === 401 || status === 403 || status === 404)) {
       return false; // Don't retry on authentication/authorization/not found errors
     }
-    
+
     return (
-      err.name === 'AbortError' || 
+      err.name === 'AbortError' ||
       err.message.includes('Internal Server Error') ||
       err.message.includes('Network Error') ||
       err.message.includes('Failed to fetch') ||
@@ -92,13 +92,13 @@ export const CanvasPreviewWithFetch: React.FC<CanvasPreviewWithFetchProps> = ({
         if (currentRetry === 0) {
           setError(null);
         }
-        
+
         // Create new AbortController for this attempt
         abortControllerRef.current = new AbortController();
         const timeoutId = setTimeout(() => abortControllerRef.current?.abort(), 10000); // 10 second timeout per attempt
-        
+
         console.log(`🔄 Fetching file (attempt ${currentRetry + 1}/${maxRetries}):`, doc.id);
-        
+
         // Fetch file content from download API with credentials
         const response = await fetch(`/api/v1/documents/${doc.id}/download`, {
           method: 'GET',
@@ -108,9 +108,9 @@ export const CanvasPreviewWithFetch: React.FC<CanvasPreviewWithFetchProps> = ({
           },
           signal: abortControllerRef.current.signal,
         });
-        
+
         clearTimeout(timeoutId);
-        
+
         if (!response.ok) {
           console.error('CanvasPreviewWithFetch - Download failed:');
           console.error('Status:', response.status);
@@ -120,7 +120,7 @@ export const CanvasPreviewWithFetch: React.FC<CanvasPreviewWithFetchProps> = ({
           console.error('URL:', `/api/v1/documents/${doc.id}/download`);
           console.error('Headers:', Object.fromEntries(response.headers.entries()));
           console.error('Response type:', response.type);
-          
+
           // Get more detailed error information
           let errorMessage = `Failed to fetch file: ${response.statusText} (${response.status})`;
           try {
@@ -134,27 +134,27 @@ export const CanvasPreviewWithFetch: React.FC<CanvasPreviewWithFetchProps> = ({
           } catch (parseError) {
             console.warn('Could not parse error response as JSON');
           }
-          
+
           const error = new Error(errorMessage);
           (error as any).status = response.status;
           throw error;
         }
-        
+
         // Get file content as blob
         const blob = await response.blob();
-        
+
         // Validate blob
         if (!blob || blob.size === 0) {
           throw new Error('Downloaded file is empty or invalid');
         }
-        
+
         // Handle filename and extension issues
         let finalFileName = doc.name || 'unknown-file';
         const hasExtension = finalFileName.includes('.');
-        
+
         // If the file has no extension but we know the MIME type, add appropriate extension
         if (!hasExtension && doc?.mimeType) {
-          const mimeToExt = {
+          const mimeToExt: Record<string, string> = {
             'application/pdf': '.pdf',
             'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
             'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
@@ -167,7 +167,7 @@ export const CanvasPreviewWithFetch: React.FC<CanvasPreviewWithFetchProps> = ({
             'video/mp4': '.mp4',
             'audio/mpeg': '.mp3'
           };
-          
+
           const suggestedExt = mimeToExt[doc.mimeType];
           if (suggestedExt) {
             finalFileName = finalFileName + suggestedExt;
@@ -178,32 +178,32 @@ export const CanvasPreviewWithFetch: React.FC<CanvasPreviewWithFetchProps> = ({
             });
           }
         }
-        
+
         // Create a File object from the blob
         const file = new File([blob], finalFileName, {
           type: doc.mimeType || 'application/octet-stream',
           lastModified: new Date().getTime(),
         });
-        
+
         console.log('✅ File fetched successfully:', {
           documentId: doc.id,
           fileName: doc.name,
           fileSize: file.size,
           attempts: currentRetry + 1
         });
-        
+
         setFetchedFile(file);
         setLoading(false);
         setError(null);
         setRetryCount(currentRetry);
-        
+
       } catch (err) {
         // Don't log AbortError as they're expected when component unmounts or user navigates away
         if (err instanceof Error && err.name === 'AbortError') {
           console.log('CanvasPreviewWithFetch - Request aborted (component unmounted or navigation)');
           return; // Exit early for aborted requests
         }
-        
+
         console.error('CanvasPreviewWithFetch - Error fetching file for canvas preview:');
         console.error('Error:', err);
         console.error('Document ID:', doc.id);
@@ -216,13 +216,13 @@ export const CanvasPreviewWithFetch: React.FC<CanvasPreviewWithFetchProps> = ({
           console.error('Error message:', err.message);
           console.error('Error stack:', err.stack);
         }
-        
+
         let errorMessage = 'Failed to fetch file content';
         let shouldRetry = false;
-        
+
         if (err instanceof Error) {
           const status = (err as any).status;
-          
+
           // Determine error message
           if (err.name === 'AbortError') {
             errorMessage = 'Request timed out';
@@ -239,18 +239,18 @@ export const CanvasPreviewWithFetch: React.FC<CanvasPreviewWithFetchProps> = ({
           } else {
             errorMessage = err.message;
           }
-          
+
           // Check if we should retry
           shouldRetry = isRetryableError(err, status) && currentRetry < maxRetries - 1;
         }
-        
+
         setError(errorMessage);
         setRetryCount(currentRetry);
-        
+
         if (shouldRetry && !isFailed) {
           const delay = Math.min(1000 * Math.pow(2, currentRetry), 8000); // Exponential backoff, max 8s
           console.log(`🔄 Retrying download in ${delay}ms (attempt ${currentRetry + 2}/${maxRetries})...`);
-          
+
           retryTimeoutRef.current = setTimeout(() => {
             fetchFileContent(currentRetry + 1);
           }, delay);
@@ -268,7 +268,7 @@ export const CanvasPreviewWithFetch: React.FC<CanvasPreviewWithFetchProps> = ({
       setFetchedFile(doc.originalFile);
       setLoading(false);
     }
-    
+
     // Cleanup on unmount or document change
     return cleanup;
   }, [doc.id, doc.name, doc.mimeType, doc.originalFile]); // Removed retryCount from dependencies!
@@ -322,9 +322,9 @@ export const CanvasPreviewWithFetch: React.FC<CanvasPreviewWithFetchProps> = ({
   }
 
   return (
-    <ResponsiveCanvasPreview 
-      file={fetchedFile} 
-      fileName={doc.name} 
+    <ResponsiveCanvasPreview
+      file={fetchedFile}
+      fileName={doc.name}
       className={className}
     />
   );

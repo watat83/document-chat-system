@@ -165,6 +165,8 @@ export const FileProcessingResult = z.object({
        * File name
        */
       filename: z.string().optional().describe('Original filename'),
+      source: z.string().optional(),
+      docling: z.object({ sections: z.array(z.unknown()), tables: z.array(z.unknown()), images: z.array(z.unknown()), processingTime: z.number().optional() }).optional(),
 
       /**
        * Creation date

@@ -29,6 +29,7 @@ export function serializeDocument(document: ResponseDocument) {
     const failed = events.find(event => event.success === false);
     const analysis = object(document.analysis);
     const contract = object(analysis.contract);
+    const metadata = object(analysis.metadata);
     const compliance = object(analysis.compliance);
     const revisions = document.revisions;
     const embeddings = document.embeddings;
@@ -48,27 +49,29 @@ export function serializeDocument(document: ResponseDocument) {
       securityClassification: document.securityClassification,
       workflowStatus: document.workflowStatus,
       tags: document.tags || [],
+      naicsCodes: array(metadata.naicsCodes).filter((code): code is string => typeof code === 'string'),
+      setAsideType: typeof metadata.setAsideType === 'string' ? metadata.setAsideType : null,
       isEditable: document.isEditable,
-      
+
       // Extracted content
       extractedText: document.extractedText || '',
       summary: document.summary || '',
-      
+
       // Computed/derived fields
       type: getFileTypeFromMimeType(document.mimeType, document.name),
       filePath: `/api/v1/documents/${document.id}/download`,
       uploadDate: document.uploadDate.toISOString(),
       lastModified: document.updatedAt.toISOString(),
-      updatedBy: document.uploadedBy ? 
-        `${document.uploadedBy.firstName || ''} ${document.uploadedBy.lastName || ''}`.trim() || document.uploadedBy.email : 
+      updatedBy: document.uploadedBy ?
+        `${document.uploadedBy.firstName || ''} ${document.uploadedBy.lastName || ''}`.trim() || document.uploadedBy.email :
         'Unknown',
-      
+
       // Processing status from JSON field
       status,
       progress: processing.progress ?? 0,
       processedAt: completed?.timestamp,
       processingError: failed?.error,
-      
+
       // JSON field data (consolidated structure)
       createdAt: document.createdAt.toISOString(),
       updatedAt: document.updatedAt.toISOString(),
@@ -80,11 +83,11 @@ export function serializeDocument(document: ResponseDocument) {
       processing: processing,
       analysis: analysis,
       embeddings: embeddings,
-      
+
       // Relations
       uploadedBy: document.uploadedBy,
       folder: document.folder,
-      
+
       // Legacy compatibility (construct from JSON fields)
       aiData: {
         status: {
@@ -97,10 +100,10 @@ export function serializeDocument(document: ResponseDocument) {
         content: {
           extractedText: document.extractedText || '',
           summary: document.summary || '',
-          keywords: [],
-          keyPoints: [],
-          actionItems: [],
-          questions: []
+          keywords: array(content.keywords),
+          keyPoints: array(content.keyPoints),
+          actionItems: array(content.actionItems),
+          questions: array(content.questions)
         },
         structure: {
           sections: content.sections || [],
@@ -109,9 +112,9 @@ export function serializeDocument(document: ResponseDocument) {
           ocrResults: []
         },
         analysis: {
-          qualityScore: contract.qualityScore,
-          readabilityScore: compliance.score,
-          complexityMetrics: { readabilityScore: compliance.score },
+          qualityScore: analysis.qualityScore,
+          readabilityScore: analysis.readabilityScore,
+          complexityMetrics: analysis.complexityMetrics ?? {},
           entities: array(entities.entities),
           confidence: analysis.confidence,
           suggestions: array(compliance.recommendations)
@@ -120,7 +123,7 @@ export function serializeDocument(document: ResponseDocument) {
         modelVersion: 'consolidated-v2.0',
         processingHistory: events
       },
-      
+
       // Only persisted findings can establish PII and compliance status.
       securityAnalysis: analysis.security ?? undefined,
     };

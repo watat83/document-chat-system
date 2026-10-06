@@ -39,7 +39,7 @@ export interface OpenRouterMetrics extends AIMetrics {
 
 /**
  * OpenRouter Metrics Collector
- * 
+ *
  * Collects enhanced telemetry data from OpenRouter API responses
  * and integrates with the existing Document Chat System metrics system.
  */
@@ -70,7 +70,7 @@ export class OpenRouterMetricsCollector {
 
       // Extract provider information from response
       const actualProvider = this.extractProviderFromModel(response.model);
-      
+
       // Build enhanced metrics object
       const metrics: OpenRouterMetrics = {
         provider: 'openrouter',
@@ -78,14 +78,14 @@ export class OpenRouterMetricsCollector {
         operation: this.determineOperation(request),
         latency,
         tokenCount: {
-          prompt: response.usage?.prompt_tokens || 0,
+          prompt: response.usage?.prompt_tokens ?? (this.determineOperation(request) === 'embedding' ? response.usage?.total_tokens ?? 0 : 0),
           completion: response.usage?.completion_tokens || 0,
           total: response.usage?.total_tokens || 0
         },
         cost: 0, // Will be populated from generation stats
         success: true,
         metadata: {
-          taskType: request.hints?.taskType || 'unknown',
+          taskType: request.hints?.taskType || (this.determineOperation(request) === 'embedding' ? 'embedding' : 'unknown'),
           organizationId,
           userId,
           generationId,
@@ -166,7 +166,7 @@ export class OpenRouterMetricsCollector {
         success: false,
         error: error.message,
         metadata: {
-          taskType: request.hints?.taskType || 'unknown',
+          taskType: request.hints?.taskType || (this.determineOperation(request) === 'embedding' ? 'embedding' : 'unknown'),
           organizationId,
           userId,
           errorType: error.constructor.name,
@@ -246,10 +246,10 @@ export class OpenRouterMetricsCollector {
     };
 
     const modelCosts = baseCosts[model] || { prompt: 0.002, completion: 0.004 };
-    
+
     const promptCost = (tokenCount.prompt / 1000) * modelCosts.prompt;
     const completionCost = (tokenCount.completion / 1000) * modelCosts.completion;
-    
+
     return promptCost + completionCost;
   }
 
@@ -335,7 +335,7 @@ export class OpenRouterMetricsCollector {
     errors: string[];
   }> {
     const startTime = Date.now();
-    
+
     try {
       const response = await fetch(`${this.baseUrl}/models`, {
         headers: {
@@ -356,7 +356,7 @@ export class OpenRouterMetricsCollector {
       }
 
       const data = await response.json();
-      const availableProviders = data.data?.map((model: any) => model.id.split('/')[0]) || [];
+      const availableProviders: string[] = Array.isArray(data.data) ? data.data.flatMap((model: { id?: unknown }) => typeof model.id === 'string' ? [model.id.split('/')[0]] : []) : [];
       const uniqueProviders = [...new Set(availableProviders)];
 
       return {

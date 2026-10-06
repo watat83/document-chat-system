@@ -1,3 +1,4 @@
+import type { SubscriptionStatus } from '@prisma/client';
 import { getSubscriptionPeriod } from '@/lib/billing/subscription-period';
 import { db } from '@/lib/db';
 import { stripe } from '@/lib/stripe-server';
@@ -339,8 +340,8 @@ export class SubscriptionManager {
   /**
    * Helper function to map Stripe status to database status
    */
-  private static mapStripeStatusToDb(stripeStatus: string): string {
-    const statusMap: Record<string, string> = {
+  private static mapStripeStatusToDb(stripeStatus: string): SubscriptionStatus {
+    const statusMap: Record<string, SubscriptionStatus> = {
       'trialing': 'TRIALING',
       'active': 'ACTIVE',
       'past_due': 'PAST_DUE',
@@ -351,7 +352,9 @@ export class SubscriptionManager {
       'paused': 'PAUSED',
     };
 
-    return statusMap[stripeStatus] || 'ACTIVE';
+    const status = statusMap[stripeStatus];
+    if (!status) throw new Error(`Unsupported Stripe subscription status: ${stripeStatus}`);
+    return status;
   }
 
   /**

@@ -1,3 +1,3 @@
-// Re-export markdown joiner transform
-export { markdownJoinerTransform } from "@/lib/markdown-joiner-transform";
+import { markdownJoinerTransform } from '@/lib/markdown-joiner-transform';
+export { markdownJoinerTransform };
 export default markdownJoinerTransform;

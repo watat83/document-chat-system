@@ -798,11 +798,7 @@ export class AIAnalyticsService {
         id: true,
       },
       having: {
-        _count: {
-          id: {
-            gt: 10,
-          },
-        },
+        id: { _count: { gt: 10 } },
       },
     });
 

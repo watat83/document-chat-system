@@ -50,6 +50,7 @@ interface FilterSelectProps {
 }
 
 export function FilterSelect({
+  multiple = false,
   value = multiple ? [] : '',
   onChange,
   options,
@@ -57,7 +58,6 @@ export function FilterSelect({
   className,
   disabled = false,
   allowClear = true,
-  multiple = false,
   searchable = true,
   showDescription = true,
   groupByCategory = false,
@@ -184,14 +184,14 @@ export function FilterSelect({
             )}
             <CommandList className="max-h-64">
               <CommandEmpty>{emptyText}</CommandEmpty>
-              
+
               {groupedOptions.map(({ category, options: groupOptions }) => (
-                <CommandGroup 
-                  key={category || 'default'} 
+                <CommandGroup
+                  key={category || 'default'}
                   heading={category && category !== 'Other' ? category : undefined}
                 >
                   {groupOptions.map((option) => {
-                    const isSelected = multiple 
+                    const isSelected = multiple
                       ? (normalizedValue as string[]).includes(option.value)
                       : normalizedValue === option.value
 
@@ -246,8 +246,8 @@ export function FilterSelect({
             </Badge>
           ))}
           {allowClear && selectedOptions.length > 1 && (
-            <Badge 
-              variant="outline" 
+            <Badge
+              variant="outline"
               className="text-xs cursor-pointer hover:bg-destructive hover:text-destructive-foreground"
               onClick={handleClear}
             >

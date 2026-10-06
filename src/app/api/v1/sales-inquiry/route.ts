@@ -154,16 +154,16 @@ export async function POST(request: NextRequest) {
     const cfConnectingIp = request.headers.get('cf-connecting-ip') // Cloudflare
     const vercelIp = request.headers.get('x-vercel-forwarded-for') // Vercel specific
     const clientIp = request.headers.get('client-ip')
-    
+
     // Parse x-forwarded-for to get the actual client IP (first in the chain)
-    const ip = forwardedFor?.split(',')[0].trim() || 
-                cfConnectingIp || 
+    const ip = forwardedFor?.split(',')[0].trim() ||
+                cfConnectingIp ||
                 vercelIp?.split(',')[0].trim() ||
-                realIp || 
+                realIp ||
                 clientIp ||
-                request.ip || // Next.js built-in IP detection
+                request.headers.get('x-forwarded-for')?.split(',')[0] || // Next.js built-in IP detection
                 '127.0.0.1'
-    
+
     // Log all headers for debugging IP detection
     console.log('IP Detection Debug:', {
       'x-forwarded-for': forwardedFor,
@@ -171,27 +171,27 @@ export async function POST(request: NextRequest) {
       'cf-connecting-ip': cfConnectingIp,
       'x-vercel-forwarded-for': vercelIp,
       'client-ip': clientIp,
-      'request.ip': request.ip,
+      'forwardedIp': request.headers.get('x-forwarded-for')?.split(',')[0],
       'detected': ip
     })
 
     // Parse and validate request body
     const body = await request.json()
     const validatedData = salesInquirySchema.parse(body)
-    
+
     // Generate unique inquiry ID for tracking
     const timestamp = Date.now()
     const randomId = Math.random().toString(36).substring(2, 11)
     const inquiryId = `INQ-${timestamp}-${randomId}`
-    
+
     // Get timestamp in user's timezone if provided
     const utcTime = new Date()
-    
+
     // Convert to user's timezone and format as ISO string
-    const userLocalTime = validatedData.userTimezone 
+    const userLocalTime = validatedData.userTimezone
       ? new Date(utcTime.toLocaleString('en-US', { timeZone: validatedData.userTimezone })).toISOString()
       : utcTime.toISOString()
-    
+
     // Console log the incoming data for debugging
     console.log('=== NEW SALES INQUIRY RECEIVED ===')
     console.log('Inquiry ID:', inquiryId)
@@ -217,7 +217,7 @@ export async function POST(request: NextRequest) {
       country: request.headers.get('cf-ipcountry') || 'unknown' // Cloudflare provides this
     })
     console.log('===================================')
-    
+
     // Prepare webhook payload with all relevant information
     const webhookPayload = {
       inquiryId,
@@ -271,7 +271,7 @@ export async function POST(request: NextRequest) {
           },
           body: JSON.stringify(webhookPayload)
         })
-        
+
         if (!webhookResponse.ok) {
           console.error('Sales inquiry webhook failed:', {
             status: webhookResponse.status,

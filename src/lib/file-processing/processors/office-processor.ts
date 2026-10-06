@@ -1,5 +1,6 @@
 import * as mammoth from 'mammoth';
-import * as XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
+import JSZip from 'jszip';
 import { IFileProcessor, FileProcessingOptions, FileProcessingResult, ProcessingMethod } from '../types';
 
 /**
@@ -28,7 +29,7 @@ export class OfficeProcessor implements IFileProcessor {
 
   async extractText(buffer: Buffer, options: FileProcessingOptions): Promise<FileProcessingResult> {
     const startTime = Date.now();
-    
+
     try {
       // Validate file size
       if (buffer.length > options.maxFileSize) {
@@ -57,7 +58,7 @@ export class OfficeProcessor implements IFileProcessor {
       }
 
       const processingDuration = Date.now() - startTime;
-      
+
       const metadata = {
         size: buffer.length,
         mimeType,
@@ -81,7 +82,7 @@ export class OfficeProcessor implements IFileProcessor {
 
     } catch (error) {
       const processingDuration = Date.now() - startTime;
-      
+
       return {
         success: false,
         text: '',
@@ -106,29 +107,29 @@ export class OfficeProcessor implements IFileProcessor {
   private async detectMimeType(buffer: Buffer): Promise<string> {
     // Simple magic number detection
     const header = buffer.subarray(0, 4);
-    
+
     // ZIP-based formats (docx, xlsx)
     if (header[0] === 0x50 && header[1] === 0x4B) {
       // Check for docx/xlsx by looking for specific content
-      const bufferString = buffer.toString('ascii', 0, 1000);
-      if (bufferString.includes('word/')) {
+      const zip = await JSZip.loadAsync(buffer);
+      if (zip.file('word/document.xml')) {
         return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-      } else if (bufferString.includes('xl/')) {
+      } else if (zip.file('xl/workbook.xml')) {
         return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
       }
     }
-    
+
     // Legacy Word documents
     if (header[0] === 0xD0 && header[1] === 0xCF && header[2] === 0x11 && header[3] === 0xE0) {
       return 'application/msword';
     }
-    
+
     // CSV detection (simple heuristic)
     const text = buffer.toString('utf8', 0, 1000);
     if (text.includes(',') && text.includes('\n')) {
       return 'text/csv';
     }
-    
+
     return 'application/octet-stream';
   }
 
@@ -196,37 +197,30 @@ export class OfficeProcessor implements IFileProcessor {
 
   private async extractFromExcelDocument(buffer: Buffer, options: FileProcessingOptions): Promise<{ text: string; metadata: Record<string, unknown> }> {
     try {
-      const workbook = XLSX.read(buffer, { type: 'buffer' });
-      const texts: string[] = [];
-      
-      // Process each worksheet
-      workbook.SheetNames.forEach(sheetName => {
-        const worksheet = workbook.Sheets[sheetName];
-        const csvData = XLSX.utils.sheet_to_csv(worksheet);
-        
-        if (csvData.trim()) {
-          texts.push(`=== ${sheetName} ===\n${csvData}`);
-        }
-      });
-
-      let text = texts.join('\n\n');
-      
-      // Clean up text if not preserving formatting
-      if (!options.preserveFormatting) {
-        text = text
-          .replace(/,+/g, ', ') // Clean up multiple commas
-          .replace(/\n{3,}/g, '\n\n') // Limit consecutive newlines
-          .trim();
+      if (!buffer.subarray(0, 2).equals(Buffer.from('PK'))) {
+        // CSV is already text. Legacy binary spreadsheets require the isolated document converter.
+        const text = buffer.toString('utf8');
+        if (text.includes('\0')) throw new Error('Legacy binary Excel files require Docling');
+        return { text, metadata: { pages: 1 } };
       }
-
-      const metadata = {
-        title: workbook.Props?.Title || undefined,
-        author: workbook.Props?.Author || undefined,
-        subject: workbook.Props?.Subject || undefined,
-        keywords: workbook.Props?.Keywords || undefined,
-        pages: workbook.SheetNames.length, // Number of sheets
-      };
-
+      const workbook = new ExcelJS.Workbook();
+      await workbook.xlsx.load(new Uint8Array(buffer).buffer);
+      const texts: string[] = [];
+      let characters = 0;
+      for (const worksheet of workbook.worksheets) {
+        const rows: string[] = [];
+        worksheet.eachRow(row => {
+          const cells: string[] = [];
+          row.eachCell({ includeEmpty: true }, cell => cells.push(cell.text));
+          const rowText = cells.join('\t');
+          characters += rowText.length;
+          if (characters > options.maxTextLength) throw new Error('Spreadsheet text exceeds extraction limit');
+          rows.push(rowText);
+        });
+        if (rows.length) texts.push(`=== ${worksheet.name} ===\n${rows.join('\n')}`);
+      }
+      const text = texts.join('\n\n');
+      const metadata = { author: workbook.creator || undefined, pages: workbook.worksheets.length };
       return { text, metadata };
     } catch (error) {
       throw new Error(`Failed to extract text from Excel document: ${error instanceof Error ? error.message : 'Unknown error'}`);

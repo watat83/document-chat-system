@@ -1,4 +1,4 @@
-import * as JSZip from 'jszip';
+import JSZip from 'jszip';
 import { IFileProcessor, FileProcessingOptions, FileProcessingResult, ProcessingMethod } from '../types';
 
 /**
@@ -24,7 +24,7 @@ export class ArchiveProcessor implements IFileProcessor {
 
   async extractText(buffer: Buffer, options: FileProcessingOptions): Promise<FileProcessingResult> {
     const startTime = Date.now();
-    
+
     try {
       // Validate file size
       if (buffer.length > options.maxFileSize) {
@@ -32,7 +32,7 @@ export class ArchiveProcessor implements IFileProcessor {
       }
 
       const mimeType = this.detectMimeType(buffer);
-      
+
       if (mimeType === 'application/zip') {
         return await this.processZipFile(buffer, options, startTime);
       }
@@ -41,7 +41,7 @@ export class ArchiveProcessor implements IFileProcessor {
 
     } catch (error) {
       const processingDuration = Date.now() - startTime;
-      
+
       return {
         success: false,
         text: '',
@@ -66,31 +66,31 @@ export class ArchiveProcessor implements IFileProcessor {
   private async processZipFile(buffer: Buffer, options: FileProcessingOptions, startTime: number): Promise<FileProcessingResult> {
     const zip = new JSZip();
     const zipContent = await zip.loadAsync(buffer);
-    
+
     const extractedTexts: string[] = [];
     const warnings: string[] = [];
     let totalFiles = 0;
-    
+
     // Get all files in the archive
     const files = Object.keys(zipContent.files);
     totalFiles = files.length;
-    
+
     // Process each file if options.processEmbeddedFiles is true
     if (options.processEmbeddedFiles) {
       for (const fileName of files) {
         const file = zipContent.files[fileName];
-        
+
         // Skip directories
         if (file.dir) {
           continue;
         }
-        
+
         try {
           // Check if the file is a text-based file
           if (this.isTextFile(fileName)) {
             const fileContent = await file.async('string');
             const cleanText = this.cleanFileContent(fileContent, fileName);
-            
+
             if (cleanText.trim().length > 0) {
               extractedTexts.push(`=== ${fileName} ===\n${cleanText}`);
             }
@@ -98,14 +98,14 @@ export class ArchiveProcessor implements IFileProcessor {
             // For non-text files, just include the filename
             extractedTexts.push(`[File: ${fileName}]`);
           }
-          
+
           // Check if we've reached the text limit
           const currentText = extractedTexts.join('\n\n');
           if (currentText.length > options.maxTextLength) {
             warnings.push('Text extraction stopped due to length limit');
             break;
           }
-          
+
         } catch (fileError) {
           warnings.push(`Failed to process file ${fileName}: ${fileError instanceof Error ? fileError.message : 'Unknown error'}`);
         }
@@ -119,9 +119,9 @@ export class ArchiveProcessor implements IFileProcessor {
         }
       }
     }
-    
+
     let extractedText = extractedTexts.join('\n\n');
-    
+
     // Trim text to max length if needed
     if (extractedText.length > options.maxTextLength) {
       extractedText = extractedText.substring(0, options.maxTextLength);
@@ -136,7 +136,7 @@ export class ArchiveProcessor implements IFileProcessor {
     }
 
     const processingDuration = Date.now() - startTime;
-    
+
     const metadata = {
       size: buffer.length,
       mimeType: 'application/zip',
@@ -164,12 +164,12 @@ export class ArchiveProcessor implements IFileProcessor {
     // Check for ZIP magic number
     if (buffer.length >= 4) {
       const header = buffer.subarray(0, 4);
-      if (header[0] === 0x50 && header[1] === 0x4B && 
+      if (header[0] === 0x50 && header[1] === 0x4B &&
           (header[2] === 0x03 || header[2] === 0x05 || header[2] === 0x07)) {
         return 'application/zip';
       }
     }
-    
+
     return 'application/octet-stream';
   }
 
@@ -180,7 +180,7 @@ export class ArchiveProcessor implements IFileProcessor {
       '.rb', '.go', '.rs', '.swift', '.kt', '.scala', '.sql', '.yaml', '.yml',
       '.toml', '.ini', '.cfg', '.conf', '.log', '.csv', '.tsv', '.rtf'
     ];
-    
+
     const ext = filename.toLowerCase().substring(filename.lastIndexOf('.'));
     return textExtensions.includes(ext);
   }
@@ -188,7 +188,7 @@ export class ArchiveProcessor implements IFileProcessor {
   private cleanFileContent(content: string, filename: string): string {
     // Basic cleaning for different file types
     const ext = filename.toLowerCase().substring(filename.lastIndexOf('.'));
-    
+
     switch (ext) {
       case '.json':
         try {

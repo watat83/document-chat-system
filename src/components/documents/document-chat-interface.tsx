@@ -41,7 +41,7 @@ export function DocumentChatInterface({ document, isOpen, onToggle }: DocumentCh
   const [isLoading, setIsLoading] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
-  const { notify } = useNotify()
+  const { error: notifyError } = useNotify()
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -86,10 +86,10 @@ export function DocumentChatInterface({ document, isOpen, onToggle }: DocumentCh
       }
 
       const data = await response.json()
-      
+
       console.log('📊 Search API response:', data)
       console.log('📊 Results count:', data.results?.length || 0)
-      
+
       // Check if the API returned an error (even with 200 status)
       if (data.error) {
         console.warn('⚠️ Search API returned error:', data.error)
@@ -99,7 +99,7 @@ export function DocumentChatInterface({ document, isOpen, onToggle }: DocumentCh
         // Return empty results but don't throw - let the chat handle it gracefully
         return []
       }
-      
+
       // The API already filters by documentId, so no need to filter again
       return data.results || []
     } catch (error) {
@@ -109,20 +109,20 @@ export function DocumentChatInterface({ document, isOpen, onToggle }: DocumentCh
   }
 
   const generateAIResponse = async (userQuery: string, searchResults: any[]) => {
-    console.log('🧠 generateAIResponse called with:', { 
-      userQuery, 
+    console.log('🧠 generateAIResponse called with:', {
+      userQuery,
       searchResultsCount: searchResults.length,
       searchResults: searchResults.slice(0, 2) // Log first 2 results
     })
-    
+
     if (searchResults.length === 0) {
       // Provide helpful suggestions based on document type
       const suggestions = getDocumentTypeSuggestions(document.documentType)
       console.log('❌ No search results, returning suggestions')
-      
+
       // Check if this might be due to search service issues
       const searchServiceNote = process.env.NODE_ENV === 'development' ? ' (search service may be temporarily unavailable)' : ''
-      
+
       return {
         text: `I couldn't find specific information about "${userQuery}" in this document${searchServiceNote}. Here are some things you might ask about:\n\n${suggestions}`,
         sources: []
@@ -131,11 +131,11 @@ export function DocumentChatInterface({ document, isOpen, onToggle }: DocumentCh
 
     // Sort results by relevance score
     const sortedResults = searchResults.sort((a, b) => b.score - a.score)
-    
+
     // Use real AI to generate intelligent responses
     try {
       console.log('🤖 Using AI to generate intelligent response...')
-      
+
       // Prepare context from top search results
       const topResults = sortedResults.slice(0, 5) // Use top 5 most relevant chunks
       const combinedContext = topResults.map((result, index) => {
@@ -145,7 +145,7 @@ export function DocumentChatInterface({ document, isOpen, onToggle }: DocumentCh
           .trim()
         return `[Section ${index + 1}]:\n${cleanText}`
       }).join('\n\n')
-      
+
       // Call OpenAI for intelligent response generation
       const response = await fetch('/api/v1/ai/chat', {
         method: 'POST',
@@ -224,9 +224,9 @@ Please analyze this information and provide a helpful, comprehensive answer to t
       .replace(/\s+/g, ' ')
       .replace(/([a-z])([A-Z])/g, '$1 $2')
       .trim()
-    
+
     let responseText = ""
-    
+
     if (isRequirementsQuery(userQuery)) {
       responseText = generateRequirementsResponse(sortedResults)
     } else if (isDeadlineQuery(userQuery)) {
@@ -237,17 +237,17 @@ Please analyze this information and provide a helpful, comprehensive answer to t
       responseText = generateNaicsResponse(sortedResults)
     } else {
       responseText = `Based on the document content:\n\n${cleanText}`
-      
+
       if (topResult.highlights && topResult.highlights.length > 0) {
         const cleanHighlights = topResult.highlights
-          .map(h => h.replace(/\s+/g, ' ').trim())
-          .filter(h => h.length > 10)
-        
+          .map((h: string) => h.replace(/\s+/g, ' ').trim())
+          .filter((h: string) => h.length > 10)
+
         if (cleanHighlights.length > 0) {
-          responseText += `\n\nKey points:\n${cleanHighlights.map(h => `• ${h}`).join('\n')}`
+          responseText += `\n\nKey points:\n${cleanHighlights.map((h: string) => `• ${h}`).join('\n')}`
         }
       }
-      
+
       if (sortedResults.length > 1) {
         responseText += `\n\nI found ${sortedResults.length} relevant sections that might help answer your question.`
       }
@@ -292,70 +292,70 @@ Please analyze this information and provide a helpful, comprehensive answer to t
     const requirements = results
       .filter(r => r.chunkText.toLowerCase().includes('shall') || r.chunkText.toLowerCase().includes('must'))
       .slice(0, 3)
-    
+
     if (requirements.length === 0) {
       return `Here's what I found regarding requirements:\n\n${results[0].chunkText}`
     }
-    
+
     return `Here are the key requirements I found:\n\n${requirements.map((r, i) => `${i + 1}. ${r.chunkText}`).join('\n\n')}`
   }
 
   const generateDeadlineResponse = (results: any[]) => {
     // Look for date patterns in the results
     const datePattern = /\b\d{1,2}\/\d{1,2}\/\d{4}|\b\d{1,2}-\d{1,2}-\d{4}|\b[A-Za-z]+ \d{1,2}, \d{4}/g
-    
+
     for (const result of results) {
       const dates = result.chunkText.match(datePattern)
       if (dates) {
         return `I found these deadline-related details:\n\n${result.chunkText}\n\nDates mentioned: ${dates.join(', ')}`
       }
     }
-    
+
     return `Here's timeline-related information:\n\n${results[0].chunkText}`
   }
 
   const generatePricingResponse = (results: any[]) => {
     // Look for currency patterns
     const currencyPattern = /\$[\d,]+|\d+\s*dollars?/gi
-    
+
     for (const result of results) {
       const amounts = result.chunkText.match(currencyPattern)
       if (amounts) {
         return `I found pricing information:\n\n${result.chunkText}\n\nAmounts mentioned: ${amounts.join(', ')}`
       }
     }
-    
+
     return `Here's cost-related information:\n\n${results[0].chunkText}`
   }
 
   const generateNaicsResponse = (results: any[]) => {
     // Look for NAICS code patterns (6-digit numbers)
     const naicsPattern = /\b\d{6}\b|NAICS\s*:?\s*\d{6}|classification\s*:?\s*\d{6}/gi
-    
+
     for (const result of results) {
       const naicsCodes = result.chunkText.match(naicsPattern)
       if (naicsCodes) {
         return `I found NAICS code information:\n\n${result.chunkText}\n\nNAICS codes mentioned: ${naicsCodes.join(', ')}`
       }
     }
-    
+
     // Also check if the document metadata has NAICS codes
     if (document.naicsCodes && document.naicsCodes.length > 0) {
       return `Based on the document metadata, the NAICS codes for this solicitation are: ${document.naicsCodes.join(', ')}\n\nHere's related content from the document:\n\n${results[0].chunkText}`
     }
-    
+
     return `Here's information related to industry classification:\n\n${results[0].chunkText}`
   }
 
   const getDocumentTypeSuggestions = (documentType: string) => {
-    const suggestions = {
+    const suggestions: Record<string, string> = {
       'SOLICITATION': '• Requirements and specifications\n• Submission deadlines\n• Evaluation criteria\n• Contract terms',
       'CONTRACT': '• Performance requirements\n• Payment terms\n• Deliverables\n• Compliance obligations',
       'PROPOSAL': '• Technical approach\n• Cost breakdown\n• Timeline\n• Team qualifications',
       'AMENDMENT': '• Changes to original terms\n• New requirements\n• Updated deadlines',
       default: '• Key requirements\n• Important dates\n• Contact information\n• Next steps'
     }
-    
+
     return suggestions[documentType] || suggestions.default
   }
 
@@ -389,12 +389,12 @@ Please analyze this information and provide a helpful, comprehensive answer to t
 
       // Perform semantic search
       const searchResults = await performSemanticSearch(userMessage.text)
-      
+
       // Generate AI response
       console.log('🤖 Search results before AI response:', searchResults)
       const aiResponse = await generateAIResponse(userMessage.text, searchResults)
       console.log('📝 Generated AI response:', aiResponse)
-      
+
       const aiMessage: ChatMessage = {
         id: (Date.now() + 1).toString(),
         text: aiResponse.text,
@@ -407,11 +407,7 @@ Please analyze this information and provide a helpful, comprehensive answer to t
       setMessages(prev => [...prev, aiMessage])
     } catch (error) {
       console.error('Chat error:', error)
-      notify({
-        title: 'Error',
-        description: 'Failed to process your question. Please try again.',
-        type: 'error'
-      })
+      notifyError('Error', 'Failed to process your question. Please try again.')
     } finally {
       setIsLoading(false)
     }
@@ -472,8 +468,8 @@ Please analyze this information and provide a helpful, comprehensive answer to t
               )}>
                 <div className={cn(
                   "max-w-[85%] rounded-lg px-3 py-2 text-sm break-words",
-                  message.isUser 
-                    ? "bg-primary text-primary-foreground" 
+                  message.isUser
+                    ? "bg-primary text-primary-foreground"
                     : "bg-muted"
                 )}>
                   {message.isUser ? (
@@ -489,9 +485,9 @@ Please analyze this information and provide a helpful, comprehensive answer to t
                     "text-xs mt-1",
                     message.isUser ? "text-primary-foreground/70" : "text-muted-foreground"
                   )}>
-                    {message.timestamp.toLocaleTimeString([], { 
-                      hour: '2-digit', 
-                      minute: '2-digit' 
+                    {message.timestamp.toLocaleTimeString([], {
+                      hour: '2-digit',
+                      minute: '2-digit'
                     })}
                   </p>
                 </div>
@@ -567,8 +563,8 @@ Please analyze this information and provide a helpful, comprehensive answer to t
           </Button>
         </div>
         <p className="text-xs text-muted-foreground mt-2 break-words">
-          {document.embeddings ? 
-            'AI-powered search is enabled for this document' : 
+          {document.embeddings ?
+            'AI-powered search is enabled for this document' :
             'Vectorize this document to enable AI search'
           }
         </p>

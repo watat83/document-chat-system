@@ -235,55 +235,7 @@ export async function GET(
       supabaseAdmin ? 'available' : 'not configured'
     )
 
-    if (!supabaseAdmin) {
-      // If Supabase is not configured, create a demo/placeholder response
-      console.warn(
-        '⚠️  Supabase not configured - creating demo file response for:',
-        document.name
-      )
-
-      // Create a simple demo file content based on file type
-      let demoContent: ArrayBuffer
-      let contentType = document.mimeType || 'application/octet-stream'
-
-      if (document.mimeType?.startsWith('image/')) {
-        // For images, return a simple SVG placeholder
-        const svgContent = `<svg width="400" height="300" xmlns="http://www.w3.org/2000/svg">
-          <rect width="400" height="300" fill="#f0f0f0" stroke="#ccc"/>
-          <text x="200" y="150" text-anchor="middle" font-family="Arial" font-size="16" fill="#666">
-            Demo Image: ${document.name}
-          </text>
-          <text x="200" y="180" text-anchor="middle" font-family="Arial" font-size="12" fill="#999">
-            Supabase storage not configured
-          </text>
-        </svg>`
-        demoContent = new TextEncoder().encode(svgContent)
-        contentType = 'image/svg+xml'
-      } else if (
-        document.mimeType?.startsWith('text/') ||
-        document.mimeType?.includes('json')
-      ) {
-        // For text files, return demo content
-        const textContent = `Demo file: ${document.name}\n\nThis is a demo file because Supabase storage is not configured.\nTo enable real file storage, please configure NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in your .env.local file.`
-        demoContent = new TextEncoder().encode(textContent)
-      } else {
-        // For other files, return a simple text representation
-        const textContent = `Demo file: ${document.name}\n\nFile type: ${document.mimeType}\nFile size: ${document.size} bytes\n\nThis is a demo response because Supabase storage is not configured.`
-        demoContent = new TextEncoder().encode(textContent)
-        contentType = 'text/plain'
-      }
-
-      // Return demo file
-      return new Response(demoContent, {
-        headers: {
-          'Content-Type': contentType,
-          'Content-Length': demoContent.byteLength.toString(),
-          'Content-Disposition': `inline; filename="${document.name}"`,
-          'Cache-Control': 'private, no-store', // Cache for 5 minutes
-          'X-Demo-File': 'true', // Indicate this is a demo file
-        },
-      })
-    }
+    if (!supabaseAdmin) return NextResponse.json({ error: 'Document storage unavailable' }, { status: 503 })
 
     // Check if filePath exists
     if (!document.filePath) {
@@ -300,17 +252,17 @@ export async function GET(
       '⬇️  Attempting download from Supabase storage:',
       document.filePath
     )
-    
+
     let fileData = null
     let actualPath = document.filePath
     let downloadError = null
-    
+
     try {
       const result = await downloadFileWithFallback(document.filePath, document.organizationId)
       fileData = result.data
       actualPath = result.actualPath
       downloadError = result.error
-      
+
       if (actualPath !== document.filePath) {
         console.log(`📁 File found at alternative path: ${actualPath} (original: ${document.filePath})`)
       }
@@ -347,7 +299,7 @@ export async function GET(
     console.log('✅ File downloaded successfully from Supabase')
 
     currentStep = 'file_processing'
-    
+
     // Validate file data before processing
     if (fileData.size === 0) {
       console.error('❌ Downloaded file is empty')
@@ -366,19 +318,19 @@ export async function GET(
     let arrayBuffer
     try {
       arrayBuffer = await fileData.arrayBuffer()
-      
+
       // Validate array buffer
       if (!arrayBuffer || arrayBuffer.byteLength === 0) {
         throw new Error('Array buffer is empty or null')
       }
-      
+
       console.log('✅ File processing successful:', {
         originalSize: fileData.size,
         bufferSize: arrayBuffer.byteLength,
         documentId,
         fileName: document.name
       })
-      
+
     } catch (bufferError) {
       console.error('❌ Failed to convert file to array buffer:', bufferError)
       return NextResponse.json(

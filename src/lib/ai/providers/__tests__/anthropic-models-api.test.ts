@@ -6,7 +6,7 @@ jest.mock('@/lib/cache', () => ({
   cacheManager: {
     get: jest.fn(),
     set: jest.fn(),
-    del: jest.fn()
+    delete: jest.fn()
   }
 }));
 
@@ -19,7 +19,7 @@ describe('AnthropicAdapter - Models API Integration', () => {
 
   beforeEach(() => {
     adapter = new AnthropicAdapter({ apiKey: mockApiKey });
-    jest.clearAllMocks();
+    jest.resetAllMocks();
   });
 
   describe('fetchModelsFromAPI', () => {
@@ -276,7 +276,7 @@ describe('AnthropicAdapter - Models API Integration', () => {
 
       await adapter.refreshModels();
 
-      expect(cacheManager.del).toHaveBeenCalledWith('ai:anthropic:models');
+      expect(cacheManager.delete).toHaveBeenCalledWith('ai:anthropic:models');
       expect(fetch).toHaveBeenCalled();
     });
   });

@@ -1,3 +1,4 @@
+import { processingSnapshot } from '@/lib/documents/processing-state';
 import { serializeDocument } from '@/lib/documents/document-response';
 import { normalizeError } from '@/lib/errors/normalize-error';
 import { checkRateLimit, rateLimitConfigs } from '@/lib/rate-limit';
@@ -164,15 +165,12 @@ export async function POST(request: NextRequest) {
       if (uploadError) {
         console.error('Supabase upload error details:', {
           message: uploadError.message,
-          error: uploadError.error,
-          statusCode: uploadError.statusCode,
-          cause: uploadError.cause
+          name: uploadError.name
         });
         return NextResponse.json(
           {
             error: 'Failed to upload file to storage',
             details: uploadError.message,
-            supabaseError: uploadError.error
           },
           { status: 500 }
         );
@@ -346,12 +344,13 @@ export async function POST(request: NextRequest) {
         uploadedAt: document.createdAt,
         status: (document.processing as any)?.status || 'PENDING',
         url: urlData?.signedUrl,
-        message: 'Document uploaded and basic processing completed successfully.',
-        processingStatus: 'BASIC_COMPLETED'
+        message: 'Document uploaded. Processing status is available on the document.',
+        processingStatus: processingSnapshot(document.processing).currentStatus
       });
 
     } catch (caughtDberror) {
       const dbError = normalizeError(caughtDberror);
+      const code = caughtDberror && typeof caughtDberror === 'object' && 'code' in caughtDberror && typeof caughtDberror.code === 'string' ? caughtDberror.code : undefined;
       if (supabaseAdmin) {
         const cleanup = await supabaseAdmin.storage.from('documents').remove([filePath]);
         if (cleanup.error) console.error('Orphan upload cleanup failed', cleanup.error);
@@ -359,8 +358,7 @@ export async function POST(request: NextRequest) {
       console.error('❌ Database error creating document:', dbError);
       console.error('❌ Database error details:', {
         message: dbError.message,
-        code: dbError.code,
-        meta: dbError.meta,
+        code: code,
         stack: dbError.stack
       });
 
@@ -368,13 +366,13 @@ export async function POST(request: NextRequest) {
       let errorMessage = 'Failed to save document to database';
       let errorDetails = dbError.message;
 
-      if (dbError.code === 'P2002') {
+      if (code === 'P2002') {
         errorMessage = 'Document with this ID already exists';
         errorDetails = 'Please try uploading again';
-      } else if (dbError.code === 'P2003') {
+      } else if (code === 'P2003') {
         errorMessage = 'Invalid reference to organization or folder';
         errorDetails = 'Please refresh the page and try again';
-      } else if (dbError.code === 'P2025') {
+      } else if (code === 'P2025') {
         errorMessage = 'Referenced organization or folder not found';
         errorDetails = 'Please refresh the page and try again';
       } else if (dbError.message?.includes('violates check constraint')) {
@@ -386,7 +384,7 @@ export async function POST(request: NextRequest) {
         {
           error: errorMessage,
           details: errorDetails,
-          code: dbError.code || 'UNKNOWN'
+          code: code || 'UNKNOWN'
         },
         { status: 500 }
       );

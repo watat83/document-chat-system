@@ -73,7 +73,7 @@ export async function GET(request: NextRequest) {
 
     const url = new URL(request.url);
     const params = Object.fromEntries(url.searchParams);
-    
+
     const validatedParams = summaryParamsSchema.parse(params);
 
     const queryService = new AuditQueryService();
@@ -93,7 +93,7 @@ export async function GET(request: NextRequest) {
         result = await queryService.getSecurityEvents(
           validatedParams.startDate,
           validatedParams.endDate,
-          [AuditSeverity.WARNING, AuditSeverity.ERROR, AuditSeverity.CRITICAL],
+          [AuditSeverity.WARN, AuditSeverity.ERROR, AuditSeverity.CRITICAL],
           currentUserId
         );
         break;
@@ -124,7 +124,7 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     console.error('Failed to generate audit log summary:', error);
-    
+
     if (error instanceof z.ZodError) {
       return NextResponse.json(
         { error: 'Invalid parameters', details: error.errors },

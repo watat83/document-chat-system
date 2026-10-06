@@ -1,3 +1,6 @@
+import { prisma } from '@/lib/db';
+import { guardUsage } from '@/lib/billing/usage-guard';
+import { UsageType } from '@prisma/client';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { z } from 'zod';
@@ -6,29 +9,29 @@ import { ABTestManager } from '@/lib/ai/ab-testing/ab-test-manager';
 const executeRequestSchema = z.object({
   testId: z.string().min(1)
     .describe("Unique identifier for the A/B test being executed. This test compares different AI providers (Vercel AI SDK vs traditional) to determine optimal performance for specific use cases."),
-  
+
   userId: z.string().min(1)
     .describe("User identifier who is participating in the A/B test. Used for variant assignment, result tracking, and ensuring consistent test experience across multiple requests."),
-  
+
   organizationId: z.string().min(1)
     .describe("Organization identifier for A/B test participation. Ensures test results are scoped to the organization and applied to organization-specific AI usage patterns and preferences."),
-  
+
   task: z.object({
     model: z.string()
       .describe("AI model identifier to use for the task execution. The A/B test framework will route this through either Vercel AI SDK or traditional providers based on the assigned variant."),
-    
+
     messages: z.array(z.object({
       role: z.enum(['user', 'assistant', 'system'])
         .describe("Message role in the AI conversation for A/B testing."),
-      
+
       content: z.string()
         .describe("Message content that will be processed by the assigned AI provider variant.")
     }))
       .describe("Array of conversation messages that will be processed by the A/B test. Both variants will receive identical input to ensure fair performance comparison."),
-    
+
     maxTokens: z.number().optional()
       .describe("Maximum tokens to generate in the AI response. Both test variants use the same limit to ensure comparable output length and cost analysis."),
-    
+
     temperature: z.number().optional()
       .describe("AI creativity control parameter. Kept consistent across both variants to ensure performance differences are due to provider capabilities, not parameter variations.")
   })
@@ -142,6 +145,10 @@ export async function POST(request: NextRequest) {
 
     const { testId, userId, organizationId, task } = validation.data;
 
+    const user = await prisma.user.findFirst({ where: { clerkId: authUserId, deletedAt: null, organization: { deletedAt: null } } });
+    if (!user || user.id !== userId || user.organizationId !== organizationId) return NextResponse.json({ error: 'Account does not match request' }, { status: 403 });
+    const usageError = await guardUsage(user.organizationId, UsageType.AI_QUERY);
+    if (usageError) return usageError;
     const abTestManager = ABTestManager.getInstance();
     const { result, testResult } = await abTestManager.executeWithABTest(
       testId,
@@ -150,7 +157,7 @@ export async function POST(request: NextRequest) {
       task
     );
 
-    return NextResponse.json({ result, testResult });
+    return NextResponse.json({ result, testResult }, { status: testResult.success ? 200 : 503 });
   } catch (error) {
     console.error('Failed to execute with A/B test:', error);
     return NextResponse.json(

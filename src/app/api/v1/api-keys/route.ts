@@ -1,9 +1,9 @@
 /**
  * API Keys Management Endpoint
- * 
+ *
  * GET /api/api-keys - List API keys for organization
  * POST /api/api-keys - Create new API key
- * 
+ *
  * Provides CRUD operations for API key management
  */
 
@@ -88,7 +88,8 @@ export const GET = asyncHandler(async (request: NextRequest) => {
   await UsageTrackingService.trackUsage({
     userId: user.id,
     organizationId: user.organizationId,
-    type: 'API_KEY_LIST',
+    usageType: UsageType.API_CALL,
+      resourceType: 'api_key_list',
     metadata: {
       keysCount: keys.length,
       endpoint: '/api/api-keys'
@@ -108,8 +109,8 @@ export const GET = asyncHandler(async (request: NextRequest) => {
         method: 'GET',
         organizationId: user.organizationId,
         userAgent: request.headers.get('user-agent'),
-        ipAddress: request.headers.get('x-forwarded-for') || 
-                  request.headers.get('x-real-ip') || 
+        ipAddress: request.headers.get('x-forwarded-for') ||
+                  request.headers.get('x-real-ip') ||
                   'unknown'
       }
     );
@@ -253,7 +254,7 @@ export const POST = asyncHandler(async (request: NextRequest) => {
 
   const invalidScopes = scopes.filter((scope: string) => !validScopes.includes(scope as APIKeyScope));
   if (invalidScopes.length > 0) {
-    throw new ValidationError('Invalid scopes provided', { 
+    throw new ValidationError('Invalid scopes provided', {
       invalidScopes,
       validScopes
     });
@@ -292,7 +293,8 @@ export const POST = asyncHandler(async (request: NextRequest) => {
   await UsageTrackingService.trackUsage({
     userId: user.id,
     organizationId: user.organizationId,
-    type: 'API_KEY_CREATION',
+    usageType: UsageType.API_CALL,
+      resourceType: 'api_key_creation',
     metadata: {
       keyId: apiKeyResponse.keyId,
       keyName: apiKeyResponse.name,
@@ -323,8 +325,8 @@ export const POST = asyncHandler(async (request: NextRequest) => {
         method: 'POST',
         organizationId: user.organizationId,
         userAgent: request.headers.get('user-agent'),
-        ipAddress: request.headers.get('x-forwarded-for') || 
-                  request.headers.get('x-real-ip') || 
+        ipAddress: request.headers.get('x-forwarded-for') ||
+                  request.headers.get('x-real-ip') ||
                   'unknown',
         securityLevel: 'HIGH',
         action: 'api_key_generation'

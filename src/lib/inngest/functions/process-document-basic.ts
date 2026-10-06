@@ -1,3 +1,4 @@
+import { processingTransition, updateProcessingState, assertProcessingRun } from '@/lib/documents/processing-state';
 import { inngest } from "../client";
 import { documentProcessor } from "@/lib/ai/document-processor";
 import { prisma } from "@/lib/db";
@@ -11,20 +12,22 @@ export const processDocumentBasic = inngest.createFunction(
     id: "process-document-basic",
     name: "Process Document Basic",
     retries: 3,
+    cancelOn: [{ event: 'document/process.cancelled', if: 'async.data.documentId == event.data.documentId && async.data.organizationId == event.data.organizationId && (!async.data.runId || async.data.runId == event.data.runId)' }],
     concurrency: {
       limit: 5, // Process max 5 documents concurrently (plan limit)
     },
   },
   { event: "document/process-basic.requested" },
   async ({ event, step }) => {
-    const { documentId, organizationId, userId, options } = event.data;
+    const { documentId, organizationId, userId, options, runId } = event.data;
     const startTime = Date.now();
+    let documentName = 'document';
 
     try {
       // Step 1: Verify document exists and update status
       const document = await step.run("fetch-and-update-document", async () => {
         const doc = await prisma.document.findUnique({
-          where: { 
+          where: {
             id: documentId,
             organizationId: organizationId,
           },
@@ -38,28 +41,12 @@ export const processDocumentBasic = inngest.createFunction(
         }
 
         // Update status to processing
-        const currentDoc = await prisma.document.findUnique({
-          where: { id: documentId },
-          select: { processing: true }
-        });
-        
-        const currentProcessing = (currentDoc?.processing as any) || {};
-        
-        await prisma.document.update({
-          where: { id: documentId },
-          data: {
-            processing: {
-              ...currentProcessing,
-              currentStatus: 'PROCESSING',
-              progress: 10,
-              currentStep: 'Basic Analysis',
-              estimatedCompletion: null
-            }
-          }
-        });
+        await updateProcessingState(documentId, current => { assertProcessingRun(current, runId); return processingTransition(current, 'PROCESSING'); }, organizationId);
 
         return doc;
       });
+
+      documentName = document.name;
 
       // Step 2: Process document with basic AI analysis
       const processingResult = await step.run("process-basic-content", async () => {
@@ -67,7 +54,8 @@ export const processDocumentBasic = inngest.createFunction(
           documentId,
           (step: string, progress: number) => {
             console.log(`📊 Basic Processing [${documentId}]: ${step} - ${progress}%`);
-          }
+          },
+          runId
         );
 
         if (!result.success) {
@@ -96,7 +84,7 @@ export const processDocumentBasic = inngest.createFunction(
             data: {
               organizationId,
               userId,
-              type: 'DOCUMENT_PROCESSED',
+              type: 'SUCCESS',
               title: 'Document Upload Complete',
               message: `"${document.name}" has been processed and is ready for review`,
               metadata: {
@@ -104,8 +92,8 @@ export const processDocumentBasic = inngest.createFunction(
                 processingType: 'basic',
                 sectionsCount: processingResult.aiData?.structure.sections.length || 0,
               },
-              priority: 'low',
-              category: 'document',
+              priority: 'LOW',
+              category: 'GENERAL',
             },
           });
         });
@@ -124,39 +112,7 @@ export const processDocumentBasic = inngest.createFunction(
 
       // Update document status to failed
       await step.run("update-document-failed", async () => {
-        const failedDoc = await prisma.document.findUnique({
-          where: { id: documentId },
-          select: { processing: true }
-        });
-        
-        const failedProcessing = (failedDoc?.processing as any) || {};
-        
-        await prisma.document.update({
-          where: { id: documentId },
-          data: {
-            processing: {
-              ...failedProcessing,
-              currentStatus: 'FAILED',
-              progress: 0,
-              currentStep: null,
-              estimatedCompletion: null,
-              events: [
-                ...(failedProcessing.events || []),
-                {
-                  id: `event_${Date.now()}`,
-                  userId: null,
-                  event: 'Processing Failed',
-                  eventType: 'FAILED',
-                  success: false,
-                  error: error instanceof Error ? error.message : 'Unknown error',
-                  timestamp: new Date().toISOString(),
-                  duration: null,
-                  metadata: null
-                }
-              ]
-            }
-          }
-        });
+        await updateProcessingState(documentId, current => (runId && current.runId !== runId) || current.currentStatus === 'CANCELLED' ? current : processingTransition(current, 'FAILED', error instanceof Error ? error.message : 'Processing failed'), organizationId);
       });
 
       // Send failure event
@@ -176,16 +132,16 @@ export const processDocumentBasic = inngest.createFunction(
             data: {
               organizationId,
               userId,
-              type: 'DOCUMENT_PROCESSING_FAILED',
+              type: 'WARNING',
               title: 'Document Processing Failed',
-              message: `Failed to process "${document?.name || 'document'}": ${error instanceof Error ? error.message : 'Unknown error'}`,
+              message: `Failed to process "${documentName}": ${error instanceof Error ? error.message : 'Unknown error'}`,
               metadata: {
                 documentId,
                 processingType: 'basic',
                 error: error instanceof Error ? error.message : 'Unknown error',
               },
-              priority: 'high',
-              category: 'document',
+              priority: 'HIGH',
+              category: 'GENERAL',
             },
           });
         });

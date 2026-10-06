@@ -80,7 +80,7 @@ export class PricingService {
       return result.data
     } catch (error) {
       console.error('Failed to fetch pricing plans from database:', error)
-      
+
       if (!useFallback) {
         throw error
       }
@@ -90,7 +90,7 @@ export class PricingService {
         const fallbackResult = await cacheManager.get(this.FALLBACK_CACHE_KEY, {
           prefix: 'pricing:'
         })
-        
+
         if (fallbackResult) {
           console.log('Using cached fallback pricing plans')
           return fallbackResult as PricingPlan[]
@@ -118,8 +118,8 @@ export class PricingService {
    */
   static async getPlanByStripePrice(stripePriceId: string): Promise<PricingPlan | null> {
     const plans = await this.getActivePlans()
-    return plans.find(plan => 
-      plan.stripeMonthlyPriceId === stripePriceId || 
+    return plans.find(plan =>
+      plan.stripeMonthlyPriceId === stripePriceId ||
       plan.stripeYearlyPriceId === stripePriceId
     ) || null
   }
@@ -218,13 +218,13 @@ export class PricingService {
   static async getUpgradePath(currentPlanType: string): Promise<PricingPlan | null> {
     const plans = await this.getActivePlans()
     const currentPlan = plans.find(p => p.planType === currentPlanType)
-    
+
     if (!currentPlan) return null
 
     // Find the next plan by display order with higher price
     const upgradePlans = plans
-      .filter(p => 
-        p.displayOrder > currentPlan.displayOrder && 
+      .filter(p =>
+        p.displayOrder > currentPlan.displayOrder &&
         p.monthlyPrice > currentPlan.monthlyPrice &&
         p.planType !== 'ENTERPRISE' // Don't auto-suggest enterprise
       )
@@ -276,11 +276,11 @@ export class PricingService {
     // Filter plans that meet requirements
     const suitablePlans = plans.filter(plan => {
       if (plan.planType === 'ENTERPRISE') return false // Don't auto-recommend enterprise
-      
+
       const meetsSeats = plan.limits.seats === -1 || plan.limits.seats >= requirements.seats
       const meetsFilters = plan.limits.documentsPerMonth === -1 || plan.limits.documentsPerMonth >= requirements.documentsPerMonth
       const meetsAI = !requirements.aiCreditsNeeded || plan.limits.aiCreditsPerMonth > 0
-      const meetsMatchScores = plan.limits.matchScoreCalculations === -1 || 
+      const meetsMatchScores = plan.limits.matchScoreCalculations === -1 ||
                                plan.limits.matchScoreCalculations >= requirements.matchScoresPerMonth
 
       return meetsSeats && meetsFilters && meetsAI && meetsMatchScores
@@ -310,14 +310,14 @@ export class PricingService {
       yearlyPrice: null,
       currency: 'USD',
       features: {
-        list: plan.features,
-        detailed: null
+        list: [...plan.features],
       },
       limits: {
         seats: plan.limits.seats,
-        documentsPerMonth: plan.limits.savedSearches || plan.limits.documentsPerMonth || 0,
-        aiCreditsPerMonth: plan.limits.aiCredits || plan.limits.aiCreditsPerMonth || 0,
-        matchScoreCalculations: plan.limits.matchScoreCalculations || 100,
+        documentsPerMonth: plan.limits.documentsPerMonth,
+        aiCreditsPerMonth: plan.limits.aiCreditsPerMonth,
+        matchScoreCalculations: 0,
+        savedSearches: 0,
         apiCallsPerMonth: -1,
         exportLimit: -1
       },
@@ -414,13 +414,13 @@ export class PricingService {
     billingInterval: 'monthly' | 'yearly' = 'monthly'
   ): Promise<string> {
     const plan = await this.getPlanByType(planType)
-    
+
     if (!plan) {
       throw new Error('Plan not found')
     }
 
-    const priceId = billingInterval === 'yearly' 
-      ? plan.stripeYearlyPriceId 
+    const priceId = billingInterval === 'yearly'
+      ? plan.stripeYearlyPriceId
       : plan.stripeMonthlyPriceId
 
     if (!priceId) {
@@ -430,7 +430,6 @@ export class PricingService {
     const checkoutSession = await stripe.checkout.sessions.create({
       customer: customerId,
       mode: 'subscription',
-      payment_method_types: ['card'],
       line_items: [{
         price: priceId,
         quantity: 1

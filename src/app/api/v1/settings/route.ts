@@ -91,8 +91,8 @@ export async function GET(request: NextRequest) {
 
     // Get user's organization
     const user = await prisma.user.findUnique({
-      where: { clerkId: userId },
-      select: { organizationId: true },
+      where: { clerkId: userId, deletedAt: null, organization: { deletedAt: null } },
+      select: { organizationId: true, role: true },
     });
 
     if (!user) {
@@ -103,6 +103,7 @@ export async function GET(request: NextRequest) {
     const category = searchParams.get('category');
     const masked = searchParams.get('masked') !== 'false'; // Default to masked
 
+    if (!['OWNER', 'ADMIN'].includes(user.role)) return NextResponse.json({ error: 'Organization administrator required' }, { status: 403 });
     // Get settings by category
     const whereClause = category
       ? { organizationId: user.organizationId, category }
@@ -165,14 +166,15 @@ export async function POST(request: NextRequest) {
 
     // Get user's organization
     const user = await prisma.user.findUnique({
-      where: { clerkId: userId },
-      select: { id: true, organizationId: true },
+      where: { clerkId: userId, deletedAt: null, organization: { deletedAt: null } },
+      select: { id: true, organizationId: true, role: true },
     });
 
     if (!user) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
 
+    if (!['OWNER', 'ADMIN'].includes(user.role)) return NextResponse.json({ error: 'Organization administrator required' }, { status: 403 });
     const body = await request.json();
     const { category, settings } = body;
 
@@ -269,14 +271,15 @@ export async function DELETE(request: NextRequest) {
 
     // Get user's organization
     const user = await prisma.user.findUnique({
-      where: { clerkId: userId },
-      select: { organizationId: true },
+      where: { clerkId: userId, deletedAt: null, organization: { deletedAt: null } },
+      select: { organizationId: true, role: true },
     });
 
     if (!user) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
 
+    if (!['OWNER', 'ADMIN'].includes(user.role)) return NextResponse.json({ error: 'Organization administrator required' }, { status: 403 });
     const { searchParams } = new URL(request.url);
     const category = searchParams.get('category');
 

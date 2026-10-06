@@ -1,701 +1,97 @@
-import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/db';
-import { supabase } from '@/lib/supabase';
-import { downloadFileWithFallback } from '@/lib/storage/path-utils';
 import { AIServiceManager } from '@/lib/ai/ai-service-manager';
-import { CleanOpenRouterAdapter, DocumentProcessingRequest } from '@/lib/ai/providers/clean-openrouter-adapter';
-import { ai } from '@/lib/config/env';
-import { UsageTrackingService, UsageType } from '@/lib/usage-tracking';
+import { downloadFileWithFallback } from '@/lib/storage/path-utils';
+import { canAccessDocument } from '@/lib/security/access-policy';
+import { guardUsage } from '@/lib/billing/usage-guard';
+import { UsageType } from '@/lib/usage-tracking';
+import { jsonObject, processingSnapshot, processingTransition, updateProcessingState, processingTransaction, ProcessingConflictError, assertProcessingRun } from '@/lib/documents/processing-state';
+import { serializeDocument } from '@/lib/documents/document-response';
 
 const processSchema = z.object({
-  documentId: z.string().min(1)
-    .describe("Unique identifier of the document to process. Must reference an existing uploaded document in the organization."),
-  
-  organizationId: z.string().min(1)
-    .describe("Organization identifier for access control and billing. Ensures document processing is properly scoped and tracked."),
-  
-  operation: z.enum(['summary', 'extraction', 'analysis', 'qa']).default('summary')
-    .describe("Type of document processing operation: 'summary' creates concise overview, 'extraction' pulls specific data, 'analysis' provides insights, 'qa' enables question-answering capabilities."),
-  
-  prompt: z.string().optional()
-    .describe("Custom prompt for document processing. If not provided, a default prompt based on the operation type will be used. Useful for specific extraction requirements or focused analysis."),
-  
-  model: z.string().optional()
-    .describe("AI model to use for document processing. If not specified, an optimal model will be selected based on document type and operation. Options include balanced, fast, or powerful models."),
-  
-  forceReprocess: z.boolean().default(false)
-    .describe("Force reprocessing even if document was already processed. Useful when different operation types or prompts are needed for the same document.")
+  documentId: z.string().min(1),
+  organizationId: z.string().min(1).optional(),
+  operation: z.enum(['summary', 'extraction', 'analysis', 'qa']).default('summary'),
+  prompt: z.string().max(200000).optional(),
+  model: z.string().max(200).optional(),
+  forceReprocess: z.boolean().default(false),
 });
 
-interface ProcessingResult {
-  success: boolean;
-  extractedText?: string;
-  summary?: string;
-  metadata?: Record<string, any>;
-  error?: string;
-}
-
-/**
- * Process document using OpenRouter's enhanced document processing capabilities
- */
-async function processDocumentWithOpenRouter(
-  documentId: string,
-  filePath: string, 
-  mimeType: string,
-  fileName: string,
-  operation: 'summary' | 'extraction' | 'analysis' | 'qa',
-  organizationId: string,
-  userId: string,
-  customPrompt?: string,
-  model?: string
-): Promise<ProcessingResult> {
-  try {
-    // Get file from Supabase Storage
-    let fileData: Buffer;
-    
-    if (supabase) {
-      const { data, error: downloadError, actualPath } = await downloadFileWithFallback(filePath, organizationId);
-
-      if (downloadError || !data) {
-        return {
-          success: false,
-          error: `Failed to download file for processing. Tried path: ${filePath}${actualPath !== filePath ? ` and fallback: ${actualPath}` : ''}`
-        };
-      }
-      
-      // Log if we used a fallback path
-      if (actualPath !== filePath) {
-        console.log(`📁 Used fallback path for file download: ${filePath} -> ${actualPath}`)
-      }
-      
-      // Convert Blob to Buffer
-      const arrayBuffer = await data.arrayBuffer();
-      fileData = Buffer.from(arrayBuffer);
-    } else {
-      // Fallback for development/testing without Supabase
-      console.warn('Supabase not configured - using mock file data');
-      fileData = Buffer.from(`Mock document content for ${fileName}`, 'utf-8');
-    }
-
-    // Initialize OpenRouter adapter
-    const openRouterAdapter = new CleanOpenRouterAdapter({
-      apiKey: ai.openRouter.apiKey,
-      appName: ai.openRouter.appName,
-      siteUrl: ai.openRouter.siteUrl,
-      enableSmartRouting: true,
-      costOptimization: 'balanced',
-      maxRetries: 3,
-      timeout: 120000 // 2 minutes for document processing
-    });
-
-    // Prepare document processing request
-    const documentRequest: DocumentProcessingRequest = {
-      documentId,
-      documentData: fileData,
-      fileName,
-      mimeType,
-      operation,
-      prompt: customPrompt,
-      model: model || 'balanced',
-      metadata: {
-        organizationId,
-        userId
-      }
-    };
-
-    // Process document using OpenRouter
-    console.log(`🔄 Processing document ${fileName} with operation: ${operation}`);
-    const result = await openRouterAdapter.processDocument(documentRequest);
-
-    return {
-      success: true,
-      extractedText: result.extractedText,
-      summary: result.summary,
-      metadata: {
-        ...result.metadata,
-        wordCount: result.extractedText.split(/\s+/).length,
-        characterCount: result.extractedText.length,
-        processedAt: new Date().toISOString(),
-        operation,
-        fileName,
-        documentId
-      }
-    };
-
-  } catch (error) {
-    console.error('OpenRouter document processing error:', error);
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : 'Failed to process document with OpenRouter'
-    };
-  }
-}
-
-/**
- * @swagger
- * /api/v1/documents/process:
- *   post:
- *     summary: Process document with AI-powered analysis
- *     description: |
- *       Process uploaded documents using OpenRouter's enhanced document processing capabilities.
- *       Supports multiple operation types including summarization, data extraction, analysis, and Q&A preparation.
- *       Provides comprehensive usage tracking and cost optimization.
- *     tags:
- *       - Documents
- *     security:
- *       - BearerAuth: []
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - documentId
- *               - organizationId
- *             properties:
- *               documentId:
- *                 type: string
- *                 description: Unique identifier of the document to process
- *                 example: "doc_123abc"
- *               organizationId:
- *                 type: string
- *                 description: Organization identifier for access control and billing
- *                 example: "org_456def"
- *               operation:
- *                 type: string
- *                 enum: [summary, extraction, analysis, qa]
- *                 default: summary
- *                 description: Type of document processing operation
- *                 example: "summary"
- *               prompt:
- *                 type: string
- *                 description: Custom prompt for document processing
- *                 example: "Extract all key dates and deadlines from this contract"
- *               model:
- *                 type: string
- *                 description: AI model to use (balanced, fast, powerful)
- *                 example: "balanced"
- *               forceReprocess:
- *                 type: boolean
- *                 default: false
- *                 description: Force reprocessing even if already processed
- *                 example: false
- *     responses:
- *       200:
- *         description: Document processed successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 id:
- *                   type: string
- *                   description: Document ID
- *                 content:
- *                   type: string
- *                   description: Extracted text content
- *                 summary:
- *                   type: string
- *                   description: AI-generated summary
- *                 status:
- *                   type: string
- *                   example: "COMPLETED"
- *                 processedAt:
- *                   type: string
- *                   format: date-time
- *                   description: Processing completion timestamp
- *                 metadata:
- *                   type: object
- *                   description: Processing metadata and analytics
- *                 operation:
- *                   type: string
- *                   description: Processing operation used
- *                 model:
- *                   type: string
- *                   description: AI model used
- *                 provider:
- *                   type: string
- *                   example: "openrouter"
- *                 cost:
- *                   type: number
- *                   description: Processing cost in USD
- *                 latency:
- *                   type: number
- *                   description: Processing time in milliseconds
- *                 tokensUsed:
- *                   type: number
- *                   description: Total tokens consumed
- *       400:
- *         description: Invalid request data
- *       401:
- *         description: Unauthorized - valid authentication required
- *       403:
- *         description: Access denied to organization
- *       404:
- *         description: Document not found
- *       500:
- *         description: Internal server error
- *   get:
- *     summary: Get document processing status
- *     description: Retrieve the current processing status and results for a document
- *     tags:
- *       - Documents
- *     security:
- *       - BearerAuth: []
- *     parameters:
- *       - name: documentId
- *         in: query
- *         required: true
- *         schema:
- *           type: string
- *         description: Document ID to check
- *         example: "doc_123abc"
- *       - name: organizationId
- *         in: query
- *         required: true
- *         schema:
- *           type: string
- *         description: Organization ID for access control
- *         example: "org_456def"
- *     responses:
- *       200:
- *         description: Document status retrieved successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 id:
- *                   type: string
- *                 name:
- *                   type: string
- *                   description: Original filename
- *                 status:
- *                   type: string
- *                   enum: [PENDING, PROCESSING, COMPLETED, FAILED, QUEUED]
- *                 content:
- *                   type: string
- *                   description: Extracted content (if processed)
- *                 summary:
- *                   type: string
- *                   description: Generated summary (if processed)
- *                 processedAt:
- *                   type: string
- *                   format: date-time
- *                 metadata:
- *                   type: object
- *                 operation:
- *                   type: string
- *                 model:
- *                   type: string
- *                 provider:
- *                   type: string
- *                 cost:
- *                   type: number
- *                 latency:
- *                   type: number
- *                 tokensUsed:
- *                   type: number
- *       400:
- *         description: Missing required parameters
- *       401:
- *         description: Unauthorized
- *       404:
- *         description: Document not found
- *       500:
- *         description: Internal server error
- */
 export async function POST(request: NextRequest) {
+  const { userId } = await auth();
+  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  let activeDocumentId: string | undefined;
+  let activeRunId: string | undefined;
   try {
-    const { userId } = await auth();
-    if (!userId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const parsed = processSchema.safeParse(await request.json());
+    if (!parsed.success) return NextResponse.json({ error: 'Invalid request', details: parsed.error.flatten() }, { status: 400 });
+    const body = parsed.data;
+    const user = await prisma.user.findFirst({ where: { clerkId: userId, deletedAt: null } });
+    if (!user || (body.organizationId && body.organizationId !== user.organizationId)) return NextResponse.json({ error: 'Access denied' }, { status: 403 });
+    const document = await prisma.document.findFirst({ where: { id: body.documentId, organizationId: user.organizationId, deletedAt: null } });
+    if (!document) return NextResponse.json({ error: 'Document not found' }, { status: 404 });
+    if (!canAccessDocument(user, document, 'WRITE')) return NextResponse.json({ error: 'Write permission required' }, { status: 403 });
+    const currentProcessing = processingSnapshot(document.processing);
+    if (['PROCESSING', 'QUEUED'].includes(currentProcessing.currentStatus)) return NextResponse.json({ error: 'Document is already processing' }, { status: 409 });
+    const results = jsonObject(jsonObject(document.analysis).processingResults);
+    const cachedResult = jsonObject(results[body.operation]);
+    if (!body.forceReprocess && !body.prompt && !body.model && typeof cachedResult.content === 'string') return NextResponse.json({ id: document.id, content: cachedResult.content, operation: body.operation, status: currentProcessing.currentStatus, metadata: cachedResult.metadata, document: serializeDocument(document) });
+    for (const type of [UsageType.DOCUMENT_PROCESSING, UsageType.AI_QUERY]) {
+      const usageError = await guardUsage(user.organizationId, type);
+      if (usageError) return usageError;
     }
-
-    const body = await request.json();
-    const validation = processSchema.safeParse(body);
-    
-    if (!validation.success) {
-      return NextResponse.json(
-        { error: 'Invalid request data', details: validation.error.format() },
-        { status: 400 }
-      );
-    }
-
-    const { 
-      documentId, 
-      organizationId, 
-      operation, 
-      prompt, 
-      model, 
-      forceReprocess 
-    } = validation.data;
-
-    // Get internal user ID from Clerk ID
-    const user = await prisma.user.findFirst({
-      where: {
-        clerkId: userId,
-        organizationId
-      }
+    const { data, error } = await downloadFileWithFallback(document.filePath, user.organizationId);
+    if (error || !data) throw new Error('Document file unavailable');
+    const manager = AIServiceManager.getInstance();
+    await manager.initialize();
+    const adapter = manager.getOpenRouterAdapter();
+    if (!adapter) throw new Error('Document processing provider unavailable');
+    const started = await updateProcessingState(document.id, current => {
+      if (['PROCESSING', 'QUEUED'].includes(current.currentStatus)) throw new ProcessingConflictError();
+      return processingTransition(current, 'PROCESSING');
     });
-
-    if (!user) {
-      return NextResponse.json(
-        { error: 'Access denied to organization' },
-        { status: 403 }
-      );
-    }
-
-    // Verify user access and get document
-    const document = await prisma.document.findFirst({
-      where: {
-        id: documentId,
-        organizationId,
-        uploadedById: user.id // Use internal user ID, not Clerk ID
-      }
+    activeDocumentId = document.id;
+    activeRunId = processingSnapshot(started.processing).runId ?? undefined;
+    const response = await adapter.processDocument({ signal: request.signal, documentId: document.id, documentData: Buffer.from(await data.arrayBuffer()), fileName: document.name, mimeType: document.mimeType, operation: body.operation, prompt: body.prompt, model: body.model, metadata: { organizationId: user.organizationId, userId: user.id } });
+    // Store only the operation's actual result. Summary/QA must not replace extracted text.
+    const updated = await processingTransaction(prisma, async tx => {
+      const current = await tx.document.findFirst({ where: { id: document.id, organizationId: user.organizationId, deletedAt: null } });
+      if (!current) throw new Error('Document not found');
+      assertProcessingRun(current.processing, activeRunId);
+      const analysis = jsonObject(current.analysis);
+      return tx.document.update({ where: { id: document.id }, data: {
+        ...(body.operation === 'extraction' && { extractedText: response.extractedText }),
+        ...(body.operation === 'summary' && { summary: response.extractedText }),
+        analysis: JSON.parse(JSON.stringify({ ...analysis, processingResults: { ...jsonObject(analysis.processingResults), [body.operation]: { content: response.extractedText, metadata: response.metadata, processedAt: new Date().toISOString() } } })),
+      } });
     });
-
-    if (!document) {
-      return NextResponse.json(
-        { error: 'Document not found or access denied' },
-        { status: 404 }
-      );
-    }
-
-    // Check if already processed (unless force reprocess is enabled)
-    if (!forceReprocess && document.status === 'COMPLETED' && document.extractedText) {
-      return NextResponse.json({
-        id: document.id,
-        content: document.extractedText,
-        summary: document.summary,
-        status: 'COMPLETED',
-        processedAt: document.processedAt,
-        metadata: document.metadata,
-        operation: (document.metadata as any)?.operation || 'summary'
-      });
-    }
-
-    // Update status to processing
-    await prisma.document.update({
-      where: { id: documentId },
-      data: { status: 'PROCESSING' }
-    });
-
-    // Process document using OpenRouter enhanced capabilities
-    const result = await processDocumentWithOpenRouter(
-      document.id,
-      document.filePath,
-      document.mimeType,
-      document.name,
-      operation,
-      organizationId,
-      userId,
-      prompt,
-      model
-    );
-
-    if (!result.success) {
-      await prisma.document.update({
-        where: { id: documentId },
-        data: { 
-          status: 'FAILED',
-          metadata: {
-            ...document.metadata as object,
-            error: result.error,
-            failedAt: new Date().toISOString()
-          }
-        }
-      });
-
-      return NextResponse.json(
-        { error: result.error || 'Processing failed' },
-        { status: 500 }
-      );
-    }
-
-    // Extract additional data for new models (simplified demo data)
-    const extractedText = result.extractedText || ''
-    const startTime = Date.now()
-    const processingTime = Date.now() - startTime
-
-    // Simulate entity extraction (in production, this would use AI)
-    const mockEntities = [
-      { text: 'Department of Defense', type: 'ORGANIZATION', confidence: 0.95, startOffset: 0, endOffset: 19 },
-      { text: 'RFP-2024-001', type: 'MISC', confidence: 0.9, startOffset: 50, endOffset: 61 },
-      { text: '$500,000', type: 'MONEY', confidence: 0.85, startOffset: 100, endOffset: 108 }
-    ].filter(entity => extractedText.length > entity.endOffset)
-
-    // Create related records using the new models
-    const createdEntities = await Promise.all(
-      mockEntities.map(entity => 
-        prisma.extractedEntity.create({
-          data: {
-            documentId: document.id,
-            text: entity.text,
-            type: entity.type as any,
-            confidence: entity.confidence,
-            startOffset: entity.startOffset,
-            endOffset: entity.endOffset,
-            context: `Context around: ${entity.text}`
-          }
-        })
-      )
-    )
-
-    // Create document chunks for vector search
-    const chunkSize = 1000
-    const chunks = []
-    for (let i = 0; i < extractedText.length; i += chunkSize) {
-      const chunkContent = extractedText.slice(i, i + chunkSize)
-      const chunk = await prisma.documentChunk.create({
-        data: {
-          documentId: document.id,
-          content: chunkContent,
-          startIndex: i,
-          endIndex: Math.min(i + chunkSize, extractedText.length),
-          chunkOrder: Math.floor(i / chunkSize),
-          chunkType: 'text'
-        }
-      })
-      chunks.push(chunk)
-    }
-
-    // Create compliance check record
-    const complianceCheck = await prisma.complianceCheck.create({
-      data: {
-        documentId: document.id,
-        status: 'COMPLIANT',
-        issues: [],
-        recommendations: ['Review for accuracy', 'Ensure proper formatting'],
-        complianceScore: 0.85
-      }
-    })
-
-    // Create processing event
-    await prisma.processingEvent.create({
-      data: {
-        documentId: document.id,
-        organizationId: organizationId,
-        userId: user.id, // Use internal user ID, not Clerk ID
-        event: `Document Processed (${operation})`,
-        success: true,
-        eventType: 'DOCUMENT_PROCESSING',
-        duration: processingTime,
-        metadata: {
-          operation,
-          model: result.metadata?.model || model,
-          tokensUsed: result.metadata?.tokensUsed || 0,
-          cost: result.metadata?.cost || 0
-        }
-      }
-    })
-
-    // Update document with extracted content using consolidated aiData structure
-    const aiData = {
-      status: {
-        status: 'completed',
-        progress: 100,
-        startedAt: document.createdAt.toISOString(),
-        completedAt: new Date().toISOString(),
-        retryCount: 0
-      },
-      content: {
-        extractedText: result.extractedText || '',
-        summary: result.summary || '',
-        keywords: createdEntities.map(e => e.text),
-        keyPoints: [],
-        actionItems: [],
-        questions: []
-      },
-      structure: {
-        sections: [],
-        tables: [],
-        images: [],
-        ocrResults: []
-      },
-      analysis: {
-        qualityScore: 8,
-        readabilityScore: 7,
-        complexityMetrics: { readabilityScore: 7 },
-        entities: createdEntities.map(entity => ({
-          text: entity.text,
-          type: entity.type.toLowerCase() as any,
-          confidence: entity.confidence,
-          startOffset: entity.startOffset,
-          endOffset: entity.endOffset
-        })),
-        confidence: 0.8,
-        suggestions: complianceCheck.recommendations
-      },
-      processedAt: new Date().toISOString(),
-      modelVersion: result.metadata?.model || model || 'unknown',
-      processingHistory: [
-        {
-          timestamp: document.createdAt.toISOString(),
-          event: 'Document Uploaded',
-          success: true
-        },
-        {
-          timestamp: new Date().toISOString(),
-          event: `Document Processed (${operation})`,
-          success: true
-        }
-      ]
-    };
-
-    const updatedDocument = await prisma.document.update({
-      where: { id: documentId },
-      data: {
-        status: 'COMPLETED',
-        // Update consolidated aiData structure
-        aiData: aiData,
-        // Legacy fields (for backward compatibility)
-        extractedText: result.extractedText,
-        summary: result.summary,
-        processedAt: new Date(),
-        metadata: {
-          ...document.metadata as object,
-          ...result.metadata
-        }
-      }
-    });
-
-    // Track usage for successful document processing
-    try {
-      await UsageTrackingService.trackUsage({
-        organizationId: document.organizationId,
-        usageType: UsageType.DOCUMENT_PROCESSING,
-        quantity: 1,
-        resourceId: document.id,
-        resourceType: 'document',
-        metadata: {
-          fileName: document.name,
-          fileSize: document.size,
-          mimeType: document.mimeType,
-          processingType: 'file_upload_processing',
-          operation: operation,
-          model: result.metadata?.model || model,
-          extractedTextLength: result.extractedText?.length || 0,
-          tokensUsed: result.metadata?.tokensUsed || 0,
-          cost: result.metadata?.cost || 0
-        }
-      })
-      console.log('📊 Document processing usage tracked successfully')
-    } catch (trackingError) {
-      console.error('Failed to track document processing usage:', trackingError)
-      // Don't fail the request if tracking fails
-    }
-
-    // Create embeddings for vector search (future feature)
-    // This would involve chunking the text and creating embeddings
-    // For now, we'll skip this step but the infrastructure is ready
-
-    return NextResponse.json({
-      id: updatedDocument.id,
-      content: updatedDocument.extractedText,
-      summary: updatedDocument.summary,
-      status: 'completed',  // Direct lowercase enum
-      processedAt: updatedDocument.processedAt,
-      metadata: result.metadata,
-      operation,
-      model: result.metadata?.model || model,
-      provider: result.metadata?.provider || 'openrouter',
-      cost: result.metadata?.cost || 0,
-      latency: result.metadata?.latency || 0,
-      tokensUsed: result.metadata?.tokensUsed || 0
-    });
-
+    await updateProcessingState(document.id, current => (activeRunId && current.runId !== activeRunId) || current.currentStatus === 'CANCELLED' ? current : processingTransition(current, 'COMPLETED'));
+    const latest = await prisma.document.findUnique({ where: { id: document.id } });
+    return NextResponse.json({ id: document.id, content: response.extractedText, summary: body.operation === 'summary' ? response.extractedText : updated.summary, status: latest ? processingSnapshot(latest.processing).currentStatus : 'COMPLETED', metadata: response.metadata, operation: body.operation, document: serializeDocument(latest ?? updated) });
   } catch (error) {
-    console.error('Document processing error:', error);
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    );
+    if (error instanceof ProcessingConflictError) return NextResponse.json({ error: error.message }, { status: 409 });
+    if (error instanceof SyntaxError) return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
+    if (activeDocumentId) await updateProcessingState(activeDocumentId, current => (activeRunId && current.runId !== activeRunId) || current.currentStatus === 'CANCELLED' ? current : processingTransition(current, 'FAILED', 'Document processing failed')).catch(() => undefined);
+    console.error('Document processing failed', error instanceof Error ? error.name : 'Unknown error');
+    return NextResponse.json({ error: 'Document processing unavailable' }, { status: 503 });
   }
 }
 
 export async function GET(request: NextRequest) {
+  const { userId } = await auth();
+  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const documentId = request.nextUrl.searchParams.get('documentId');
+  if (!documentId) return NextResponse.json({ error: 'Document ID required' }, { status: 400 });
   try {
-    const { userId } = await auth();
-    if (!userId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    const { searchParams } = new URL(request.url);
-    const documentId = searchParams.get('documentId');
-    const organizationId = searchParams.get('organizationId');
-
-    if (!documentId || !organizationId) {
-      return NextResponse.json(
-        { error: 'Document ID and Organization ID required' },
-        { status: 400 }
-      );
-    }
-
-    // Get internal user ID from Clerk ID
-    const user = await prisma.user.findFirst({
-      where: {
-        clerkId: userId,
-        organizationId
-      }
-    });
-
-    if (!user) {
-      return NextResponse.json(
-        { error: 'Access denied to organization' },
-        { status: 403 }
-      );
-    }
-
-    // Get document with processing status
-    const document = await prisma.document.findFirst({
-      where: {
-        id: documentId,
-        organizationId,
-        uploadedById: user.id // Use internal user ID, not Clerk ID
-      },
-      select: {
-        id: true,
-        name: true,                            // UPDATED: Use aligned field name
-        status: true,
-        extractedText: true,
-        summary: true,
-        processedAt: true,
-        metadata: true
-      }
-    });
-
-    if (!document) {
-      return NextResponse.json(
-        { error: 'Document not found or access denied' },
-        { status: 404 }
-      );
-    }
-
-    return NextResponse.json({
-      id: document.id,
-      name: document.name,                   // UPDATED: Use aligned field name
-      status: document.status,               // DIRECT: No transformation (UPPERCASE matches interface)
-      content: document.extractedText,
-      summary: document.summary,
-      processedAt: document.processedAt,
-      metadata: document.metadata,
-      operation: (document.metadata as any)?.operation || 'summary',
-      model: (document.metadata as any)?.model || 'unknown',
-      provider: (document.metadata as any)?.provider || 'openrouter',
-      cost: (document.metadata as any)?.cost || 0,
-      latency: (document.metadata as any)?.latency || 0,
-      tokensUsed: (document.metadata as any)?.tokensUsed || 0
-    });
-
-  } catch (error) {
-    console.error('Document status error:', error);
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    );
+    const user = await prisma.user.findFirst({ where: { clerkId: userId, deletedAt: null } });
+    if (!user) return NextResponse.json({ error: 'Account unavailable' }, { status: 403 });
+    const document = await prisma.document.findFirst({ where: { id: documentId, organizationId: user.organizationId, deletedAt: null } });
+    if (!document || !canAccessDocument(user, document, 'READ')) return NextResponse.json({ error: 'Document not found' }, { status: 404 });
+    const result = serializeDocument(document);
+    return NextResponse.json({ id: document.id, status: result.status, progress: result.progress, content: document.extractedText, summary: document.summary, processedAt: result.processedAt, error: result.processingError, document: result });
+  } catch {
+    return NextResponse.json({ error: 'Processing status unavailable' }, { status: 503 });
   }
 }

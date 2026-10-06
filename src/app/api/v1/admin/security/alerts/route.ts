@@ -106,10 +106,10 @@ export async function GET(request: NextRequest) {
 
     // Get user and verify admin access
     const user = await db.user.findUnique({
-      where: { clerkId: userId },
-      select: { 
-        id: true, 
-        organizationId: true, 
+      where: { clerkId: userId, deletedAt: null, organization: { deletedAt: null } },
+      select: {
+        id: true,
+        organizationId: true,
         role: true,
         firstName: true,
         lastName: true
@@ -134,9 +134,9 @@ export async function GET(request: NextRequest) {
     // Parse query parameters
     const { searchParams } = new URL(request.url);
     const queryData = SecurityAlertsQuerySchema.parse({
-      organizationId: searchParams.get('organizationId'),
-      severity: searchParams.get('severity'),
-      acknowledged: searchParams.get('acknowledged') === 'true' ? true : 
+      organizationId: searchParams.get('organizationId') || undefined,
+      severity: searchParams.get('severity') || undefined,
+      acknowledged: searchParams.get('acknowledged') === 'true' ? true :
                    searchParams.get('acknowledged') === 'false' ? false : undefined,
       limit: searchParams.get('limit') ? parseInt(searchParams.get('limit')!) : 50,
       offset: searchParams.get('offset') ? parseInt(searchParams.get('offset')!) : 0
@@ -146,7 +146,7 @@ export async function GET(request: NextRequest) {
     const targetOrganizationId = queryData.organizationId || user.organizationId;
 
     // Security check: only allow access to own organization unless super admin
-    if (targetOrganizationId !== user.organizationId && user.role !== 'OWNER') {
+    if (targetOrganizationId !== user.organizationId ) {
       return NextResponse.json(
         { success: false, error: 'Access denied to requested organization' },
         { status: 403 }
@@ -168,15 +168,15 @@ export async function GET(request: NextRequest) {
 
     try {
       // Get security alerts
-      const alerts = await db.securityAlert.findMany({
+      const alerts = await db.securityIncident.findMany({
         where: whereClause,
-        orderBy: { createdAt: 'desc' },
+        orderBy: { detectedAt: 'desc' },
         take: queryData.limit,
         skip: queryData.offset
       });
 
       // Get total count for pagination
-      const total = await db.securityAlert.count({
+      const total = await db.securityIncident.count({
         where: whereClause
       });
 
@@ -194,30 +194,18 @@ export async function GET(request: NextRequest) {
       });
 
     } catch (dbError) {
-      // Handle case where securityAlert table doesn't exist
-      console.warn('Security alerts table not available:', dbError);
-      return NextResponse.json({
-        success: true,
-        data: {
-          alerts: [],
-          pagination: {
-            total: 0,
-            limit: queryData.limit,
-            offset: queryData.offset,
-            hasMore: false
-          }
-        },
-        message: 'Security alerts feature not yet configured'
-      });
+      console.error('Security incident query failed:', dbError);
+      return NextResponse.json({ success: false, error: 'Security alerts are unavailable' }, { status: 503 });
+
     }
 
   } catch (error) {
     if (error instanceof z.ZodError) {
       return NextResponse.json(
-        { 
-          success: false, 
-          error: 'Invalid query parameters', 
-          details: error.errors 
+        {
+          success: false,
+          error: 'Invalid query parameters',
+          details: error.errors
         },
         { status: 400 }
       );
@@ -243,10 +231,10 @@ export async function PATCH(request: NextRequest) {
 
     // Get user and verify admin access
     const user = await db.user.findUnique({
-      where: { clerkId: userId },
-      select: { 
-        id: true, 
-        organizationId: true, 
+      where: { clerkId: userId, deletedAt: null, organization: { deletedAt: null } },
+      select: {
+        id: true,
+        organizationId: true,
         role: true,
         firstName: true,
         lastName: true
@@ -274,7 +262,7 @@ export async function PATCH(request: NextRequest) {
 
     try {
       // Update alerts as acknowledged
-      const updateResult = await db.securityAlert.updateMany({
+      const updateResult = await db.securityIncident.updateMany({
         where: {
           id: { in: alertIds },
           organizationId: user.organizationId,
@@ -331,10 +319,10 @@ export async function PATCH(request: NextRequest) {
   } catch (error) {
     if (error instanceof z.ZodError) {
       return NextResponse.json(
-        { 
-          success: false, 
-          error: 'Invalid request data', 
-          details: error.errors 
+        {
+          success: false,
+          error: 'Invalid request data',
+          details: error.errors
         },
         { status: 400 }
       );

@@ -187,11 +187,11 @@ export async function GET(request: NextRequest) {
   try {
     // Check authentication
     const { userId } = await auth()
-    
+
     if (!userId) {
-      return NextResponse.json({ 
-        success: false, 
-        error: 'Unauthorized. Please sign in to access this resource.' 
+      return NextResponse.json({
+        success: false,
+        error: 'Unauthorized. Please sign in to access this resource.'
       }, { status: 401 })
     }
 
@@ -290,7 +290,6 @@ export async function GET(request: NextRequest) {
             users: true,
             documents: true,
             folders: true,
-            opportunities: true,
             subscriptions: true
           }
         }
@@ -317,7 +316,7 @@ export async function GET(request: NextRequest) {
 
   } catch (error) {
     console.error('Error fetching organizations:', error)
-    
+
     return NextResponse.json({
       success: false,
       error: 'Internal server error'

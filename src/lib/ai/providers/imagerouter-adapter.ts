@@ -1,3 +1,4 @@
+import { parseImageRouterCatalog } from './imagerouter-catalog';
 import { normalizeError } from '@/lib/errors/normalize-error';
 /**
  * ImageRouter Adapter
@@ -262,18 +263,12 @@ export class ImageRouterAdapter extends AIProviderAdapter {
       }
 
       // Try to fetch models from ImageRouter API
-      const response = await this.makeRequest<ImageRouterModelsResponse>('/v1/models', 'GET');
-
-      // Validate response structure
-      if (!response || !response.data || !Array.isArray(response.data)) {
-        console.debug('ImageRouter models endpoint returned empty or invalid response');
-        return [];
-      }
-
-      this.nativeModels = response.data;
+      const raw = await this.makeRequest<unknown>('/v3/models', 'GET');
+      const catalog = parseImageRouterCatalog(raw);
+      this.nativeModels = catalog;
       // Transform to ModelInfo with ImageRouter-specific data
       const models: ModelInfo[] = await Promise.all(
-        response.data.map(async (model) => {
+        catalog.map(async (model) => {
         const performance = await this.getModelPerformance(model.id);
 
         return {
@@ -282,16 +277,16 @@ export class ImageRouterAdapter extends AIProviderAdapter {
           displayName: model.name || this.formatModelDisplayName(model.id),
           description: model.description || `${model.name || model.id} model via ImageRouter`,
           maxTokens: 0, // Not applicable for media generation
-          costPer1KTokens: this.extractPricingFromModel(model),
+          costPer1KTokens: { prompt: 0, completion: 0 },
           averageLatency: performance?.averageLatency || 0,
-          qualityScore: performance?.qualityScore || 0.8,
+          qualityScore: performance?.qualityScore ?? 0,
           tier: this.calculateTierFromModel(model),
           features: this.extractFeaturesFromModel(model),
           metadata: {
             type: model.type,
             features: model.features,
             limits: model.limits,
-            pricing: model.pricing,
+            pricing: model.pricing, pricingUnit: 'USD per generation',
             performanceSamples: performance?.sampleSize || 0,
             lastPerformanceUpdate: performance?.lastUpdated || null
           }
@@ -309,10 +304,10 @@ export class ImageRouterAdapter extends AIProviderAdapter {
 
     } catch (caughtError) {
       const error = normalizeError(caughtError);
-      // Don't throw error, just log and return empty array
+      // A missing catalog cannot safely supply prices or model support.
       // ImageRouter is optional and shouldn't break the application
-      console.debug('ImageRouter models could not be loaded (service may be unavailable):', error.message);
-      return [];
+      console.debug('ImageRouter models could not be loaded:', error.message);
+      throw error;
     }
   }
 
@@ -332,6 +327,7 @@ export class ImageRouterAdapter extends AIProviderAdapter {
         await UsageTrackingService.enforceUsageLimit(organizationId, UsageType.AI_QUERY, 1);
       }
 
+      if (request.type === 'image' && (request.count ?? 1) !== 1) throw new ValidationError('ImageRouter supports one generation per request');
       // Route to appropriate generation method
       let response: UnifiedMediaGenerationResponse;
 
@@ -351,6 +347,7 @@ export class ImageRouterAdapter extends AIProviderAdapter {
       if (organizationId) {
         await UsageTrackingService.trackUsage({
           organizationId,
+          userId: request.metadata?.userId,
           usageType: UsageType.AI_QUERY,
           quantity: 1,
           resourceId: response.metadata.requestId || 'unknown',
@@ -399,7 +396,8 @@ export class ImageRouterAdapter extends AIProviderAdapter {
    * Generate image using ImageRouter API
    */
   private async generateImage(request: UnifiedMediaGenerationRequest): Promise<UnifiedMediaGenerationResponse> {
-    const imageReq = request as ImageGenerationRequest;
+    if (request.type !== 'image') throw new ValidationError('Expected an image request');
+    const imageReq = request;
     const model = imageReq.model || this.config.defaultModels.image;
 
     const imageRequest: ImageGenerationRequest = {
@@ -407,14 +405,14 @@ export class ImageRouterAdapter extends AIProviderAdapter {
       model: model,
       quality: imageReq.quality || this.config.defaultQuality,
       response_format: imageReq.responseFormat || this.config.defaultResponseFormat,
-      n: imageReq.count || 1
+      size: imageReq.size
     };
 
     console.log('🎨 ImageRouter image generation request:', {
       model: imageRequest.model,
       quality: imageRequest.quality,
       response_format: imageRequest.response_format,
-      count: imageRequest.n
+      count: 1
     });
 
     const response = await this.makeRequest<ImageGenerationResponse>(
@@ -430,7 +428,8 @@ export class ImageRouterAdapter extends AIProviderAdapter {
    * Generate video using ImageRouter API
    */
   private async generateVideo(request: UnifiedMediaGenerationRequest): Promise<UnifiedMediaGenerationResponse> {
-    const videoReq = request as VideoGenerationRequest;
+    if (request.type !== 'video') throw new ValidationError('Expected a video request');
+    const videoReq = request;
     const model = videoReq.model || this.config.defaultModels.video;
 
     const videoRequest: VideoGenerationRequest = {
@@ -456,7 +455,8 @@ export class ImageRouterAdapter extends AIProviderAdapter {
    * Edit image using ImageRouter API
    */
   private async editImage(request: UnifiedMediaGenerationRequest): Promise<UnifiedMediaGenerationResponse> {
-    const editReq = request as ImageEditRequest;
+    if (request.type !== 'edit') throw new ValidationError('Expected an image edit request');
+    const editReq = request;
     const model = editReq.model || this.getDefaultEditModel();
 
     // Convert images to FormData format
@@ -478,11 +478,11 @@ export class ImageRouterAdapter extends AIProviderAdapter {
 
       if (image.data) {
         if (Buffer.isBuffer(image.data)) {
-          imageBlob = new Blob([image.data], { type: image.mimeType || 'image/jpeg' });
+          imageBlob = new Blob([new Uint8Array(image.data)], { type: image.mimeType || 'image/jpeg' });
         } else if (typeof image.data === 'string') {
           // Handle base64 data
           const buffer = Buffer.from(image.data, 'base64');
-          imageBlob = new Blob([buffer], { type: image.mimeType || 'image/jpeg' });
+          imageBlob = new Blob([new Uint8Array(buffer)], { type: image.mimeType || 'image/jpeg' });
         } else {
           throw new ValidationError('Invalid image data format');
         }
@@ -505,10 +505,10 @@ export class ImageRouterAdapter extends AIProviderAdapter {
 
         if (mask.data) {
           if (Buffer.isBuffer(mask.data)) {
-            maskBlob = new Blob([mask.data], { type: mask.mimeType || 'image/jpeg' });
+            maskBlob = new Blob([new Uint8Array(mask.data)], { type: mask.mimeType || 'image/jpeg' });
           } else if (typeof mask.data === 'string') {
             const buffer = Buffer.from(mask.data, 'base64');
-            maskBlob = new Blob([buffer], { type: mask.mimeType || 'image/jpeg' });
+            maskBlob = new Blob([new Uint8Array(buffer)], { type: mask.mimeType || 'image/jpeg' });
           } else {
             throw new ValidationError('Invalid mask data format');
           }
@@ -547,17 +547,11 @@ export class ImageRouterAdapter extends AIProviderAdapter {
     type: 'image' | 'video',
     model: string
   ): UnifiedMediaGenerationResponse {
-    // Validate response structure
-    if (!response || !response.data || !Array.isArray(response.data)) {
-      console.warn('🚨 Invalid response format from ImageRouter generation endpoint:', response);
-      return {
-        results: [],
-        model,
-        provider: 'imagerouter',
-        usage: { totalTokens: 0 }
-      };
+    if (!response?.data?.length || response.data.some(item => !item.url && !item.b64_json)) {
+      throw new Error('ImageRouter returned no generated media');
     }
 
+    if (typeof response.cost !== 'number' || !Number.isFinite(response.cost) || response.cost < 0) throw new Error('ImageRouter returned no valid generation cost');
     return {
       results: response.data.map(item => ({
         url: item.url,
@@ -565,34 +559,20 @@ export class ImageRouterAdapter extends AIProviderAdapter {
         type: type,
         mimeType: type === 'video' ? 'video/mp4' : 'image/jpeg'
       })),
-      model: response.model,
+      model: response.model || model,
       usage: {
         totalTokens: response.usage?.total_tokens,
-        cost: this.estimateCostFromResponse(response, model, type)
+        cost: response.cost
       },
       metadata: {
         provider: 'imagerouter',
         requestId: `ir_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
         generatedAt: new Date().toISOString(),
-        processingTime: 0, // Would need to track this separately
-        actualModel: response.model,
+        processingTime: response.latency,
+        actualModel: response.model || model,
         revisedPrompt: response.data[0]?.revised_prompt
       }
     };
-  }
-
-  /**
-   * Estimate cost from ImageRouter response
-   */
-  private estimateCostFromResponse(
-    response: ImageGenerationResponse | VideoGenerationResponse | ImageEditResponse,
-    model: string,
-    type: 'image' | 'video'
-  ): number {
-    // This would need real pricing data from ImageRouter
-    // For now, return a placeholder cost
-    const baseCost = type === 'video' ? 0.10 : 0.02; // Video is more expensive
-    return baseCost * response.data.length;
   }
 
   /**
@@ -617,23 +597,17 @@ export class ImageRouterAdapter extends AIProviderAdapter {
 
       // Calculate base cost based on type and model
       const model = request.model || this.getDefaultModel(request.type);
-      const baseCost = this.getBaseCostForModel(model, request.type);
-
-      // Apply quality multiplier
-      let qualityMultiplier = 1.0;
-      if ('quality' in request && request.quality) {
-        qualityMultiplier = this.getQualityMultiplier(request.quality);
-      }
-
-      // Apply count multiplier
-      let countMultiplier = 1;
-      if ('count' in request && request.count) {
-        countMultiplier = request.count;
-      } else if ('images' in request && request.images) {
-        countMultiplier = request.images.length;
-      }
-
-      const totalCost = baseCost * qualityMultiplier * countMultiplier;
+      const catalog = await this.loadNativeModels();
+      const selected = catalog.find(entry => entry.id === model);
+      if (!selected?.pricing) throw new ValidationError('Model has no current media pricing');
+      const output = request.type === 'video' ? 'video' : 'image';
+      if (selected.type !== output || (request.type === 'edit' && !selected.features?.includes('edit'))) throw new ValidationError('Model does not support this media operation');
+      if (request.type === 'image' && (request.count ?? 1) !== 1) throw new ValidationError('Only one generation per request is supported');
+      // Use the catalog upper bound for budget enforcement, preserving zero-cost models.
+      const baseCost = selected.pricing.max;
+      const qualityMultiplier = 1;
+      const countMultiplier = 1;
+      const totalCost = baseCost;
 
       return {
         estimatedCost: totalCost,
@@ -680,74 +654,8 @@ export class ImageRouterAdapter extends AIProviderAdapter {
     return 'openai/gpt-image-1';
   }
 
-  private getBaseCostForModel(model: string, type: 'image' | 'video' | 'edit'): number {
-    // Placeholder costs - these would come from real ImageRouter pricing
-    switch (type) {
-      case 'image':
-        return 0.02;
-      case 'video':
-        return 0.10;
-      case 'edit':
-        return 0.03;
-      default:
-        return 0.02;
-    }
-  }
-
-  private getQualityMultiplier(quality: 'auto' | 'low' | 'medium' | 'high'): number {
-    switch (quality) {
-      case 'low':
-        return 0.7;
-      case 'medium':
-        return 1.0;
-      case 'high':
-        return 1.5;
-      case 'auto':
-      default:
-        return 1.0;
-    }
-  }
-
-  private async getModelPerformance(modelId: string): Promise<ImageRouterModelPerformance | null> {
-    const cacheKey = `ai:imagerouter:performance:${modelId}`;
-
-    try {
-      const cachedPerformance = await cacheManager.get<ImageRouterModelPerformance>(cacheKey);
-      if (cachedPerformance) {
-        return cachedPerformance;
-      }
-
-      // For now, return placeholder performance data
-      // In a real implementation, this would fetch actual performance metrics
-      const performance: ImageRouterModelPerformance = {
-        modelId,
-        averageLatency: 15000, // 15 seconds average for media generation
-        successRate: 0.95,
-        averageCost: 0.02,
-        qualityScore: 0.8,
-        sampleSize: 10,
-        lastUpdated: new Date().toISOString(),
-        features: [],
-        tier: 'balanced'
-      };
-
-      await cacheManager.set(cacheKey, performance, this.PERFORMANCE_CACHE_DURATION);
-      return performance;
-
-    } catch (caughtError) {
-      const error = normalizeError(caughtError);
-      console.warn(`Failed to get ImageRouter performance for ${modelId}:`, error);
-      return null;
-    }
-  }
-
-  private extractPricingFromModel(model: ImageRouterModel): { prompt: number; completion: number } {
-    // ImageRouter pricing is different from text models
-    // Return placeholder pricing for now
-    return {
-      prompt: 0.02, // Base cost per image/video
-      completion: 0 // Not applicable for media generation
-    };
+  private async getModelPerformance(_modelId: string): Promise<ImageRouterModelPerformance | null> {
+    return null;
   }
 
   private calculateTierFromModel(model: ImageRouterModel): 'fast' | 'balanced' | 'powerful' {
@@ -766,6 +674,7 @@ export class ImageRouterAdapter extends AIProviderAdapter {
 
     if (model.type === 'image') {
       features.push('image-generation');
+      if (model.features?.includes('edit')) features.push('image-editing');
     } else if (model.type === 'video') {
       features.push('video-generation');
     } else if (model.type === 'edit') {
@@ -828,8 +737,8 @@ export class ImageRouterAdapter extends AIProviderAdapter {
 
   private async testConnection(): Promise<void> {
     try {
-      console.log('🔍 Testing ImageRouter connection to:', `${this.baseUrl}/v1/models`);
-      await this.makeRequest<any>('/v1/models', 'GET');
+      console.log('🔍 Testing ImageRouter connection to:', `${this.baseUrl}/v3/models`);
+      await this.makeRequest<any>('/v3/models', 'GET');
       console.log('✅ ImageRouter connection test successful');
     } catch (caughtError) {
       const error = normalizeError(caughtError);

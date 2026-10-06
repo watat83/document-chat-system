@@ -43,7 +43,7 @@ export class DocumentMetadataAnalyzer extends BaseAnalyzer {
   }> {
     console.log(`🔍 [METADATA ANALYZER] Starting analysis for: ${documentName}`);
     console.log(`🔍 [METADATA ANALYZER] Text length: ${extractedText.length} characters`);
-    
+
     try {
       const prompt = `Analyze this business document and extract key metadata with high precision.
 
@@ -119,7 +119,7 @@ ${extractedText}`
       console.log(`🔍 [METADATA ANALYZER] About to call AI service with model: gpt-4o`);
       console.log(`🔍 [METADATA ANALYZER] Prompt length: ${prompt.length} characters`);
       console.log(`🔍 [METADATA ANALYZER] CHECKPOINT 1: Starting executeAICompletion call...`);
-      
+
       const response = await this.executeAICompletion(
         prompt,
         'You are an expert government contracting document analyzer. Extract accurate metadata for document classification and organization. CRITICAL: Always provide 5-8 relevant tags in the tags array - never return empty tags.',
@@ -136,7 +136,7 @@ ${extractedText}`
       console.log(`🔍 [METADATA ANALYZER] About to parse AI response`);
       const metadata = this.parseMetadataResponse(response, extractedText)
       console.log(`✅ [METADATA ANALYZER] Successfully parsed metadata:`, JSON.stringify(metadata, null, 2));
-      
+
       // CRITICAL DEBUG: Verify tags are present
       console.log(`🏷️ [TAGS DEBUG] Parsed metadata tags:`, {
         hasTags: !!metadata.tags,
@@ -144,23 +144,23 @@ ${extractedText}`
         tagsCount: metadata.tags?.length || 0,
         tagsFirstFew: metadata.tags?.slice(0, 3)
       });
-      
+
       return { success: true, metadata }
 
     } catch (error) {
       console.error('❌ [METADATA ANALYZER] Error during analysis:', error)
       console.error('❌ [METADATA ANALYZER] Error stack:', error instanceof Error ? error.stack : 'No stack trace');
-      
+
       // Check if it's a timeout error
       if (error instanceof Error && (error.message.includes('timeout') || error.message.includes('AbortError'))) {
         console.error('⏰ [METADATA ANALYZER] AI request timed out - this is likely the cause of step 1 hanging');
       }
-      
+
       // Fallback analysis
       console.log(`🔄 [METADATA ANALYZER] Using fallback metadata generation`);
       const fallbackMetadata = this.generateFallbackMetadata(extractedText, documentName)
       console.log(`✅ [METADATA ANALYZER] Fallback metadata generated:`, JSON.stringify(fallbackMetadata, null, 2));
-      
+
       // CRITICAL DEBUG: Verify fallback tags
       console.log(`🏷️ [FALLBACK TAGS DEBUG] Generated fallback tags:`, {
         hasTags: !!fallbackMetadata.tags,
@@ -168,7 +168,7 @@ ${extractedText}`
         tagsCount: fallbackMetadata.tags?.length || 0,
         tagsFirstFew: fallbackMetadata.tags?.slice(0, 3)
       });
-      
+
       return { success: true, metadata: fallbackMetadata }
     }
   }
@@ -176,7 +176,7 @@ ${extractedText}`
   private parseMetadataResponse(response: string, originalText: string): DocumentMetadataAnalysis {
     try {
       const parsed = this.parseJsonResponse(response)
-      
+
       return {
         documentType: ResponseValidators.validateDocumentType(parsed.documentType),
         securityClassification: ResponseValidators.validateSecurityClassification(parsed.securityClassification),
@@ -202,9 +202,9 @@ ${extractedText}`
   private generateFallbackMetadata(text: string, documentName: string): DocumentMetadataAnalysis {
     const lowerText = text.toLowerCase()
     const lowerName = documentName.toLowerCase()
-    
+
     // Determine document type from content/name
-    let documentType = DocumentType.OTHER
+    let documentType: DocumentType = DocumentType.OTHER
     if (lowerName.includes('proposal') || lowerText.includes('proposal')) {
       documentType = DocumentType.PROPOSAL
     } else if (lowerName.includes('contract') || lowerText.includes('contract')) {
@@ -212,7 +212,7 @@ ${extractedText}`
     } else if (lowerName.includes('solicitation') || lowerText.includes('rfp') || lowerText.includes('rfq')) {
       documentType = DocumentType.SOLICITATION
     }
-    
+
     // Check for business priority categories
     let setAsideType: string | undefined
     if (lowerText.includes('small business') || lowerText.includes('sme')) {
@@ -224,7 +224,7 @@ ${extractedText}`
     } else if (lowerText.includes('veteran') || lowerText.includes('vbe')) {
       setAsideType = 'Veteran-Owned'
     }
-    
+
     // Extract NAICS codes
     const naicsCodes: string[] = []
     const naicsPattern = /\b\d{6}\b/g
@@ -235,7 +235,7 @@ ${extractedText}`
         naicsCodes.push(match[0])
       }
     }
-    
+
     // Extract estimated value patterns
     let estimatedValue: string | undefined
     const valuePatterns = [
@@ -290,7 +290,7 @@ ${extractedText}`
   private generateFallbackTags(text: string, documentType: DocumentType): string[] {
     const lowerText = text.toLowerCase()
     const tags: string[] = []
-    
+
     // Add document type-based tag
     switch (documentType) {
       case DocumentType.PROPOSAL:
@@ -308,7 +308,7 @@ ${extractedText}`
       default:
         tags.push('Document')
     }
-    
+
     // Industry/service tags based on content
     if (lowerText.includes('it ') || lowerText.includes('software') || lowerText.includes('technology')) {
       tags.push('IT Services')
@@ -340,13 +340,13 @@ ${extractedText}`
     if (lowerText.includes('compliance') || lowerText.includes('fisma') || lowerText.includes('nist')) {
       tags.push('Compliance')
     }
-    
+
     // Ensure we have at least 3 tags
     if (tags.length < 3) {
       const keywords = ResponseValidators.extractKeywords(text).slice(0, 5)
       tags.push(...keywords.filter(k => !tags.includes(k)))
     }
-    
+
     // Limit to 8 tags and ensure uniqueness
     return Array.from(new Set(tags)).slice(0, 8)
   }

@@ -468,7 +468,7 @@ export class CleanOpenRouterAdapter extends AIProviderAdapter {
       const response = await this.makeRequest<OpenRouterResponse>(
         '/chat/completions',
         'POST',
-        openRouterRequest
+        openRouterRequest, request.signal
       );
 
       const latency = Date.now() - startTime;
@@ -1121,7 +1121,7 @@ export class CleanOpenRouterAdapter extends AIProviderAdapter {
     }
   }
 
-  private async makeRequest<T>(endpoint: string, method: 'GET' | 'POST', body?: any): Promise<T> {
+  private async makeRequest<T>(endpoint: string, method: 'GET' | 'POST', body?: any, signal?: AbortSignal): Promise<T> {
     const url = `${this.baseUrl}${endpoint}`;
 
     // Create AbortController for timeout
@@ -1138,26 +1138,26 @@ export class CleanOpenRouterAdapter extends AIProviderAdapter {
           'X-Title': this.config.appName
         },
         body: body ? JSON.stringify(body) : undefined,
-        signal: abortController.signal
+        signal: signal ? AbortSignal.any([signal, abortController.signal]) : abortController.signal
       });
 
-      clearTimeout(timeoutId);
 
       if (!response.ok) {
         const errorText = await response.text();
         throw new NetworkError(`OpenRouter API error: ${response.status} - ${errorText}`);
       }
 
-      return response.json();
+      return await response.json();
     } catch (caughtError) {
       const error = normalizeError(caughtError);
-      clearTimeout(timeoutId);
 
       if (error.name === 'AbortError') {
         throw new NetworkError(`OpenRouter API timeout after ${this.config.timeout}ms`);
       }
 
       throw error;
+    } finally {
+      clearTimeout(timeoutId);
     }
   }
 
@@ -2104,6 +2104,7 @@ metadata: { engine }
 
       // 3. Create completion request with document attachment
       const completionRequest: UnifiedCompletionRequest = {
+        signal: request.signal,
         messages: [{
           role: 'user',
           content: request.prompt || this.getDefaultDocumentPrompt(request.operation),
@@ -2301,6 +2302,7 @@ name: request.fileName || 'document'
 
 // Document Processing Interfaces
 export interface DocumentProcessingRequest {
+  signal?: AbortSignal;
   documentId?: string;
   documentData: Buffer;
   fileName?: string;

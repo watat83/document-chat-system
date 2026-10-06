@@ -14,8 +14,8 @@ class CacheService {
 
   constructor() {
     // Only initialize on server-side
-    if (typeof window === 'undefined') {
-      this.initialize();
+    if (typeof window === 'undefined' && process.env.REDIS_HOST) {
+      void this.initialize();
     }
   }
 
@@ -44,7 +44,7 @@ class CacheService {
         this.isConnected = true;
       });
 
-      this.redis.on('error', (error) => {
+      this.redis.on('error', (error: Error) => {
         console.error('Redis connection error:', error);
         this.isConnected = false;
       });

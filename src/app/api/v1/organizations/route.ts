@@ -10,18 +10,18 @@ export async function GET() {
   try {
     // Check authentication
     const { userId } = await auth()
-    
+
     if (!userId) {
-      return NextResponse.json({ 
-        success: false, 
-        error: 'Unauthorized. Please sign in to access organization information.' 
+      return NextResponse.json({
+        success: false,
+        error: 'Unauthorized. Please sign in to access organization information.'
       }, { status: 401 })
     }
 
     // Get user with organization
     const user = await db.user.findUnique({
       where: { clerkId: userId },
-      include: { 
+      include: {
         organization: {
           include: {
             users: {
@@ -87,7 +87,7 @@ export async function GET() {
 
   } catch (error) {
     console.error('Error fetching organization:', error)
-    
+
     return NextResponse.json({
       success: false,
       error: 'Internal server error'
@@ -100,17 +100,17 @@ export async function POST(request: NextRequest) {
   try {
     // Check authentication
     const { userId } = await auth()
-    
+
     if (!userId) {
-      return NextResponse.json({ 
-        success: false, 
-        error: 'Unauthorized. Please sign in to create an organization.' 
+      return NextResponse.json({
+        success: false,
+        error: 'Unauthorized. Please sign in to create an organization.'
       }, { status: 401 })
     }
 
     // Parse and validate request body
     const body = await request.json()
-    
+
     let validatedData
     try {
       validatedData = OrganizationCreateSchema.parse(body)
@@ -134,45 +134,18 @@ export async function POST(request: NextRequest) {
       }, { status: 409 })
     }
 
-    // Create organization
-    const organization = await db.organization.create({
-      data: {
-        name: validatedData.name,
-        slug: validatedData.slug,
-        plan: 'STARTER',
-        settings: {},
-        features: {}
-      }
-    })
-
-    // Get current user from Clerk
     const clerkUser = await currentUser()
-    if (!clerkUser) {
-      return NextResponse.json({
-        success: false,
-        error: 'Authentication failed'
-      }, { status: 401 })
-    }
-
-    // Create or update user to be owner of new organization
-    await db.user.upsert({
-      where: { clerkId: userId },
-      create: {
-        clerkId: userId,
-        email: clerkUser.emailAddresses[0]?.emailAddress || '',
-        firstName: clerkUser.firstName,
-        lastName: clerkUser.lastName,
-        imageUrl: clerkUser.imageUrl,
-        organizationId: organization.id,
-        role: 'OWNER',
-        lastActiveAt: new Date()
-      },
-      update: {
-        organizationId: organization.id,
-        role: 'OWNER',
-        lastActiveAt: new Date()
-      }
-    })
+    const email = clerkUser?.primaryEmailAddress?.emailAddress
+    if (!clerkUser || !email) return NextResponse.json({ success: false, error: 'Verified account email required' }, { status: 401 })
+    // A user already belongs to one organization. Creation must never move an existing account.
+    const organization = await db.$transaction(async tx => {
+      const existingUser = await tx.user.findUnique({ where: { clerkId: userId } })
+      if (existingUser) throw new Error('ACCOUNT_ALREADY_PROVISIONED')
+      const created = await tx.organization.create({ data: { name: validatedData.name, slug: validatedData.slug } })
+      await tx.user.create({ data: { clerkId: userId, email, firstName: clerkUser.firstName, lastName: clerkUser.lastName,
+        imageUrl: clerkUser.imageUrl, organizationId: created.id, role: 'OWNER', lastActiveAt: new Date() } })
+      return created
+    }, { isolationLevel: 'Serializable' })
 
     return NextResponse.json({
       success: true,
@@ -180,8 +153,9 @@ export async function POST(request: NextRequest) {
     }, { status: 201 })
 
   } catch (error) {
+    if (error instanceof Error && error.message === 'ACCOUNT_ALREADY_PROVISIONED') return NextResponse.json({ success: false, error: 'Account already belongs to an organization' }, { status: 409 })
     console.error('Error creating organization:', error)
-    
+
     return NextResponse.json({
       success: false,
       error: 'Internal server error'
@@ -194,17 +168,17 @@ export async function PATCH(request: NextRequest) {
   try {
     // Check authentication
     const { userId } = await auth()
-    
+
     if (!userId) {
-      return NextResponse.json({ 
-        success: false, 
-        error: 'Unauthorized. Please sign in to update organization.' 
+      return NextResponse.json({
+        success: false,
+        error: 'Unauthorized. Please sign in to update organization.'
       }, { status: 401 })
     }
 
     // Parse and validate request body
     const body = await request.json()
-    
+
     let validatedData
     try {
       validatedData = OrganizationUpdateSchema.parse(body)
@@ -282,7 +256,7 @@ export async function PATCH(request: NextRequest) {
 
   } catch (error) {
     console.error('Error updating organization:', error)
-    
+
     return NextResponse.json({
       success: false,
       error: 'Internal server error'
@@ -295,11 +269,11 @@ export async function DELETE() {
   try {
     // Check authentication
     const { userId } = await auth()
-    
+
     if (!userId) {
-      return NextResponse.json({ 
-        success: false, 
-        error: 'Unauthorized. Please sign in to delete organization.' 
+      return NextResponse.json({
+        success: false,
+        error: 'Unauthorized. Please sign in to delete organization.'
       }, { status: 401 })
     }
 
@@ -333,7 +307,7 @@ export async function DELETE() {
 
     // Soft delete all organization profiles first
     await db.profile.updateMany({
-      where: { 
+      where: {
         organizationId: user.organization.id,
         deletedAt: null
       },
@@ -354,7 +328,7 @@ export async function DELETE() {
 
   } catch (error) {
     console.error('Error deleting organization:', error)
-    
+
     return NextResponse.json({
       success: false,
       error: 'Internal server error'

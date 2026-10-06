@@ -6,7 +6,7 @@ import { getSubscriptionPlans } from '@/lib/stripe'
 export async function POST(req: NextRequest) {
   try {
     const { userId } = await auth()
-    
+
     if (!userId) {
       return NextResponse.json(
         { success: false, error: 'Authentication required' },
@@ -35,7 +35,6 @@ export async function POST(req: NextRequest) {
 
     // Create Stripe checkout session
     const session = await stripe.checkout.sessions.create({
-      payment_method_types: ['card'],
       line_items: [
         {
           price: priceId,
@@ -70,10 +69,10 @@ export async function POST(req: NextRequest) {
 
   } catch (error) {
     console.error('Checkout error:', error)
-    
+
     return NextResponse.json(
-      { 
-        success: false, 
+      {
+        success: false,
         error: error instanceof Error ? error.message : 'An error occurred during checkout'
       },
       { status: 500 }

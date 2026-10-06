@@ -3,14 +3,15 @@ import { auth } from '@clerk/nextjs/server';
 import { db } from '@/lib/db';
 import { getCurrentUser } from '@/lib/auth';
 import { z } from 'zod';
+import { NotificationCategory, NotificationType } from '@prisma/client';
 import { asyncHandler, commonErrors, createSuccessResponse, createErrorResponse } from '@/lib/api-errors';
 import { auth as envAuth } from '@/lib/config/env';
 
 // Validation schemas
 const CreateNotificationSchema = z.object({
-  type: z.enum(['OPPORTUNITY', 'SYSTEM', 'UPDATE', 'WARNING', 'SUCCESS', 'BILLING', 'TEAM'])
+  type: z.nativeEnum(NotificationType)
     .describe("Notification type determining the visual style and categorization. OPPORTUNITY for contract opportunities, SYSTEM for platform updates, UPDATE for feature announcements, WARNING for important alerts, SUCCESS for confirmations, BILLING for payment/subscription events, TEAM for collaboration notifications."),
-  category: z.enum(['NEW_OPPORTUNITY', 'MATCH_SCORE', 'SYSTEM_UPDATE', 'BILLING', 'PROFILE', 'TEAM', 'DEADLINE', 'GENERAL'])
+  category: z.nativeEnum(NotificationCategory)
     .describe("Notification category for filtering and organization. NEW_OPPORTUNITY for new contract opportunities, MATCH_SCORE for opportunity matching results, SYSTEM_UPDATE for platform changes, BILLING for payment events, PROFILE for account changes, TEAM for team management, DEADLINE for time-sensitive alerts, GENERAL for miscellaneous notifications."),
   title: z.string().min(1).max(255)
     .describe("Notification title displayed prominently in the UI. 1-255 characters. Should be concise and descriptive. Used for quick notification identification."),
@@ -22,7 +23,7 @@ const CreateNotificationSchema = z.object({
     .describe("Notification priority level affecting display order and styling. LOW for informational, MEDIUM for standard notifications, HIGH for important alerts, URGENT for critical notifications requiring immediate attention."),
   userId: z.string().optional()
     .describe("Optional user ID for user-specific notifications. When provided, notification is only visible to this user. When null, notification is organization-wide and visible to all team members."),
-  metadata: z.record(z.unknown()).optional()
+  metadata: z.record(z.any()).optional()
     .describe("Optional metadata object for additional notification context. Can contain any key-value pairs. Used for storing notification-specific data like opportunity IDs, contract values, or other relevant information."),
   expiresAt: z.string().datetime().optional()
     .describe("Optional expiration date in ISO datetime format. Notifications expire and are automatically hidden after this time. Used for time-sensitive alerts and temporary notifications.")
@@ -31,7 +32,7 @@ const CreateNotificationSchema = z.object({
 
 /**
  * Notification management system schemas for real-time user communication.
- * 
+ *
  * Features:
  * - Multi-type notification support (opportunities, system, billing, team)
  * - Priority-based display ordering
@@ -39,7 +40,7 @@ const CreateNotificationSchema = z.object({
  * - Rich metadata support for context
  * - Expiration controls for time-sensitive alerts
  * - Read/unread status tracking per user
- * 
+ *
  * Used for:
  * - Real-time opportunity notifications
  * - System announcements and updates
@@ -62,11 +63,11 @@ const CreateNotificationSchema = z.object({
 export const GET = asyncHandler(async (request: NextRequest) => {
   console.log('Notifications GET: Starting request');
   console.log('Notifications GET: Headers:', Object.fromEntries(request.headers.entries()));
-  
+
   // Try to get userId from auth() (cookie-based)
   let { userId } = await auth();
   console.log('Notifications GET: userId from auth():', userId);
-  
+
   // If no userId from cookies, try to get it from Bearer token
   if (!userId) {
     const authHeader = request.headers.get('authorization');
@@ -85,7 +86,7 @@ export const GET = asyncHandler(async (request: NextRequest) => {
       }
     }
   }
-  
+
   if (!userId) {
     console.log('Notifications GET: No userId, returning 401');
     throw commonErrors.unauthorized();
@@ -99,7 +100,7 @@ export const GET = asyncHandler(async (request: NextRequest) => {
     const { searchParams } = new URL(request.url);
     const limit = parseInt(searchParams.get('limit') || '50');
     const offset = parseInt(searchParams.get('offset') || '0');
-    
+
     // For new users who haven't been synced yet, return empty notifications
     return createSuccessResponse({
       notifications: [],
@@ -169,13 +170,13 @@ export const GET = asyncHandler(async (request: NextRequest) => {
         const userStatus = notification.userStatuses[0];
         // Hide if user has deleted this notification
         if (userStatus?.isDeleted) return false;
-        
+
         // Filter by read state if specified
         if (isRead !== null) {
           const notificationIsRead = userStatus?.isRead || false;
           return notificationIsRead === (isRead === 'true');
         }
-        
+
         return true;
       })
       .map(notification => {
@@ -220,7 +221,7 @@ export async function POST(request: NextRequest) {
   try {
     // Try to get userId from auth() (cookie-based)
     let { userId } = await auth();
-    
+
     // If no userId from cookies, try to get it from Bearer token
     if (!userId) {
       const authHeader = request.headers.get('authorization');
@@ -237,7 +238,7 @@ export async function POST(request: NextRequest) {
         }
       }
     }
-    
+
     if (!userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
@@ -331,7 +332,7 @@ export async function PATCH(request: NextRequest) {
   try {
     // Try to get userId from auth() (cookie-based)
     let { userId } = await auth();
-    
+
     // If no userId from cookies, try to get it from Bearer token
     if (!userId) {
       const authHeader = request.headers.get('authorization');
@@ -348,7 +349,7 @@ export async function PATCH(request: NextRequest) {
         }
       }
     }
-    
+
     if (!userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
@@ -387,7 +388,7 @@ export async function PATCH(request: NextRequest) {
       // Create or update user status for each notification
       for (const notification of userNotifications) {
         const existingStatus = notification.userStatuses[0];
-        
+
         if (existingStatus) {
           // Update existing status
           if (!existingStatus.isRead && !existingStatus.isDeleted) {

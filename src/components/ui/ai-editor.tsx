@@ -105,13 +105,13 @@ export const AIEditor = React.memo(function AIEditor({
   React.useEffect(() => {
     if (editor && content !== undefined) {
       const currentText = editor.children
-        ?.map((node: any) => 
+        ?.map((node: any) =>
           node.children
             ?.map((child: any) => child.text || '')
             .join('')
         )
         .join('\n') || '';
-      
+
       const newText = content
         .replace(/<br\s*\/?>/gi, '\n')
         .replace(/<\/p>/gi, '\n')
@@ -125,7 +125,7 @@ export const AIEditor = React.memo(function AIEditor({
             children: [{ text: newText }],
           },
         ];
-        
+
         // Use editor transforms to update content
         if (editor.tf?.setValue) {
           editor.tf.setValue(newValue);
@@ -162,7 +162,7 @@ export const AIEditor = React.memo(function AIEditor({
     <TooltipProvider>
       <Plate editor={editor} onChange={handleChange}>
         <div className={cn('w-full max-w-full overflow-hidden', className)} style={containerStyle}>
-          <EditorContainer variant={variant}>
+          <EditorContainer variant={variant === 'select' ? 'select' : variant === 'demo' ? 'demo' : 'default'}>
             {editable && !readOnly ? (
               <Editor
                 variant={variant}

@@ -47,7 +47,7 @@ export async function GET(
 ) {
   try {
     const { userId } = await auth()
-    
+
     if (!userId) {
       return NextResponse.json(
         { success: false, error: 'Unauthorized' },
@@ -236,7 +236,7 @@ export async function PUT(
 ) {
   try {
     const { userId } = await auth()
-    
+
     if (!userId) {
       return NextResponse.json(
         { success: false, error: 'Unauthorized' },
@@ -264,12 +264,12 @@ export async function PUT(
     // Get existing folder to verify access and check protection
     const existingFolder = await prisma.folder.findUnique({
       where: { id: folderId },
-      select: { 
-        id: true, 
-        organizationId: true, 
-        isSystemFolder: true, 
-        name: true, 
-        parentId: true 
+      select: {
+        id: true,
+        organizationId: true,
+        isSystemFolder: true,
+        name: true,
+        parentId: true
       }
     })
 
@@ -488,7 +488,7 @@ export async function DELETE(
 ) {
   try {
     const { userId } = await auth()
-    
+
     if (!userId) {
       return NextResponse.json(
         { success: false, error: 'Unauthorized' },
@@ -552,8 +552,8 @@ export async function DELETE(
     // Check for children or documents
     if (folder.children.length > 0 || folder.documents.length > 0) {
       return NextResponse.json(
-        { 
-          success: false, 
+        {
+          success: false,
           error: 'Cannot delete folder that contains items',
           details: {
             childrenCount: folder.children.length,
@@ -578,18 +578,18 @@ export async function DELETE(
 
   } catch (error) {
     console.error('Error deleting folder:', error)
-    
+
     // Check if it's a Prisma "record not found" error
-    if (error?.code === 'P2025') {
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'P2025') {
       return NextResponse.json(
         { success: false, error: 'Folder not found' },
         { status: 404 }
       )
     }
-    
+
     return NextResponse.json(
-      { 
-        success: false, 
+      {
+        success: false,
         error: 'Failed to delete folder',
         details: error instanceof Error ? error.message : 'Unknown error'
       },

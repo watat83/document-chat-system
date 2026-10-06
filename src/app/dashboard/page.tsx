@@ -142,7 +142,7 @@ export default function Dashboard() {
   // All hooks must be called before any conditional logic
   useEffect(() => {
     if (isLoaded && !isSignedIn) {
-      router.push('/sign-in')
+      router.push('/sign-in/')
     }
   }, [isLoaded, isSignedIn, router])
 
@@ -157,7 +157,7 @@ export default function Dashboard() {
     }
   }, [isLoaded, isSignedIn, fetchProfile, fetchStats, fetchProviderCredits])
 
-  
+
   // Don't render anything on server-side to prevent hydration mismatch
   if (!isLoaded || !isSignedIn) {
     return null

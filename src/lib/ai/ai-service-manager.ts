@@ -28,6 +28,7 @@ import { AIProviderAdapter } from './interfaces';
 import { AIConfiguration } from './config';
 import { AIMetricsIntegration } from './monitoring';
 import { VercelAIAdapter } from './providers/vercel-ai-adapter';
+import { AnthropicAdapter } from './providers/anthropic-adapter';
 import { OpenAIAdapter } from './providers/openai-adapter';
 import { SmartOpenRouterAdapter } from './providers/smart-openrouter-adapter';
 import { ImageRouterAdapter } from './providers/imagerouter-adapter';
@@ -142,16 +143,17 @@ export class AIServiceManager implements IAIService {
     const { ai: aiEnvConfig } = await import('@/lib/config/env');
 
     // Initialize OpenRouter provider - HIGHEST PRIORITY (includes 100+ models including Anthropic)
-    const openrouterApiKey = aiEnvConfig.openrouterApiKey;
+    const openrouterConfig = this.aiConfig.getProviderConfig('openrouter');
+    const openrouterApiKey = openrouterConfig?.apiKey || aiEnvConfig.openrouterApiKey;
     console.log('🔑 OpenRouter API key from env:', openrouterApiKey ? 'SET' : 'NOT SET');
     if (openrouterApiKey) {
       try {
         const openrouterAdapter = new SmartOpenRouterAdapter({
           apiKey: openrouterApiKey,
-          appName: aiEnvConfig.openrouterAppName,
-          siteUrl: aiEnvConfig.openrouterSiteUrl,
-          enableSmartRouting: aiEnvConfig.openrouterSmartRouting,
-          costOptimization: aiEnvConfig.openrouterCostOptimization,
+          appName: openrouterConfig?.appName ?? aiEnvConfig.openrouterAppName,
+          siteUrl: openrouterConfig?.siteUrl ?? aiEnvConfig.openrouterSiteUrl,
+          enableSmartRouting: openrouterConfig?.enableSmartRouting ?? aiEnvConfig.openrouterSmartRouting,
+          costOptimization: openrouterConfig?.costOptimization ?? aiEnvConfig.openrouterCostOptimization,
           maxRetries: 3,
           timeout: 30000
         });
@@ -198,6 +200,15 @@ export class AIServiceManager implements IAIService {
       }
     } else {
       console.warn('⚠️  OpenAI API key not found - OpenAI provider not initialized');
+    }
+
+    const anthropicConfig = this.aiConfig.getProviderConfig('anthropic');
+    const anthropicApiKey = anthropicConfig?.apiKey || aiEnvConfig.anthropicApiKey;
+    if (anthropicApiKey) {
+      try {
+        const adapter = new AnthropicAdapter({ apiKey: anthropicApiKey, maxRetries: anthropicConfig?.maxRetries ?? 3, timeout: anthropicConfig?.timeout ?? 30000 });
+        this.registry.register('anthropic', adapter, { enabled: true, priority: 8, maxConcurrentRequests: 50, healthCheckInterval: 60000 });
+      } catch (error) { console.error('Failed to initialize Anthropic provider', error); }
     }
 
     // Initialize ImageRouter provider if API key is available
@@ -618,7 +629,7 @@ export class AIServiceManager implements IAIService {
     return this.metricsIntegration.getCostAnalytics(organizationId, period);
   }
 
-  async getUsageReport(organizationId: string, period: 'day' | 'week' | 'month' = 'month'): Promise<any> {
+  async getUsageReport(organizationId: string, period: 'hour' | 'day' | 'week' | 'month' = 'month'): Promise<any> {
     return this.metricsIntegration.getUsageReport(organizationId, period);
   }
 
@@ -1345,7 +1356,7 @@ export class AIServiceManager implements IAIService {
    */
   async getAIUsageReport(
     organizationId: string,
-    period: 'day' | 'week' | 'month' = 'month'
+    period: 'hour' | 'day' | 'week' | 'month' = 'month'
   ) {
     return this.metricsIntegration.getUsageReport(organizationId, period);
   }

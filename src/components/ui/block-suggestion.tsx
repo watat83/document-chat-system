@@ -12,17 +12,7 @@ import {
 } from '@platejs/suggestion';
 import { SuggestionPlugin } from '@platejs/suggestion/react';
 import { CheckIcon, XIcon } from 'lucide-react';
-import {
-  type NodeEntry,
-  type Path,
-  type TElement,
-  type TSuggestionElement,
-  type TSuggestionText,
-  ElementApi,
-  KEYS,
-  PathApi,
-  TextApi,
-} from 'platejs';
+import { type NodeEntry, type Path, type TElement, type TSuggestionElement, type TSuggestionText, ElementApi, KEYS, PathApi, TextApi } from 'platejs';
 import { useEditorPlugin, usePluginOption } from 'platejs/react';
 
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';

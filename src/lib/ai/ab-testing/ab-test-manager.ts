@@ -1,6 +1,4 @@
 import { AIServiceManager } from '@/lib/ai/ai-service-manager';
-import { myProvider } from '@/lib/ai/models';
-import { streamText } from 'ai';
 import { prisma } from '@/lib/db';
 import { redis } from '@/lib/redis';
 
@@ -82,8 +80,10 @@ export class ABTestManager {
       // Load from Redis cache first
       const cached = await redis.get('ab_tests:active');
       if (cached) {
-        const tests = JSON.parse(cached) as ABTestConfig[];
+        const tests = (typeof cached === 'string' ? JSON.parse(cached) : cached) as ABTestConfig[];
         tests.forEach(test => {
+          test.startDate = new Date(test.startDate);
+          test.endDate = test.endDate ? new Date(test.endDate) : undefined;
           this.activeTests.set(test.id, test);
         });
         return;
@@ -114,7 +114,7 @@ export class ABTestManager {
             name: v.name,
             description: v.description,
             provider: v.provider as 'vercel' | 'traditional',
-            weight: v.weight
+            weight: v.weight, testId: v.testId, createdAt: v.createdAt
           })),
           enabled: test.enabled,
           startDate: test.startDate,
@@ -141,7 +141,7 @@ export class ABTestManager {
     organizationId: string
   ): Promise<ABTestVariant | null> {
     const test = this.activeTests.get(testId);
-    if (!test || !test.enabled) return null;
+    if (!test || !test.enabled || new Date() < test.startDate || (test.endDate && new Date() >= test.endDate)) return null;
 
     // Check if user/org is in target audience
     if (test.targetAudience) {
@@ -155,10 +155,10 @@ export class ABTestManager {
         return null;
       }
 
-      if (percentage) {
+      if (percentage !== undefined) {
         // Use consistent hashing for user assignment
         const hash = this.hashUserId(userId);
-        if (hash > percentage) return null;
+        if (hash >= percentage) return null;
       }
     }
 
@@ -232,9 +232,7 @@ export class ABTestManager {
 
     try {
       if (variant.provider === 'vercel') {
-        result = await this.executeVercel(task);
-        tokensUsed = result.usage?.totalTokens || 0;
-        cost = this.calculateCost(task.model, tokensUsed);
+        throw new Error('Direct SDK A/B variants are unavailable until billing integration is configured');
       } else {
         const response = await this.executeTraditional(task, testId, variant.id, userId, organizationId);
         result = response.result;
@@ -269,32 +267,6 @@ export class ABTestManager {
     return { result, testResult };
   }
 
-  private async executeVercel(task: any) {
-    const { fullStream } = await streamText({
-      model: myProvider.languageModel(task.model),
-      messages: task.messages,
-      maxOutputTokens: task.maxTokens,
-      temperature: task.temperature,
-    });
-
-    let content = '';
-    let usage = null;
-
-    for await (const delta of fullStream) {
-      if (delta.type === 'text-delta') {
-        content += delta.text;
-      } else if (delta.type === 'finish') {
-        usage = delta.usage;
-      }
-    }
-
-    return {
-      content,
-      usage,
-      provider: 'vercel'
-    };
-  }
-
   private async executeTraditional(
     task: any,
     testId: string,
@@ -302,20 +274,20 @@ export class ABTestManager {
     userId: string,
     organizationId: string
   ): Promise<{ result: any; testResult: ABTestResult }> {
-    const aiService = new AIServiceManager();
+    const aiService = AIServiceManager.getInstance();
     const startTime = new Date();
 
     const result = await aiService.generateCompletion({
       model: task.model,
       messages: task.messages,
       maxTokens: task.maxTokens,
-      temperature: task.temperature
+      temperature: task.temperature, metadata: { organizationId, userId, taskType: 'content_generation' }
     });
 
     const endTime = new Date();
     const latency = endTime.getTime() - startTime.getTime();
     const tokensUsed = result.usage?.totalTokens || 0;
-    const cost = result.usage?.totalCost || 0;
+    const cost = result.metadata?.cost || 0;
 
     const testResult: ABTestResult = {
       testId,
@@ -338,20 +310,6 @@ export class ABTestManager {
       },
       testResult
     };
-  }
-
-  private calculateCost(model: string, tokens: number): number {
-    // Simple cost calculation - should match your pricing model
-    const costPer1kTokens = {
-      'gpt-4': 0.03,
-      'gpt-3.5-turbo': 0.002,
-      'claude-3-opus': 0.015,
-      'claude-3-sonnet': 0.003,
-      'claude-3-haiku': 0.00025
-    };
-
-    const rate = costPer1kTokens[model] || 0.002;
-    return (tokens / 1000) * rate;
   }
 
   async recordTestResult(result: ABTestResult) {
@@ -386,7 +344,7 @@ export class ABTestManager {
 
     // Get current metrics
     const current = await redis.get(metricsKey);
-    const metrics: ABTestMetrics = current ? JSON.parse(current) : {
+    const metrics: ABTestMetrics = current ? (typeof current === 'string' ? JSON.parse(current) : current) : {
       variantId: result.variantId,
       totalRequests: 0,
       successfulRequests: 0,
@@ -432,7 +390,7 @@ export class ABTestManager {
       const data = await redis.get(metricsKey);
 
       if (data) {
-        metrics.push(JSON.parse(data));
+        metrics.push((typeof data === 'string' ? JSON.parse(data) : data));
       } else {
         // Load from database if not in cache
         const results = await prisma.aBTestResult.findMany({
@@ -492,9 +450,10 @@ export class ABTestManager {
     };
   }
 
-  async createABTest(config: Omit<ABTestConfig, 'id'>): Promise<ABTestConfig> {
+  async createABTest(config: Omit<ABTestConfig, 'id'>, createdBy: string): Promise<ABTestConfig> {
     const test = await prisma.aBTest.create({
       data: {
+        createdBy,
         name: config.name,
         description: config.description,
         enabled: config.enabled,
@@ -506,7 +465,7 @@ export class ABTestManager {
             name: v.name,
             description: v.description,
             provider: v.provider,
-            weight: v.weight
+            weight: v.weight, testId: v.testId, createdAt: v.createdAt
           }))
         }
       },
@@ -524,7 +483,7 @@ export class ABTestManager {
         name: v.name,
         description: v.description,
         provider: v.provider as 'vercel' | 'traditional',
-        weight: v.weight
+        weight: v.weight, testId: v.testId, createdAt: v.createdAt
       })),
       enabled: test.enabled,
       startDate: test.startDate,
@@ -605,10 +564,7 @@ export class ABTestManager {
       });
 
       // Update metrics cache
-      await this.updateMetrics({
-        ...recentResult,
-        userFeedback: feedback
-      } as ABTestResult);
+      await redis.del(`ab_metrics:${testId}:${variantId}`);
     }
   }
 

@@ -11,7 +11,7 @@ import { redirect } from 'next/navigation'
 export async function getCurrentUser(): Promise<User | null> {
   try {
     const { userId } = await auth()
-    
+
     if (!userId) {
       console.log('getCurrentUser: No userId from auth')
       return null
@@ -19,7 +19,7 @@ export async function getCurrentUser(): Promise<User | null> {
 
     console.log('getCurrentUser: Looking up user with clerkId:', userId)
     const user = await db.user.findUnique({
-      where: { 
+      where: {
         clerkId: userId,
         deletedAt: null,
       },
@@ -37,7 +37,7 @@ export async function getCurrentUser(): Promise<User | null> {
         // User exists in Clerk but not in our database
         // This should be handled by webhooks, but as a fallback, we'll create the user
         console.warn('User exists in Clerk but not in database, creating fallback user...')
-        
+
         return await provisionUser(clerkUser)
       }
     }
@@ -62,11 +62,11 @@ export async function getCurrentOrganizationId(): Promise<string | null> {
  */
 export async function requireAuth(): Promise<User> {
   const user = await getCurrentUser()
-  
+
   if (!user) {
-    redirect('/sign-in')
+    redirect('/sign-in/')
   }
-  
+
   return user
 }
 
@@ -75,18 +75,18 @@ export async function requireAuth(): Promise<User> {
  */
 export async function requireRole(requiredRole: UserRole): Promise<User> {
   const user = await requireAuth()
-  
+
   const roleHierarchy: Record<UserRole, number> = {
     VIEWER: 1,
     MEMBER: 2,
     ADMIN: 3,
     OWNER: 4,
   }
-  
+
   if (roleHierarchy[user.role] < roleHierarchy[requiredRole]) {
     redirect('/unauthorized')
   }
-  
+
   return user
 }
 
@@ -96,18 +96,18 @@ export async function requireRole(requiredRole: UserRole): Promise<User> {
 export async function hasRole(requiredRole: UserRole): Promise<boolean> {
   try {
     const user = await getCurrentUser()
-    
+
     if (!user) {
       return false
     }
-    
+
     const roleHierarchy: Record<UserRole, number> = {
       VIEWER: 1,
       MEMBER: 2,
       ADMIN: 3,
       OWNER: 4,
     }
-    
+
     return roleHierarchy[user.role] >= roleHierarchy[requiredRole]
   } catch {
     return false
@@ -134,7 +134,7 @@ export async function isOwner(): Promise<boolean> {
 export async function updateLastActive(): Promise<void> {
   try {
     const { userId } = await auth()
-    
+
     if (!userId) {
       return
     }
@@ -154,7 +154,7 @@ export async function updateLastActive(): Promise<void> {
 export async function getUserByClerkId(clerkId: string): Promise<User | null> {
   try {
     return await db.user.findUnique({
-      where: { 
+      where: {
         clerkId,
         deletedAt: null,
       },

@@ -1,3 +1,5 @@
+import { sdkRequestOptions } from '../sdk-request';
+import { consumeSDKStream } from '../sdk-stream';
 import { completionUsage, metricTokens } from '../usage';
 import { createOpenAI } from '@ai-sdk/openai';
 import { generateText, streamText, embed, embedMany } from 'ai';
@@ -63,6 +65,7 @@ export class OpenAIAdapter extends AIProviderAdapter {
 
   constructor(config: OpenAIConfig) {
     super('openai');
+    if (!config.apiKey?.trim()) throw new ProviderConfigurationError('OpenAI API key is required');
     this.config = config;
     this.client = createOpenAI({ apiKey: config.apiKey, organization: config.organizationId });
     this.aiMetricsIntegration = new AIMetricsIntegration();
@@ -71,7 +74,7 @@ export class OpenAIAdapter extends AIProviderAdapter {
   async initialize(): Promise<void> {
     try {
       // Test API connection with a simple completion
-      await this.checkHealth();
+      if (!await this.checkHealth()) throw new ProviderUnavailableError('openai', 'Health check failed');
       this.updateHealth(true);
     } catch (error) {
       this.updateHealth(false);
@@ -344,13 +347,12 @@ export class OpenAIAdapter extends AIProviderAdapter {
       const model = this.resolveModel(request.model);
       const openAIModel = this.client.chat(model);
 
-      const messages = this.formatMessages(request.messages);
 
       const result = await generateText({
         model: openAIModel,
         abortSignal: request.signal,
         maxRetries: this.config.maxRetries,
-        messages,
+        ...sdkRequestOptions(request),
         temperature: request.temperature,
         maxOutputTokens: request.maxTokens,
         stopSequences: request.stopSequences,
@@ -415,6 +417,7 @@ export class OpenAIAdapter extends AIProviderAdapter {
           provider: this.name,
           requestId: result.response?.id,
           finishReason: result.finishReason,
+          ...(result.toolCalls?.length && { functionCall: { name: result.toolCalls[0].toolName, arguments: result.toolCalls[0].input } }),
           cost: totalCost
         }
       };
@@ -561,116 +564,40 @@ export class OpenAIAdapter extends AIProviderAdapter {
     }
   }
 
-  async streamCompletion(
-    request: UnifiedStreamRequest
-  ): Promise<AsyncIterable<UnifiedStreamChunk>> {
+  async *streamCompletion(request: UnifiedStreamRequest): AsyncGenerator<UnifiedStreamChunk> {
     const organizationId = request.metadata?.organizationId;
     const startTime = Date.now();
-
     try {
-      // Security validation
       if (process.env.NODE_ENV === 'production' && request.metadata?.httpRequest) {
-        const csrfResult = await validateCSRFInAPIRoute(request.metadata.httpRequest);
-        if (!csrfResult.valid) {
-          throw new ValidationError(`CSRF validation failed: ${csrfResult.error}`);
-        }
+        const csrf = await validateCSRFInAPIRoute(request.metadata.httpRequest);
+        if (!csrf.valid) throw new ValidationError(`CSRF validation failed: ${csrf.error}`);
       }
-
-      // Usage tracking - enforce limit before making request
-      if (organizationId) {
-        await UsageTrackingService.enforceUsageLimit(organizationId, UsageType.AI_QUERY, 1);
-      }
-
+      request.signal?.throwIfAborted();
+      if (organizationId) await UsageTrackingService.enforceUsageLimit(organizationId, UsageType.AI_QUERY, 1);
       const model = this.resolveModel(request.model);
-      const openAIModel = this.client.chat(model);
-
-      const messages = this.formatMessages(request.messages);
-
-      const result = await streamText({
-        model: openAIModel,
-        abortSignal: request.signal,
-        maxRetries: this.config.maxRetries,
-        messages,
-        temperature: request.temperature,
-        maxOutputTokens: request.maxTokens,
-        stopSequences: request.stopSequences,
-        seed: request.options?.seed
-      });
-
-      // Note: For streaming, we track usage after completion with estimated values
-      // The actual token count is not available until the stream completes
+      const result = streamText({ model: this.client.chat(model), abortSignal: request.signal, maxRetries: this.config.maxRetries,
+        ...sdkRequestOptions(request), temperature: request.temperature, maxOutputTokens: request.maxTokens,
+        stopSequences: request.stopSequences, seed: request.options?.seed });
+      const { usage, finishReason } = yield* consumeSDKStream(result.stream, this.name, model, request.signal);
+      const pricing = this.costPerToken[model] || { prompt: 0.002, completion: 0.002 };
+      const cost = (usage.promptTokens * pricing.prompt + usage.completionTokens * pricing.completion) / 1000;
+      const latency = Date.now() - startTime;
       if (organizationId) {
-        // Estimate tokens based on message length
-        const estimatedTokens = await this.estimateTokensForCompletion(request);
-        const modelCost = this.costPerToken[model] || { prompt: 0.002, completion: 0.002 };
-        const estimatedCost = (estimatedTokens.total / 1000) * ((modelCost.prompt + modelCost.completion) / 2);
-
-        // Track with estimated values (Layer 1: Billing)
-        await UsageTrackingService.trackUsage({
-          organizationId,
-          usageType: UsageType.AI_QUERY,
-          quantity: 1,
-          resourceId: `stream_${Date.now()}`,
-          resourceType: 'ai_stream',
-          metadata: {
-            provider: 'openai',
-            model: model,
-            cost: estimatedCost,
-            estimatedTokens: estimatedTokens.total,
-            streaming: true
-          }
+        await UsageTrackingService.trackUsage({ organizationId, usageType: UsageType.AI_QUERY, quantity: 1,
+          resourceId: `stream_${Date.now()}`, resourceType: 'ai_stream', metadata: { provider: this.name, model, cost, ...usage, streaming: true } });
+        await this.aiMetricsIntegration.recordAIUsage(organizationId, request.metadata?.userId, {
+          provider: this.name, model, operation: 'stream', latency, tokenCount: metricTokens(usage), cost, success: true,
+          metadata: { taskType: 'completion', organizationId, userId: request.metadata?.userId, streaming: true },
         });
-
-        // Record in global AI metrics system (Layer 2: Performance Metrics)
-        await this.aiMetricsIntegration.recordAIUsage(
-          organizationId,
-          request.metadata?.userId,
-          {
-            provider: 'openai',
-            model: model,
-            operation: 'stream',
-            latency: Date.now() - startTime,
-            tokenCount: estimatedTokens,
-            cost: estimatedCost,
-            success: true,
-            metadata: {
-              taskType: 'completion',
-              organizationId,
-              userId: request.metadata?.userId,
-              streaming: true,
-              estimated: true
-            }
-          }
-        );
       }
-
-      return this.transformStream(result.textStream, model);
+      yield { content: '', metadata: { provider: this.name, model, usage, finishReason, cost, latency } };
     } catch (error) {
-      // Record error in global AI metrics system (Layer 2: Performance Metrics)
-      if (organizationId) {
-        await this.aiMetricsIntegration.recordAIUsage(
-          organizationId,
-          request.metadata?.userId,
-          {
-            provider: 'openai',
-            model: request.model,
-            operation: 'stream',
-            latency: Date.now() - startTime,
-            tokenCount: { prompt: 0, completion: 0, total: 0 },
-            cost: 0,
-            success: false,
-            error: error instanceof Error ? error.message : 'Unknown error',
-            metadata: {
-              taskType: 'completion',
-              organizationId,
-              userId: request.metadata?.userId,
-              streaming: true,
-              errorType: error instanceof Error ? error.constructor.name : 'UnknownError'
-            }
-          }
-        );
-      }
-
+      if (organizationId) await this.aiMetricsIntegration.recordAIUsage(organizationId, request.metadata?.userId, {
+        provider: this.name, model: request.model, operation: 'stream', latency: Date.now() - startTime,
+        tokenCount: { prompt: 0, completion: 0, total: 0 }, cost: 0, success: false,
+        error: error instanceof Error ? error.message : 'Stream failed', metadata: { taskType: 'completion', organizationId, streaming: true },
+      });
+      if (error instanceof Error && error.name === 'AbortError') throw error;
       throw this.handleError(error, 'streamCompletion');
     }
   }

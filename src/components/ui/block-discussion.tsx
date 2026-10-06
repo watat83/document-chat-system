@@ -12,16 +12,7 @@ import {
   MessagesSquareIcon,
   PencilLineIcon,
 } from 'lucide-react';
-import {
-  type AnyPluginConfig,
-  type NodeEntry,
-  type Path,
-  type TCommentText,
-  type TElement,
-  type TSuggestionText,
-  PathApi,
-  TextApi,
-} from 'platejs';
+import { type AnyPluginConfig, type NodeEntry, type Path, type TCommentText, type TElement, type TSuggestionText, PathApi, TextApi } from 'platejs';
 import {
   useEditorPlugin,
   useEditorRef,

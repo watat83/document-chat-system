@@ -92,8 +92,8 @@ export class AIFallbackStrategy {
       });
 
       for (let i = 0; i < fallbacks.length && i < this.config.maxAttempts - 1; i++) {
+        const fallbackStart = Date.now();
         try {
-          const fallbackStart = Date.now();
           const result = await this.executeWithBackoff(fallbacks[i], i);
 
           attempts.push({

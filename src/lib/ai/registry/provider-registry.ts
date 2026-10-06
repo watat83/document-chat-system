@@ -1,4 +1,4 @@
-import { AIService, AIProviderAdapter } from '../interfaces';
+import { AIProviderAdapter } from '../interfaces';
 import { ProviderCapabilities } from '../interfaces/types';
 
 export interface ProviderConfig {

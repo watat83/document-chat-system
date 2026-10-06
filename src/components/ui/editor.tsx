@@ -117,7 +117,7 @@ export function EditorView({
   className,
   variant,
   ...props
-}: React.HTMLAttributes<HTMLDivElement> & VariantProps<typeof editorVariants>) {
+}: React.ComponentProps<typeof PlateContent> & VariantProps<typeof editorVariants>) {
   return (
     <PlateContent
       {...props}

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@clerk/nextjs/server'
 import { prisma } from '@/lib/db'
 import { z } from 'zod'
-import { auditCrudLogger } from '@/lib/audit/crud-audit-logger'
+import { processingTransaction } from '@/lib/documents/processing-state'
 
 /**
  * @swagger
@@ -209,18 +209,18 @@ export async function GET(request: NextRequest, props: { params: Promise<{ id: s
   try {
     const authResult = await auth()
     const userId = authResult?.userId
-    
+
     if (!userId) {
-      return NextResponse.json({ 
-        success: false, 
-        error: 'Unauthorized' 
+      return NextResponse.json({
+        success: false,
+        error: 'Unauthorized'
       }, { status: 401 })
     }
 
     // Get user's organization
     const user = await prisma.user.findUnique({
-      where: { clerkId: userId },
-      select: { 
+      where: { clerkId: userId, deletedAt: null, organization: { deletedAt: null } },
+      select: {
         id: true,
         clerkId: true,
         organizationId: true
@@ -228,25 +228,25 @@ export async function GET(request: NextRequest, props: { params: Promise<{ id: s
     })
 
     if (!user) {
-      return NextResponse.json({ 
-        success: false, 
-        error: 'User not found' 
+      return NextResponse.json({
+        success: false,
+        error: 'User not found'
       }, { status: 404 })
     }
 
     const savedSearch = await findSavedSearchWithAccess(params.id, user.id, user.organizationId)
 
     if (!savedSearch) {
-      return NextResponse.json({ 
-        success: false, 
-        error: 'Saved search not found' 
+      return NextResponse.json({
+        success: false,
+        error: 'Saved search not found'
       }, { status: 404 })
     }
 
     // Update last used timestamp
     await prisma.savedSearch.update({
-      where: { id: params.id },
-      data: { 
+      where: { id: params.id, organizationId: user.organizationId, deletedAt: null },
+      data: {
         lastUsedAt: new Date(),
         usageCount: { increment: 1 }
       }
@@ -259,9 +259,9 @@ export async function GET(request: NextRequest, props: { params: Promise<{ id: s
 
   } catch (error) {
     console.error('Error fetching saved search:', error)
-    return NextResponse.json({ 
-      success: false, 
-      error: 'Failed to fetch saved search' 
+    return NextResponse.json({
+      success: false,
+      error: 'Failed to fetch saved search'
     }, { status: 500 })
   }
 }
@@ -272,18 +272,18 @@ export async function PUT(request: NextRequest, props: { params: Promise<{ id: s
   try {
     const authResult = await auth()
     const userId = authResult?.userId
-    
+
     if (!userId) {
-      return NextResponse.json({ 
-        success: false, 
-        error: 'Unauthorized' 
+      return NextResponse.json({
+        success: false,
+        error: 'Unauthorized'
       }, { status: 401 })
     }
 
     // Get user's organization
     const user = await prisma.user.findUnique({
-      where: { clerkId: userId },
-      select: { 
+      where: { clerkId: userId, deletedAt: null, organization: { deletedAt: null } },
+      select: {
         id: true,
         clerkId: true,
         organizationId: true
@@ -291,9 +291,9 @@ export async function PUT(request: NextRequest, props: { params: Promise<{ id: s
     })
 
     if (!user) {
-      return NextResponse.json({ 
-        success: false, 
-        error: 'User not found' 
+      return NextResponse.json({
+        success: false,
+        error: 'User not found'
       }, { status: 404 })
     }
 
@@ -305,19 +305,21 @@ export async function PUT(request: NextRequest, props: { params: Promise<{ id: s
     const existingSavedSearch = await findOwnSavedSearch(params.id, user.id, user.organizationId)
 
     if (!existingSavedSearch) {
-      return NextResponse.json({ 
-        success: false, 
-        error: 'Saved search not found or access denied' 
+      return NextResponse.json({
+        success: false,
+        error: 'Saved search not found or access denied'
       }, { status: 404 })
     }
 
+    const updatedSavedSearch = await processingTransaction(prisma, async tx => {
     // If this is being set as default, unset other defaults for this user
     if (data.isDefault) {
-      await prisma.savedSearch.updateMany({
+      await tx.savedSearch.updateMany({
         where: {
           userId: user.id,
           organizationId: user.organizationId,
           isDefault: true,
+          deletedAt: null,
           id: { not: params.id }
         },
         data: {
@@ -327,12 +329,12 @@ export async function PUT(request: NextRequest, props: { params: Promise<{ id: s
     }
 
     // Update the saved search
-    const updatedSavedSearch = await prisma.savedSearch.update({
-      where: { id: params.id },
+    return tx.savedSearch.update({
+      where: { id: params.id, organizationId: user.organizationId, userId: user.id, deletedAt: null },
       data: {
         ...data,
         updatedAt: new Date(),
-        sharedBy: data.isShared ? user.id : null
+        ...(data.isShared !== undefined && { sharedBy: data.isShared ? user.id : null })
       },
       include: {
         user: {
@@ -344,6 +346,8 @@ export async function PUT(request: NextRequest, props: { params: Promise<{ id: s
           }
         }
       }
+    })
+
     })
 
     return NextResponse.json({
@@ -361,9 +365,9 @@ export async function PUT(request: NextRequest, props: { params: Promise<{ id: s
     }
 
     console.error('Error updating saved search:', error)
-    return NextResponse.json({ 
-      success: false, 
-      error: 'Failed to update saved search' 
+    return NextResponse.json({
+      success: false,
+      error: 'Failed to update saved search'
     }, { status: 500 })
   }
 }
@@ -374,18 +378,18 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
   try {
     const authResult = await auth()
     const userId = authResult?.userId
-    
+
     if (!userId) {
-      return NextResponse.json({ 
-        success: false, 
-        error: 'Unauthorized' 
+      return NextResponse.json({
+        success: false,
+        error: 'Unauthorized'
       }, { status: 401 })
     }
 
     // Get user's organization
     const user = await prisma.user.findUnique({
-      where: { clerkId: userId },
-      select: { 
+      where: { clerkId: userId, deletedAt: null, organization: { deletedAt: null } },
+      select: {
         id: true,
         clerkId: true,
         organizationId: true
@@ -393,9 +397,9 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
     })
 
     if (!user) {
-      return NextResponse.json({ 
-        success: false, 
-        error: 'User not found' 
+      return NextResponse.json({
+        success: false,
+        error: 'User not found'
       }, { status: 404 })
     }
 
@@ -403,15 +407,15 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
     const existingSavedSearch = await findOwnSavedSearch(params.id, user.id, user.organizationId)
 
     if (!existingSavedSearch) {
-      return NextResponse.json({ 
-        success: false, 
-        error: 'Saved search not found or access denied' 
+      return NextResponse.json({
+        success: false,
+        error: 'Saved search not found or access denied'
       }, { status: 404 })
     }
 
     // Soft delete the saved search
     await prisma.savedSearch.update({
-      where: { id: params.id },
+      where: { id: params.id, organizationId: user.organizationId, userId: user.id, deletedAt: null },
       data: {
         deletedAt: new Date()
       }
@@ -424,9 +428,9 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
 
   } catch (error) {
     console.error('Error deleting saved search:', error)
-    return NextResponse.json({ 
-      success: false, 
-      error: 'Failed to delete saved search' 
+    return NextResponse.json({
+      success: false,
+      error: 'Failed to delete saved search'
     }, { status: 500 })
   }
 }

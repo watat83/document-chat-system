@@ -4,6 +4,10 @@ import { z } from 'zod';
 import { streamText } from 'ai';
 import { myProvider } from '@/lib/ai/models';
 import { AIServiceManager } from '@/lib/ai/ai-service-manager';
+import { prisma } from '@/lib/db';
+import { canAccessDocument } from '@/lib/security/access-policy';
+import { guardUsage } from '@/lib/billing/usage-guard';
+import { UsageTrackingService, UsageType } from '@/lib/usage-tracking';
 
 const generateRequestSchema = z.object({
   type: z.enum(['proposal', 'strategy', 'analysis', 'summary', 'custom'])
@@ -154,33 +158,44 @@ export async function POST(request: NextRequest) {
       streaming
     } = validation.data;
 
+    const user = await prisma.user.findFirst({ where: { clerkId: userId, organizationId, deletedAt: null, organization: { deletedAt: null } } });
+    if (!user) return NextResponse.json({ error: 'Organization access denied' }, { status: 403 });
+    const usageError = await guardUsage(user.organizationId, UsageType.AI_QUERY);
+    if (usageError) return usageError;
+    const contextDocuments = documents?.length ? await prisma.document.findMany({ where: { id: { in: documents }, organizationId: user.organizationId, deletedAt: null } }) : [];
+    if (new Set(documents ?? []).size !== contextDocuments.length || contextDocuments.some(document => !canAccessDocument(user, document, 'READ'))) {
+      return NextResponse.json({ error: 'Document access denied' }, { status: 403 });
+    }
+
     // Build system prompt
     const systemPrompt = buildSystemPrompt(type, requirements);
 
     // Build user prompt with context
-    const userPrompt = await buildUserPrompt(type, prompt, documents, organizationId);
+    const userPrompt = buildUserPrompt(type, prompt) + contextDocuments.map(document =>
+      `\n\nDocument: ${document.name}\n${document.extractedText ?? ''}`
+    ).join('');
 
     // Determine max tokens based on length requirement
     const maxTokens = getMaxTokensForLength(requirements?.length || 'medium');
 
     if (provider === 'vercel' && streaming) {
       // Use Vercel AI SDK for streaming response
-      const { textStream } = await streamText({
+      const result = streamText({
         model: myProvider.languageModel('chat-model'),
         instructions: systemPrompt,
         prompt: userPrompt,
-        maxTokens,
+        maxOutputTokens: maxTokens,
+        abortSignal: request.signal,
         temperature: type === 'analysis' ? 0.3 : 0.7,
-        experimental_transform: {
-          transformTextDelta: ({ text: textDelta }) => {
-            // Add streaming metadata for client-side metrics
-            return textDelta;
-          }
-        }
+        onEnd: async completion => {
+          if (request.signal.aborted || completion.finishReason === 'error') return;
+          await UsageTrackingService.trackUsage({ organizationId: user.organizationId, userId: user.id, usageType: UsageType.AI_QUERY, quantity: 1,
+            resourceType: 'content_generation', metadata: { totalTokens: completion.totalUsage.totalTokens, type } });
+        },
       });
 
       // Return streaming response
-      return new Response(textStream, {
+      return result.toTextStreamResponse({
         headers: {
           'Content-Type': 'text/plain; charset=utf-8',
           'X-AI-Provider': 'vercel',
@@ -189,17 +204,18 @@ export async function POST(request: NextRequest) {
       });
     } else {
       // Use traditional AI service for non-streaming or traditional provider
-      const aiService = new AIServiceManager();
+      const aiService = AIServiceManager.getInstance();
 
       const result = await aiService.generateCompletion({
-        model: 'gpt-4',
+        model: 'fast',
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt }
         ],
         maxTokens,
         temperature: type === 'analysis' ? 0.3 : 0.7,
-        organizationId
+        metadata: { organizationId: user.organizationId, userId: user.id, taskType: 'content_generation' },
+        signal: request.signal,
       });
 
       return NextResponse.json({
@@ -283,19 +299,11 @@ Your expertise includes:
   return prompt;
 }
 
-async function buildUserPrompt(
+function buildUserPrompt(
   type: string,
   prompt: string,
-  documents?: string[],
-  organizationId?: string
-): Promise<string> {
+): string {
   let fullPrompt = prompt;
-
-  // Add document context if provided
-  if (documents && documents.length > 0) {
-    // In a full implementation, this would fetch and include document content
-    fullPrompt += "\n\nAdditional Context: Consider the uploaded documents and any relevant information they contain.";
-  }
 
   // Add type-specific context
   const typeContext = {

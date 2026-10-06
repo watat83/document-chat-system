@@ -7,29 +7,24 @@ import type { TextStreamPart, ToolSet } from 'ai';
 export const markdownJoinerTransform =
   <TOOLS extends ToolSet>() =>
   () => {
-    const joiner = new MarkdownJoiner();
-
+    let joiner = new MarkdownJoiner();
+    let textId: string | undefined;
+    const flush = (controller: TransformStreamDefaultController<TextStreamPart<TOOLS>>) => {
+      const remaining = joiner.flush();
+      if (remaining && textId !== undefined) controller.enqueue({ type: 'text-delta', id: textId, text: remaining });
+    };
     return new TransformStream<TextStreamPart<TOOLS>, TextStreamPart<TOOLS>>({
-      async flush(controller) {
-        const remaining = joiner.flush();
-        if (remaining) {
-          controller.enqueue({
-            textDelta: remaining,
-            type: 'text-delta',
-          } as TextStreamPart<TOOLS>);
-        }
-      },
-      async transform(chunk, controller) {
+      flush,
+      transform(chunk, controller) {
         if (chunk.type === 'text-delta') {
-          const processedText = joiner.processText(chunk.textDelta);
-          if (processedText) {
-            controller.enqueue({
-              ...chunk,
-              textDelta: processedText,
-            });
-            await delay(joiner.delayInMs);
-          }
+          if (textId !== undefined && textId !== chunk.id) { flush(controller); joiner = new MarkdownJoiner(); }
+          textId = chunk.id;
+          const text = joiner.processText(chunk.text);
+          if (text) controller.enqueue({ ...chunk, text });
         } else {
+          // Emit buffered text before a text-end or finish event closes the part.
+          if (chunk.type === 'text-end' || chunk.type === 'finish' || chunk.type === 'finish-step') flush(controller);
+          if (chunk.type === 'text-end') { textId = undefined; joiner = new MarkdownJoiner(); }
           controller.enqueue(chunk);
         }
       },

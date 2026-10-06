@@ -17,7 +17,7 @@ export interface ProcessingStep {
 }
 
 export interface ProcessingProgressProps {
-  status: 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED' | 'QUEUED'
+  status: 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED' | 'QUEUED' | 'PARTIAL' | 'CANCELLED'
   progress?: number // 0-100
   currentStep?: string
   steps?: ProcessingStep[]
@@ -27,7 +27,7 @@ export interface ProcessingProgressProps {
   showDetails?: boolean
 }
 
-const defaultSteps = {
+const defaultSteps: Record<'basic' | 'vectorize' | 'full', ProcessingStep[]> = {
   basic: [
     {
       id: 'extract',
@@ -171,7 +171,7 @@ export function ProcessingProgress({
   // Update step statuses based on current progress
   const updatedSteps = actualSteps.map((step, index) => {
     const stepProgress = ((index + 1) / actualSteps.length) * 100
-    
+
     if (progress >= stepProgress) {
       return { ...step, status: 'completed' as const }
     } else if (progress > (index / actualSteps.length) * 100) {
@@ -179,7 +179,7 @@ export function ProcessingProgress({
     } else if (status === 'FAILED') {
       return { ...step, status: 'failed' as const }
     }
-    
+
     return step
   })
 
@@ -187,6 +187,8 @@ export function ProcessingProgress({
     switch (status) {
       case 'COMPLETED': return 'bg-green-500'
       case 'PROCESSING': return 'bg-blue-500'
+      case 'PARTIAL':
+      case 'CANCELLED':
       case 'FAILED': return 'bg-red-500'
       case 'QUEUED': return 'bg-yellow-500'
       default: return 'bg-gray-500'
@@ -197,6 +199,8 @@ export function ProcessingProgress({
     switch (status) {
       case 'COMPLETED': return CheckCircle
       case 'PROCESSING': return Loader2
+      case 'PARTIAL':
+      case 'CANCELLED':
       case 'FAILED': return AlertCircle
       case 'QUEUED': return Clock
       default: return Clock
@@ -213,7 +217,7 @@ export function ProcessingProgress({
           {/* Header with status */}
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <StatusIcon 
+              <StatusIcon
                 className={cn(
                   "h-5 w-5",
                   isAnimated && "animate-spin",
@@ -221,19 +225,21 @@ export function ProcessingProgress({
                   status === 'PROCESSING' && "text-blue-600",
                   status === 'FAILED' && "text-red-600",
                   status === 'QUEUED' && "text-yellow-600"
-                )} 
+                )}
               />
               <span className="font-medium">
                 {status === 'QUEUED' && 'Processing Queued'}
                 {status === 'PROCESSING' && `Processing (${progress}%)`}
                 {status === 'COMPLETED' && 'Processing Complete'}
                 {status === 'FAILED' && 'Processing Failed'}
+                {status === 'PARTIAL' && 'Processing Partially Complete'}
+                {status === 'CANCELLED' && 'Processing Cancelled'}
                 {status === 'PENDING' && 'Awaiting Processing'}
               </span>
             </div>
-            
-            <Badge 
-              variant="secondary" 
+
+            <Badge
+              variant="secondary"
               className={cn("capitalize", getStatusColor(status), "text-white")}
             >
               {processingType} Analysis
@@ -243,11 +249,11 @@ export function ProcessingProgress({
           {/* Progress bar */}
           {status !== 'PENDING' && (
             <div className="space-y-2">
-              <Progress 
-                value={status === 'COMPLETED' ? 100 : progress} 
+              <Progress
+                value={status === 'COMPLETED' ? 100 : progress}
                 className="h-3"
               />
-              
+
               {estimatedCompletion && status === 'PROCESSING' && (
                 <div className="flex items-center gap-1 text-sm text-muted-foreground">
                   <Clock className="h-3 w-3" />
@@ -266,11 +272,11 @@ export function ProcessingProgress({
               <div className="space-y-2">
                 {updatedSteps.map((step) => {
                   const StepIcon = step.icon || FileText
-                  const isCurrentStep = currentStep === step.id || 
+                  const isCurrentStep = currentStep === step.id ||
                     (status === 'PROCESSING' && step.status === 'in-progress')
 
                   return (
-                    <div 
+                    <div
                       key={step.id}
                       className={cn(
                         "flex items-center gap-3 p-2 rounded-md transition-colors",
@@ -296,7 +302,7 @@ export function ProcessingProgress({
                           <StepIcon className="h-3 w-3" />
                         )}
                       </div>
-                      
+
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
                           <span className={cn(
@@ -308,25 +314,25 @@ export function ProcessingProgress({
                           )}>
                             {step.name}
                           </span>
-                          
+
                           {step.status === 'in-progress' && (
                             <Badge variant="outline" className="text-xs">
                               In Progress
                             </Badge>
                           )}
                         </div>
-                        
+
                         <p className="text-xs text-muted-foreground">
                           {step.description}
                         </p>
-                        
+
                         {step.completedAt && (
                           <p className="text-xs text-green-600">
                             Completed at {new Date(step.completedAt).toLocaleTimeString()}
                           </p>
                         )}
                       </div>
-                      
+
                       {step.estimatedDuration && step.status === 'pending' && (
                         <div className="text-xs text-muted-foreground">
                           ~{step.estimatedDuration}s

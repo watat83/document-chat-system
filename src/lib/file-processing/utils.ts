@@ -18,7 +18,7 @@ const EXTENSION_TO_MIME_MAP: Record<string, string> = {
   '.svg': 'image/svg+xml',
   '.tif': 'image/tiff',
   '.tiff': 'image/tiff',
-  
+
   // Documents
   '.pdf': 'application/pdf',
   '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
@@ -33,11 +33,11 @@ const EXTENSION_TO_MIME_MAP: Record<string, string> = {
   '.htm': 'text/html',
   '.json': 'application/json',
   '.xml': 'application/xml',
-  
+
   // Presentations
   '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
   '.ppt': 'application/vnd.ms-powerpoint',
-  
+
   // Archives
   '.zip': 'application/zip',
   '.rar': 'application/x-rar-compressed',
@@ -85,15 +85,15 @@ export function validateFileBuffer(buffer: Buffer): { valid: boolean; error?: st
   if (!buffer) {
     return { valid: false, error: 'Buffer is null or undefined' };
   }
-  
+
   if (buffer.length === 0) {
     return { valid: false, error: 'Buffer is empty' };
   }
-  
+
   if (buffer.length > 500 * 1024 * 1024) { // 500MB absolute limit
     return { valid: false, error: 'File too large (exceeds 500MB)' };
   }
-  
+
   return { valid: true };
 }
 
@@ -115,29 +115,29 @@ export function getFileCategory(mimeType: string): 'image' | 'document' | 'text'
   if (mimeType.startsWith('image/')) {
     return 'image';
   }
-  
-  if (mimeType.includes('pdf') || 
-      mimeType.includes('word') || 
-      mimeType.includes('excel') || 
+
+  if (mimeType.includes('pdf') ||
+      mimeType.includes('word') ||
+      mimeType.includes('excel') ||
       mimeType.includes('powerpoint') ||
       mimeType.includes('officedocument')) {
     return 'document';
   }
-  
-  if (mimeType.startsWith('text/') || 
-      mimeType.includes('json') || 
+
+  if (mimeType.startsWith('text/') ||
+      mimeType.includes('json') ||
       mimeType.includes('xml')) {
     return 'text';
   }
-  
-  if (mimeType.includes('zip') || 
-      mimeType.includes('rar') || 
-      mimeType.includes('7z') || 
-      mimeType.includes('tar') || 
+
+  if (mimeType.includes('zip') ||
+      mimeType.includes('rar') ||
+      mimeType.includes('7z') ||
+      mimeType.includes('tar') ||
       mimeType.includes('gzip')) {
     return 'archive';
   }
-  
+
   return 'other';
 }
 
@@ -146,11 +146,11 @@ export function getFileCategory(mimeType: string): 'image' | 'document' | 'text'
  */
 export function formatFileSize(bytes: number): string {
   if (bytes === 0) return '0 Bytes';
-  
+
   const k = 1024;
   const sizes = ['Bytes', 'KB', 'MB', 'GB'];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
-  
+
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }
 
@@ -164,7 +164,7 @@ export function calculateProcessingConfidence(
   processingTime: number
 ): number {
   let confidence = 0.5; // Base confidence
-  
+
   // Adjust based on processing method
   switch (method) {
     case 'direct_text':
@@ -185,7 +185,7 @@ export function calculateProcessingConfidence(
     default:
       confidence = 0.5;
   }
-  
+
   // Adjust based on text quality
   if (text.length === 0) {
     confidence = 0;
@@ -194,19 +194,19 @@ export function calculateProcessingConfidence(
   } else if (text.length < 100) {
     confidence *= 0.7;
   }
-  
+
   // Adjust based on processing time (longer time might indicate issues)
   if (processingTime > 30000) { // 30 seconds
     confidence *= 0.8;
   } else if (processingTime > 60000) { // 1 minute
     confidence *= 0.6;
   }
-  
+
   // Adjust based on file size
   if (fileSize > 50 * 1024 * 1024) { // 50MB
     confidence *= 0.9;
   }
-  
+
   return Math.max(0, Math.min(1, confidence));
 }
 
@@ -215,9 +215,9 @@ export function calculateProcessingConfidence(
  */
 export function cleanExtractedText(text: string, preserveFormatting: boolean = false): string {
   if (!text) return '';
-  
+
   let cleaned = text;
-  
+
   if (!preserveFormatting) {
     // Remove excessive whitespace
     cleaned = cleaned
@@ -226,10 +226,10 @@ export function cleanExtractedText(text: string, preserveFormatting: boolean = f
       .replace(/\r/g, '')
       .trim();
   }
-  
+
   // Remove null characters and other control characters
   cleaned = cleaned.replace(/[\x00-\x08\x0E-\x1F\x7F]/g, '');
-  
+
   return cleaned;
 }
 
@@ -246,12 +246,12 @@ export function extractBasicMetadata(buffer: Buffer, filename?: string): {
   const metadata = {
     size: buffer.length,
     filename: filename ? sanitizeFilename(filename) : undefined,
-    mimeType: filename ? getMimeTypeFromExtension(filename) : undefined,
+    mimeType: filename ? getMimeTypeFromExtension(filename) ?? undefined : undefined,
   };
-  
+
   // Note: File creation/modification dates are not available from buffer alone
   // These would need to be provided by the caller from file system stats
-  
+
   return metadata;
 }
 
@@ -262,22 +262,22 @@ export function isValidText(text: string): boolean {
   if (!text || text.length === 0) {
     return false;
   }
-  
+
   // Check for reasonable character distribution
   const printableChars = text.replace(/[^\x20-\x7E\s]/g, '');
   const printableRatio = printableChars.length / text.length;
-  
+
   if (printableRatio < 0.7) {
     return false;
   }
-  
+
   // Check for reasonable word-like content
   const words = text.split(/\s+/).filter(word => word.length > 0);
   const averageWordLength = words.reduce((sum, word) => sum + word.length, 0) / words.length;
-  
+
   if (averageWordLength < 2 || averageWordLength > 20) {
     return false;
   }
-  
+
   return true;
 }

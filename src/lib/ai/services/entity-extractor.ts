@@ -315,21 +315,7 @@ ${text}`
       return EntityType.DATE
     }
 
-    // FINAL FALLBACK: Map the basic ExtractedEntity types to EntityType enum
-    const basicTypeMapping: Record<ExtractedEntity['type'], EntityType> = {
-      person: EntityType.PERSON,
-      organization: EntityType.ORGANIZATION,
-      location: EntityType.LOCATION,
-      date: EntityType.DATE,
-      money: EntityType.MONEY,
-      misc: EntityType.MISC,
-    }
-
-    const finalType = basicTypeMapping[entity.type] || EntityType.MISC
-    console.log(
-      `🔄 [FALLBACK] Using basic type mapping: ${entity.type} -> ${finalType}`
-    )
-    return finalType
+    return Object.values(EntityType).includes(entity.type) ? entity.type : EntityType.MISC;
   }
 
   private getEntityTypeDescription(entityType: string): string {

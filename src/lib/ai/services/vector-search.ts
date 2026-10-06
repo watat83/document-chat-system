@@ -65,7 +65,7 @@ export class VectorSearchService {
     this.pgVectorService = new PgVectorSearchService()
     this.cache = defaultVectorSearchCache
     this.hybridSearchService = defaultHybridSearchService
-    
+
     // Check if pgvector fallback should be enabled
     this.useFallback = process.env.ENABLE_PGVECTOR_FALLBACK === 'true' && process.env.PGVECTOR_BACKFILL_COMPLETE === 'true'
   }
@@ -86,50 +86,50 @@ export class VectorSearchService {
     const baseTimeoutMs = parseInt(process.env.VECTOR_SEARCH_TIMEOUT_MS || '5000', 10) // Default 5 seconds
     const embeddingTimeoutMs = parseInt(process.env.VECTOR_SEARCH_EMBEDDING_TIMEOUT_MS || '10000', 10) // Default 10 seconds for full operation
     const timeoutMs = filters.documentId ? baseTimeoutMs : embeddingTimeoutMs // Document-specific searches are faster
-    
+
     console.log(`⏱️ Using timeout: ${timeoutMs}ms for search operation`)
-    
+
     try {
       return await Promise.race([
         this.performSearch(query, filters, options),
-        new Promise<SearchResult[]>((_, reject) => 
+        new Promise<SearchResult[]>((_, reject) =>
           setTimeout(() => reject(new Error('Search timeout')), timeoutMs)
         )
       ])
     } catch (error) {
       const elapsed = Date.now() - startTime
-      
+
       if (error instanceof Error && error.message === 'Search timeout') {
         console.warn(`⏰ Search timed out after ${elapsed}ms (limit: ${timeoutMs}ms), attempting fallback strategies`)
-        
+
         // Strategy 1: Try to return cached results as fallback
         const cachedResults = this.cache.get(query, filters, options)
         if (cachedResults) {
           console.log(`✅ Returning cached results due to timeout (${cachedResults.length} results)`)
           return await this.filterActiveResults(cachedResults, filters)
         }
-        
+
         // Strategy 2: Try pgvector fallback if enabled and no cached results
         if (this.useFallback) {
           console.log('🔄 Attempting pgvector fallback due to timeout...')
           try {
             const fallbackResults = await this.pgVectorService.searchSimilar(query, filters, options)
             console.log(`✅ pgvector fallback successful (${fallbackResults.length} results)`)
-            
+
             // Cache the fallback results for future requests
             if (this.cache.shouldCache(query, filters, options)) {
               this.cache.set(query, filters, options, fallbackResults)
             }
-            
+
             return fallbackResults
           } catch (fallbackError) {
             console.error('❌ pgvector fallback also failed:', fallbackError)
           }
         }
-        
+
         throw new Error(`Search timed out after ${timeoutMs}ms. Pinecone may be experiencing high latency. Please try again in a moment.`)
       }
-      
+
       console.error(`❌ Search failed after ${elapsed}ms:`, error)
       throw error
     }
@@ -154,12 +154,12 @@ export class VectorSearchService {
 
     // Perform actual search with fallback
     let results: SearchResult[]
-    
+
     try {
       results = await this.searchWithPinecone(query, filters, options)
     } catch (pineconeError) {
       console.warn('⚠️ Pinecone search failed:', pineconeError)
-      
+
       if (this.useFallback) {
         console.log('🔄 Falling back to pgvector search...')
         try {
@@ -179,14 +179,14 @@ export class VectorSearchService {
     // Apply hybrid search if requested
     if (options.hybridSearch && results.length > 0) {
       console.log('🔀 Applying hybrid search scoring...')
-      
+
       // Extract keywords from query for hybrid search
       const queryKeywords = query.toLowerCase()
         .split(/\s+/)
         .filter(word => word.length > 2)
         .map(word => word.replace(/[^\w]/g, ''))
         .filter(word => word.length > 0)
-      
+
       const hybridOptions: HybridSearchOptions = {
         ...options,
         vectorWeight: options.vectorWeight || 0.7,
@@ -237,15 +237,15 @@ export class VectorSearchService {
       // Generate query embedding with timeout protection
       console.log('📊 [Pinecone] Generating query embedding...')
       const embeddingStartTime = Date.now()
-      
+
       const queryEmbedding = await Promise.race([
         this.generateQueryEmbedding(query),
-        new Promise<number[]>((_, reject) => 
-          setTimeout(() => reject(new Error('Embedding generation timeout')), 
+        new Promise<number[]>((_, reject) =>
+          setTimeout(() => reject(new Error('Embedding generation timeout')),
             parseInt(process.env.AI_DEFAULT_TIMEOUT || '30000', 10))
         )
       ])
-      
+
       const embeddingTime = Date.now() - embeddingStartTime
       console.log(
         `✅ [Pinecone] Query embedding generated in ${embeddingTime}ms, length:`,
@@ -258,7 +258,7 @@ export class VectorSearchService {
       )
       const namespaceInfo = await this.namespaceManager.getOrCreateNamespace(filters.organizationId)
       const organizationNamespace = namespaceInfo.namespace
-      
+
       // Get Pinecone index with organization namespace
       console.log(
         '🔗 [Pinecone] Connecting to Pinecone index:',
@@ -266,7 +266,7 @@ export class VectorSearchService {
       )
       const index = this.pinecone.index(process.env.PINECONE_INDEX_NAME!)
       const namespacedIndex = index.namespace(organizationNamespace)
-      
+
       console.log(
         `🗂️ [Pinecone] Using organization namespace: ${organizationNamespace}`
       )
@@ -325,12 +325,12 @@ export class VectorSearchService {
           filter:
             Object.keys(metadataFilter).length > 0 ? metadataFilter : undefined,
         }),
-        new Promise<any>((_, reject) => 
-          setTimeout(() => reject(new Error('Pinecone query timeout')), 
+        new Promise<any>((_, reject) =>
+          setTimeout(() => reject(new Error('Pinecone query timeout')),
             parseInt(process.env.PINECONE_QUERY_TIMEOUT_MS || '8000', 10))
         )
       ])
-      
+
       const queryTime = Date.now() - queryStartTime
       console.log(`⚡ [Pinecone] Query completed in ${queryTime}ms`)
 
@@ -375,7 +375,7 @@ export class VectorSearchService {
             const chunkData = (document?.embeddings as any)?.chunks?.find(
               (c: any) => c.chunkIndex === chunkIndex
             )
-            if (chunkData?.content) {
+            if (chunkData?.content && (!chunkData.vectorId || chunkData.vectorId === match.id)) {
               fullChunkText = chunkData.content
               console.log(
                 `✅ Retrieved full chunk content (${fullChunkText.length} chars) for chunk ${chunkIndex}`
@@ -474,7 +474,7 @@ export class VectorSearchService {
     console.log('🔀 Starting true hybrid search...')
     console.log(`📝 Query: "${query}"`)
     console.log(`🏷️ Keywords: [${keywords.join(', ')}]`)
-    
+
     // First get vector search results
     const vectorResults = await this.searchSimilar(query, filters, {
       ...options,
@@ -530,7 +530,7 @@ export class VectorSearchService {
 
       // Direct OpenAI API call for embeddings with timeout
       const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), 
+      const timeoutId = setTimeout(() => controller.abort(),
         parseInt(process.env.AI_DEFAULT_TIMEOUT || '30000', 10))
 
       try {
@@ -558,7 +558,7 @@ export class VectorSearchService {
         }
 
         const data = await response.json()
-        
+
         if (!data.data || !data.data[0] || !data.data[0].embedding) {
           throw new Error('Invalid response format from OpenAI embeddings API')
         }
@@ -578,9 +578,9 @@ export class VectorSearchService {
           console.error('❌ OpenAI embedding generation timed out')
           throw new Error('Embedding generation timed out. OpenAI API may be experiencing high latency.')
         }
-        
+
         console.error('❌ OpenAI embedding generation failed:', error.message)
-        
+
         // More specific error messages for common issues
         if (error.message.includes('401')) {
           throw new Error('OpenAI API authentication failed. Please check your API key.')
@@ -590,7 +590,7 @@ export class VectorSearchService {
           throw new Error('OpenAI API is temporarily unavailable. Please try again.')
         }
       }
-      
+
       console.error('❌ OpenAI embedding generation failed:', error)
       throw error
     }
@@ -632,7 +632,7 @@ export class VectorSearchService {
       const document = docs.get(result.documentId);
       const chunk = (document?.embeddings as any)?.chunks?.find((c: any) => c.chunkIndex === result.chunkIndex);
       // Old vector previews cannot survive deletion, reprocessing or removed embeddings.
-      return chunk?.content ? [{ ...result, chunkText: chunk.content }] : [];
+      return chunk?.content && (!chunk.vectorId || result.metadata?.source === 'pgvector' || chunk.vectorId === result.chunkId) ? [{ ...result, chunkText: chunk.content }] : [];
     });
   }
 
@@ -695,8 +695,8 @@ export class VectorSearchService {
       result.pinecone = { available: true, error: undefined, stats }
       console.log('✅ Pinecone service healthy')
     } catch (error) {
-      result.pinecone = { 
-        available: false, 
+      result.pinecone = {
+        available: false,
         error: error instanceof Error ? error.message : 'Unknown error',
         stats: undefined
       }

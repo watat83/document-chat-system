@@ -1,4 +1,4 @@
-import { 
+import {
   AIProviderAdapter,
   UnifiedCompletionRequest,
   UnifiedCompletionResponse,
@@ -35,6 +35,9 @@ export class DemoAdapter extends AIProviderAdapter {
     };
     this.initializeModels();
   }
+
+  async loadAvailableModels(): Promise<ModelInfo[]> { return this.getAvailableModels(); }
+  async refreshModels(): Promise<void> { this.initializeModels(); }
 
   private initializeModels(): void {
     this.availableModels = [
@@ -108,7 +111,7 @@ export class DemoAdapter extends AIProviderAdapter {
 
   async generateCompletion(request: UnifiedCompletionRequest): Promise<UnifiedCompletionResponse> {
     await this.simulateProcessingTime();
-    
+
     // Simulate occasional errors if configured
     if (this.config.errorRate && Math.random() < this.config.errorRate) {
       throw new Error('Demo provider simulated error');
@@ -119,6 +122,7 @@ export class DemoAdapter extends AIProviderAdapter {
 
     return {
       content,
+      model: request.model,
       usage,
       metadata: {
         provider: 'demo',
@@ -136,14 +140,14 @@ export class DemoAdapter extends AIProviderAdapter {
 
   async *streamGenerator(request: UnifiedStreamRequest): AsyncGenerator<UnifiedStreamChunk> {
     await this.simulateProcessingTime();
-    
+
     const content = this.generateDemoContent(request);
     const words = content.split(' ');
-    
+
     // Stream words in chunks
     for (let i = 0; i < words.length; i += 2) {
       const chunk = words.slice(i, i + 2).join(' ');
-      
+
       yield {
         content: chunk + (i + 2 < words.length ? ' ' : ''),
         metadata: {
@@ -153,7 +157,7 @@ export class DemoAdapter extends AIProviderAdapter {
           chunkIndex: Math.floor(i / 2)
         }
       };
-      
+
       // Add small delay between chunks to simulate streaming
       await new Promise(resolve => setTimeout(resolve, 50 + Math.random() * 100));
     }
@@ -173,33 +177,18 @@ export class DemoAdapter extends AIProviderAdapter {
 
   async generateEmbedding(request: UnifiedEmbeddingRequest): Promise<UnifiedEmbeddingResponse> {
     await this.simulateProcessingTime();
-    
-    const text = Array.isArray(request.text) ? request.text.join(' ') : request.text;
-    const dimensions = 1536; // OpenAI embedding dimensions
-    
-    // Generate mock embedding vector
-    const embedding = Array.from({ length: dimensions }, () => Math.random() * 2 - 1);
-    
-    return {
-      embeddings: [embedding],
-      usage: {
-        promptTokens: Math.ceil(text.length / 4),
-        completionTokens: 0,
-        totalTokens: Math.ceil(text.length / 4)
-      },
-      metadata: {
-        provider: 'demo',
-        model: request.model || 'demo-text-embedding-ada-002',
-        isDemo: true,
-        dimensions
-      }
-    };
+
+    const texts = Array.isArray(request.text) ? request.text : [request.text];
+    const dimensions = request.dimensions ?? 1536;
+    const embeddings = texts.map(() => Array.from({ length: dimensions }, () => Math.random() * 2 - 1));
+    return { embedding: Array.isArray(request.text) ? embeddings : embeddings[0], model: request.model,
+      usage: { totalTokens: texts.reduce((sum, text) => sum + Math.ceil(text.length / 4), 0) }, metadata: { provider: 'demo', dimensions, cost: 0 } };
   }
 
   async estimateTokens(text: string, model?: string): Promise<TokenEstimate> {
     // Rough estimation: ~4 characters per token
     const estimatedTokens = Math.ceil(text.length / 4);
-    
+
     return {
       prompt: Math.floor(estimatedTokens * 0.6),
       completion: Math.ceil(estimatedTokens * 0.4),
@@ -247,25 +236,25 @@ export class DemoAdapter extends AIProviderAdapter {
 
   private async simulateProcessingTime(): Promise<void> {
     if (!this.config.simulateLatency) return;
-    
-    const latency = Math.random() * 
-      (this.config.maxLatency! - this.config.minLatency!) + 
+
+    const latency = Math.random() *
+      (this.config.maxLatency! - this.config.minLatency!) +
       this.config.minLatency!;
-      
+
     await new Promise(resolve => setTimeout(resolve, latency));
   }
 
   private generateDemoContent(request: UnifiedCompletionRequest | UnifiedStreamRequest): string {
     const lastMessage = request.messages[request.messages.length - 1];
     const userInput = lastMessage?.content || '';
-    
+
     // Generate context-aware demo content based on government contracting keywords
     return this.generateGovernmentContractingResponse(userInput);
   }
 
   private generateGovernmentContractingResponse(userInput: string): string {
     const input = userInput.toLowerCase();
-    
+
     // NAICS-related responses
     if (input.includes('naics')) {
       return `Based on your query about NAICS codes, I can help you understand the North American Industry Classification System. Here's what you need to know:
@@ -429,7 +418,7 @@ Here's how I can help you move forward:
     const inputText = request.messages.map(m => m.content).join(' ');
     const promptTokens = Math.ceil(inputText.length / 4);
     const completionTokens = Math.ceil(content.length / 4);
-    
+
     return {
       promptTokens,
       completionTokens,

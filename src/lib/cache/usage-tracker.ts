@@ -1,6 +1,4 @@
-import { PrismaClient } from '@prisma/client';
-
-const prisma = new PrismaClient();
+import { prisma } from '@/lib/db';
 
 export interface UsageEvent {
   userId: string;
@@ -73,10 +71,9 @@ class UsageTracker {
       userId,
       organizationId,
       type: 'api_call',
-      resource,
-      cost: cost || this.costPerApiCall,
-      metadata,
-      timestamp: new Date(),
+      resourceId: resource,
+      resourceType: 'api',
+      metadata: { ...metadata, cost: cost ?? this.costPerApiCall },
     };
 
     await this.recordUsage(event);
@@ -116,9 +113,9 @@ class UsageTracker {
     }
   }
 
-  async getUserUsageStats(userId: string, startDate?: Date, endDate?: Date): Promise<UsageStats> {
+  async getUserUsageStats(userId: string, startDate?: Date, endDate?: Date, organizationId?: string): Promise<UsageStats> {
     const whereClause = {
-      userId,
+      userId, organizationId,
       createdAt: {
         gte: startDate || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000), // Default: last 30 days
         lte: endDate || new Date(),
@@ -140,7 +137,7 @@ class UsageTracker {
     const totalCacheHits = cacheHits;
     const totalCacheMisses = cacheMisses;
     const totalApiCalls = apiCalls;
-    
+
     const totalRequests = totalCacheHits + totalCacheMisses + totalApiCalls;
     const cacheHitRate = totalRequests > 0 ? (totalCacheHits / totalRequests) * 100 : 0;
 
@@ -152,6 +149,11 @@ class UsageTracker {
     };
   }
 
+  async getTopResourcesByUsage(userId: string, organizationId: string, limit: number, startDate?: Date, endDate?: Date) {
+    return prisma.usageEvent.groupBy({ by: ['resourceId', 'resourceType'],
+      where: { userId, organizationId, createdAt: { gte: startDate || new Date(Date.now() - 30 * 86400000), lte: endDate || new Date() } },
+      _count: { _all: true }, orderBy: { _count: { resourceId: 'desc' } }, take: limit });
+  }
   // Note: Additional methods removed to avoid field compatibility issues
   // The cache tracking functionality is focused on basic hit/miss analytics
 }

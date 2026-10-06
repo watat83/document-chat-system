@@ -1,6 +1,6 @@
 /**
  * PostgreSQL pgvector Search Service
- * 
+ *
  * Provides fallback vector search capabilities using PostgreSQL's pgvector extension
  * when Pinecone is unavailable. Implements the same interface as VectorSearchService.
  */
@@ -90,7 +90,7 @@ export class PgVectorSearchService {
 
       // Build the similarity search query
       const searchQuery = `
-        SELECT 
+        SELECT
           id,
           document_id,
           chunk_index,
@@ -110,7 +110,7 @@ export class PgVectorSearchService {
       )
 
       console.log('🔍 [pgvector] Executing similarity search query')
-      
+
       // Execute the query using raw SQL for vector operations
       const rawResults = await prisma.$queryRawUnsafe(
         searchQuery,
@@ -154,7 +154,7 @@ export class PgVectorSearchService {
           chunkIndex: row.chunk_index,
           chunkText: fullChunkText,
           score: row.similarity_score,
-          metadata: metadata,
+          metadata: { ...metadata, source: 'pgvector' },
           highlights: this.extractHighlights(query, fullChunkText),
         })
       }
@@ -240,13 +240,13 @@ export class PgVectorSearchService {
 
       // Batch insert into pgvector table
       console.log(`📡 [pgvector] Inserting ${insertData.length} vectors into database`)
-      
+
       // Use raw SQL for efficient batch insert with vector type
       const insertQuery = `
         INSERT INTO document_vectors (document_id, chunk_index, organization_id, embedding, metadata)
         VALUES ${insertData.map((_, i) => `($${i * 5 + 1}, $${i * 5 + 2}, $${i * 5 + 3}, $${i * 5 + 4}::vector, $${i * 5 + 5})`).join(', ')}
-        ON CONFLICT (document_id, chunk_index) 
-        DO UPDATE SET 
+        ON CONFLICT (document_id, chunk_index)
+        DO UPDATE SET
           embedding = EXCLUDED.embedding,
           metadata = EXCLUDED.metadata,
           updated_at = NOW()
@@ -280,8 +280,8 @@ export class PgVectorSearchService {
 
     try {
       const result = await prisma.$executeRaw`
-        DELETE FROM document_vectors 
-        WHERE document_id = ${documentId} 
+        DELETE FROM document_vectors
+        WHERE document_id = ${documentId}
         AND organization_id = ${organizationId}
       `
 
@@ -445,7 +445,7 @@ export class PgVectorSearchService {
   async getIndexStats(): Promise<any> {
     try {
       const stats = await prisma.$queryRaw`
-        SELECT 
+        SELECT
           COUNT(*) as total_vectors,
           COUNT(DISTINCT organization_id) as organizations,
           COUNT(DISTINCT document_id) as documents,

@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { PricingService } from '@/lib/pricing-service'
+import { auth } from '@clerk/nextjs/server'
+import { isPlatformAdmin } from '@/lib/security/platform-admin'
+import { type PricingPlan, PricingService } from '@/lib/pricing-service'
 
 /**
  * @swagger
@@ -91,7 +93,7 @@ export async function GET(request: NextRequest) {
     const format = searchParams.get('format') || 'detailed'
     const useFallback = searchParams.get('useFallback') !== 'false'
 
-    let plans
+    let plans: PricingPlan[]
     let source = 'database'
 
     try {
@@ -101,7 +103,7 @@ export async function GET(request: NextRequest) {
       if (!useFallback) {
         throw error
       }
-      
+
       // This should not happen as getActivePlans with fallback should always return data
       console.error('Unexpected error getting pricing plans:', error)
       source = 'fallback'
@@ -115,7 +117,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Format response based on requested format
-    let responseData = plans
+    let responseData: unknown = plans
 
     if (format === 'stripe') {
       // Format for Stripe compatibility (legacy SUBSCRIPTION_PLANS format)
@@ -133,7 +135,7 @@ export async function GET(request: NextRequest) {
             seats: plan.limits.seats,
             savedSearches: plan.limits.documentsPerMonth,
             aiCreditsPerMonth: plan.limits.aiCreditsPerMonth,
-            matchScoreCalculations: plan.limits.matchScoreCalculations
+            matchScoreCalculations: plan.limits.matchScoreCalculations ?? 0
           }
         }
       })
@@ -163,13 +165,13 @@ export async function GET(request: NextRequest) {
 
   } catch (error) {
     console.error('Error fetching pricing plans:', error)
-    
+
     return NextResponse.json({
       success: false,
       error: error instanceof Error ? error.message : 'Failed to fetch pricing plans',
       timestamp: new Date().toISOString()
-    }, { 
-      status: 500 
+    }, {
+      status: 500
     })
   }
 }
@@ -205,13 +207,14 @@ export async function GET(request: NextRequest) {
  *         description: Server error
  */
 export async function POST(request: NextRequest) {
+  const { userId } = await auth();
+  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!isPlatformAdmin(userId)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   try {
-    // In a production environment, you'd want to add authentication here
-    // For now, we'll allow cache refresh from any source
-    
+
     console.log('Refreshing pricing plans cache...')
     const plans = await PricingService.refreshPricingData()
-    
+
     return NextResponse.json({
       success: true,
       message: 'Pricing cache refreshed successfully',
@@ -221,13 +224,13 @@ export async function POST(request: NextRequest) {
 
   } catch (error) {
     console.error('Error refreshing pricing cache:', error)
-    
+
     return NextResponse.json({
       success: false,
       error: error instanceof Error ? error.message : 'Failed to refresh pricing cache',
       timestamp: new Date().toISOString()
-    }, { 
-      status: 500 
+    }, {
+      status: 500
     })
   }
 }

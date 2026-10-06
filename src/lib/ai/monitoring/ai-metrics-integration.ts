@@ -433,7 +433,7 @@ export class AIMetricsIntegration {
     };
   }
 
-  async getUsageReport(organizationId: string, period: 'day' | 'week' | 'month' = 'month'): Promise<{
+  async getUsageReport(organizationId: string, period: 'hour' | 'day' | 'week' | 'month' = 'month'): Promise<{
     summary: {
       totalRequests: number;
       totalCost: number;
@@ -455,6 +455,9 @@ export class AIMetricsIntegration {
       const startDate = new Date();
 
       switch (period) {
+        case 'hour':
+          startDate.setHours(now.getHours() - 1);
+          break;
         case 'day':
           startDate.setDate(now.getDate() - 1);
           break;

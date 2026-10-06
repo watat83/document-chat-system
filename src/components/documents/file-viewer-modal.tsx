@@ -45,7 +45,7 @@ export function FileViewerModal({ open, onOpenChange, document }: FileViewerModa
 
   // Derive file type from mimeType if type is missing
   const documentType = useMemo(() => {
-    return document.type || getFileTypeFromMimeType(document.mimeType, document.name) || 'file'
+    return document.type || getFileTypeFromMimeType(document.mimeType || '', document.name) || 'file'
   }, [document.id, document.type, document.mimeType, document.name])
 
   const isPDF = documentType === 'pdf' || document.mimeType === 'application/pdf'

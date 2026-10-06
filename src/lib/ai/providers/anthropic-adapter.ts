@@ -1,3 +1,5 @@
+import { sdkRequestOptions } from '../sdk-request';
+import { consumeSDKStream } from '../sdk-stream';
 import { completionUsage, metricTokens } from '../usage';
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { generateText, streamText } from 'ai';
@@ -80,6 +82,7 @@ export class AnthropicAdapter extends AIProviderAdapter {
 
   constructor(config: AnthropicConfig) {
     super('anthropic');
+    if (!config.apiKey?.trim()) throw new ProviderConfigurationError('Anthropic API key is required');
     this.config = config;
     this.aiMetricsIntegration = new AIMetricsIntegration();
 
@@ -128,12 +131,11 @@ export class AnthropicAdapter extends AIProviderAdapter {
       const startTime = Date.now();
 
       // Transform messages to Anthropic format
-      const messages = this.transformMessages(request.messages);
 
       const result = await generateText({
         model: this.anthropic(model),
         abortSignal: request.signal,
-        messages,
+        ...sdkRequestOptions(request),
         temperature: request.temperature,
         maxOutputTokens: request.maxTokens,
       });
@@ -195,7 +197,8 @@ export class AnthropicAdapter extends AIProviderAdapter {
         },
         metadata: {
           provider: 'anthropic',
-          finishReason: 'stop',
+          finishReason: result.finishReason,
+          ...(result.toolCalls?.length && { functionCall: { name: result.toolCalls[0].toolName, arguments: result.toolCalls[0].input } }),
           cost: cost,
           latency: latency
         }
@@ -255,29 +258,16 @@ export class AnthropicAdapter extends AIProviderAdapter {
       const startTime = Date.now();
 
       // Transform messages to Anthropic format
-      const messages = this.transformMessages(request.messages);
 
       const stream = await streamText({
         model: this.anthropic(model),
         abortSignal: request.signal,
-        messages,
+        ...sdkRequestOptions(request),
         temperature: request.temperature,
         maxOutputTokens: request.maxTokens,
       });
 
-      for await (const chunk of stream.textStream) {
-        yield {
-          content: chunk,
-          metadata: {
-            provider: 'anthropic',
-            model
-          }
-        };
-      }
-
-      // Final chunk with usage information
-      const finalResult = await stream.text;
-      const usage = completionUsage(await stream.usage);
+      const { usage, finishReason } = yield* consumeSDKStream(stream.stream, this.name, model, request.signal);
       const endTime = Date.now();
       const latency = endTime - startTime;
       const cost = this.calculateCost(model, usage);
@@ -329,7 +319,8 @@ export class AnthropicAdapter extends AIProviderAdapter {
         metadata: {
           provider: 'anthropic',
           model,
-          finishReason: 'stop',
+          finishReason,
+          usage,
           cost: cost,
           latency: latency
         }
@@ -360,6 +351,7 @@ export class AnthropicAdapter extends AIProviderAdapter {
         );
       }
 
+      if (error instanceof Error && error.name === 'AbortError') throw error;
       throw this.handleError(error, 'streamCompletion');
     }
   }
@@ -468,7 +460,7 @@ export class AnthropicAdapter extends AIProviderAdapter {
     try {
       // Check cache first
       const cachedModels = await cacheManager.get<ModelInfo[]>(cacheKey);
-      if (cachedModels && (now - this.modelsLastFetched) < this.modelsCacheDuration) {
+      if (cachedModels) {
         this.availableModels = cachedModels;
         return cachedModels;
       }

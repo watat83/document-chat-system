@@ -19,6 +19,8 @@ export const ProcessingStatus = {
   PROCESSING: 'PROCESSING',
   COMPLETED: 'COMPLETED',
   FAILED: 'FAILED',
+  CANCELLED: 'CANCELLED',
+  PARTIAL: 'PARTIAL',
 } as const
 export type ProcessingStatus = typeof ProcessingStatus[keyof typeof ProcessingStatus]
 
@@ -169,6 +171,10 @@ export interface Document {
   extractedText: string
   summary: string
 
+  // Derived from analysis.metadata for legacy classification fields
+  naicsCodes?: string[]
+  setAsideType?: string | null
+
   // User metadata
   description: string | null
   tags: string[]
@@ -298,6 +304,7 @@ export interface DocumentEmbeddings {
     id: string // Unique chunk ID (e.g., "doc123_chunk_0")
     chunkIndex: number // Sequential chunk number
     vectorId: string // Pinecone vector ID reference
+    content?: string // Full grounded text; legacy indices may omit it
 
     // Text position for attribution
     startChar: number // Start position in original text
@@ -814,6 +821,7 @@ export const SORT_FIELDS = {
  * Maps to the more complex DocumentContent.sections structure
  */
 export interface DocumentSection {
+  id?: string
   title: string
   content: string
   pageNumber?: number | null
@@ -823,6 +831,7 @@ export interface DocumentSection {
  * Document table interface for AI services
  */
 export interface DocumentTable {
+  id?: string
   headers: string[]
   rows: string[][]
   pageNumber?: number | null
@@ -833,6 +842,9 @@ export interface DocumentTable {
  * Document image interface for AI services
  */
 export interface DocumentImage {
+  id?: string
+  imageType?: string
+  extractedData?: { base64?: string }
   description?: string | null
   altText?: string | null
   filePath: string

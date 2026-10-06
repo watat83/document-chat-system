@@ -1,8 +1,8 @@
 /**
  * API Key Rotation Endpoint
- * 
+ *
  * POST /api/api-keys/[keyId]/rotate - Rotate API key
- * 
+ *
  * Generates a new API key with the same permissions and revokes the old one
  */
 
@@ -167,8 +167,8 @@ export async function POST(request: NextRequest, props: RouteParams) {
           method: 'POST',
           organizationId: user.organizationId,
           userAgent: request.headers.get('user-agent'),
-          ipAddress: request.headers.get('x-forwarded-for') || 
-                    request.headers.get('x-real-ip') || 
+          ipAddress: request.headers.get('x-forwarded-for') ||
+                    request.headers.get('x-real-ip') ||
                     'unknown',
           securityLevel: 'CRITICAL',
           action: 'api_key_rotation',
@@ -183,7 +183,8 @@ export async function POST(request: NextRequest, props: RouteParams) {
     await UsageTrackingService.trackUsage({
       userId: user.id,
       organizationId: user.organizationId,
-      type: 'API_KEY_ROTATION',
+      usageType: UsageType.API_CALL,
+      resourceType: 'api_key_rotation',
       metadata: {
         oldKeyId,
         newKeyId: newKeyResponse.keyId,
@@ -200,21 +201,21 @@ export async function POST(request: NextRequest, props: RouteParams) {
 
   } catch (error) {
     console.error('Failed to rotate API key:', error);
-    
+
     const errorMessage = (error as Error).message;
-    
+
     if (errorMessage.includes('not found')) {
       return NextResponse.json(
         { error: 'API key not found' },
         { status: 404 }
       );
     }
-    
+
     return NextResponse.json(
-      { 
+      {
         error: 'Failed to rotate API key',
-        details: process.env.NODE_ENV === 'development' 
-          ? errorMessage 
+        details: process.env.NODE_ENV === 'development'
+          ? errorMessage
           : undefined
       },
       { status: 500 }

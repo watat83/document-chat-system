@@ -179,7 +179,9 @@ export class ImageRouterOptimizer {
 
     // 3. Optimize request parameters
     const paramOptimizations = await this.optimizeParameters(optimizedRequest);
-    optimizedRequest = { ...optimizedRequest, ...paramOptimizations.changes };
+    if (paramOptimizations.changes.prompt !== undefined) optimizedRequest.prompt = paramOptimizations.changes.prompt;
+    if ('quality' in optimizedRequest && paramOptimizations.changes.quality !== undefined) optimizedRequest.quality = paramOptimizations.changes.quality;
+    if (optimizedRequest.type === 'image' && paramOptimizations.changes.count !== undefined) optimizedRequest.count = paramOptimizations.changes.count;
     optimizations.push(...paramOptimizations.optimizations);
 
     // 4. Check for batching opportunities
@@ -319,8 +321,8 @@ export class ImageRouterOptimizer {
    */
   private async optimizeParameters(
     request: UnifiedMediaGenerationRequest
-  ): Promise<{ changes: Partial<UnifiedMediaGenerationRequest>; optimizations: string[] }> {
-    const changes: Partial<UnifiedMediaGenerationRequest> = {};
+  ): Promise<{ changes: { prompt?: string; quality?: 'auto' | 'low' | 'medium' | 'high'; count?: number }; optimizations: string[] }> {
+    const changes: { prompt?: string; quality?: 'auto' | 'low' | 'medium' | 'high'; count?: number } = {};
     const optimizations: string[] = [];
 
     // Optimize quality settings based on use case
@@ -518,9 +520,9 @@ export class ImageRouterOptimizer {
   }
 
   private async optimizeQuality(
-    currentQuality: string,
+    currentQuality: 'auto' | 'low' | 'medium' | 'high',
     request: UnifiedMediaGenerationRequest
-  ): Promise<string> {
+  ): Promise<'auto' | 'low' | 'medium' | 'high'> {
     // Optimize quality based on use case and cost constraints
     if (request.metadata?.priority === 'cost' && currentQuality === 'high') {
       return 'medium';

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@clerk/nextjs/server'
 import { prisma } from '@/lib/db'
-import { auditCrudLogger } from '@/lib/audit/crud-audit-logger'
+
 
 /**
  * @swagger
@@ -63,18 +63,18 @@ export async function POST(request: NextRequest, props: { params: Promise<{ id: 
   try {
     const authResult = await auth()
     const userId = authResult?.userId
-    
+
     if (!userId) {
-      return NextResponse.json({ 
-        success: false, 
-        error: 'Unauthorized' 
+      return NextResponse.json({
+        success: false,
+        error: 'Unauthorized'
       }, { status: 401 })
     }
 
     // Get user's organization
     const user = await prisma.user.findUnique({
-      where: { clerkId: userId },
-      select: { 
+      where: { clerkId: userId, deletedAt: null, organization: { deletedAt: null } },
+      select: {
         id: true,
         clerkId: true,
         organizationId: true
@@ -82,9 +82,9 @@ export async function POST(request: NextRequest, props: { params: Promise<{ id: 
     })
 
     if (!user) {
-      return NextResponse.json({ 
-        success: false, 
-        error: 'User not found' 
+      return NextResponse.json({
+        success: false,
+        error: 'User not found'
       }, { status: 404 })
     }
 
@@ -116,16 +116,16 @@ export async function POST(request: NextRequest, props: { params: Promise<{ id: 
     })
 
     if (!savedSearch) {
-      return NextResponse.json({ 
-        success: false, 
-        error: 'Saved search not found' 
+      return NextResponse.json({
+        success: false,
+        error: 'Saved search not found'
       }, { status: 404 })
     }
 
     // Update usage statistics
     const updatedSearch = await prisma.savedSearch.update({
-      where: { id: params.id },
-      data: { 
+      where: { id: params.id, organizationId: user.organizationId, deletedAt: null },
+      data: {
         lastUsedAt: new Date(),
         usageCount: { increment: 1 }
       },
@@ -152,9 +152,9 @@ export async function POST(request: NextRequest, props: { params: Promise<{ id: 
 
   } catch (error) {
     console.error('Error executing saved search:', error)
-    return NextResponse.json({ 
-      success: false, 
-      error: 'Failed to execute saved search' 
+    return NextResponse.json({
+      success: false,
+      error: 'Failed to execute saved search'
     }, { status: 500 })
   }
 }

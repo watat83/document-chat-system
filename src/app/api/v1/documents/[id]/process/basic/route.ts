@@ -1,3 +1,6 @@
+import { processingSnapshot, processingTransition, updateProcessingState, jsonObject, updateProcessingDocument, ProcessingConflictError } from '@/lib/documents/processing-state';
+import { serializeDocument } from '@/lib/documents/document-response';
+import { DocumentType } from '@/types/documents';
 import { guardDocumentMutation } from '@/lib/security/document-route-guard';
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@clerk/nextjs/server'
@@ -10,37 +13,37 @@ import { z } from 'zod'
 const BasicProcessingSchema = z.object({
   extractText: z.boolean().default(true)
     .describe("Extract text content from document"),
-  
+
   parseStructure: z.boolean().default(true)
     .describe("Parse document structure (sections, tables, images)"),
-  
+
   updateFields: z.object({
     name: z.string().optional()
       .describe("Update document name"),
-    
+
     tags: z.array(z.string()).optional()
       .describe("Update document tags"),
-    
+
     setAsideType: z.string().optional()
       .describe("Update set-aside type (8(a), HUBZone, etc.)"),
-    
+
     naicsCodes: z.array(z.string()).optional()
       .describe("Update NAICS codes"),
-    
+
     description: z.string().optional()
       .describe("Update document description"),
-    
-    documentType: z.string().optional()
+
+    documentType: z.enum(Object.values(DocumentType) as [DocumentType, ...DocumentType[]]).optional()
       .describe("Update document type")
   }).optional().describe("Fields to update during processing"),
-  
+
   options: z.object({
     priority: z.enum(['low', 'normal', 'high']).default('normal')
       .describe("Processing priority"),
-    
+
     timeout: z.number().min(10).max(300).default(60)
       .describe("Processing timeout in seconds"),
-    
+
     overwrite: z.boolean().default(false)
       .describe("Overwrite existing extracted content")
   }).optional().describe("Processing options")
@@ -52,15 +55,15 @@ const BasicProcessingSchema = z.object({
  *   post:
  *     summary: Basic document processing
  *     description: |
- *       Performs basic document processing including text extraction, structure parsing, 
+ *       Performs basic document processing including text extraction, structure parsing,
  *       and field updates. This is fast, low-cost processing without heavy AI analysis.
- *       
+ *
  *       **Includes:**
  *       - Text extraction (extractedText)
  *       - Document structure (sections, tables, images)
  *       - User field updates (tags, setAsideType, naicsCodes)
  *       - Basic metadata updates
- *       
+ *
  *       **Processing Time:** ~2-5 seconds
  *       **Cost:** Low (minimal AI usage)
  *     tags:
@@ -197,7 +200,9 @@ export async function POST(
   if (permissionError) return permissionError;
 
   const startTime = Date.now()
-  
+  const documentId = (await params).id
+  let activeRunId: string | undefined;
+
   try {
     const { userId } = await auth()
     if (!userId) {
@@ -205,7 +210,6 @@ export async function POST(
     }
 
     const resolvedParams = await params
-    const documentId = resolvedParams.id
 
     if (!documentId) {
       return NextResponse.json({ error: 'Document ID required' }, { status: 400 })
@@ -217,9 +221,9 @@ export async function POST(
 
     if (!validation.success) {
       return NextResponse.json(
-        { 
-          error: 'Invalid request data', 
-          details: validation.error.format() 
+        {
+          error: 'Invalid request data',
+          details: validation.error.format()
         },
         { status: 400 }
       )
@@ -252,15 +256,12 @@ export async function POST(
         id: true,
         organizationId: true,
         name: true,
-        status: true,
         filePath: true,
         mimeType: true,
         extractedText: true,
         content: true,
         processing: true,
         tags: true,
-        setAsideType: true,
-        naicsCodes: true,
         description: true,
         documentType: true
       }
@@ -284,7 +285,7 @@ export async function POST(
     }
 
     // Check if already processing (unless overwrite is enabled)
-    if (document.status === 'PROCESSING' && !options?.overwrite) {
+    if (['PROCESSING', 'QUEUED'].includes(processingSnapshot(document.processing).currentStatus)) {
       return NextResponse.json(
         { error: 'Document is already being processed' },
         { status: 409 }
@@ -296,11 +297,7 @@ export async function POST(
     const processingEvents: any[] = []
 
     // Update processing status
-    const currentProcessing = (document.processing as any) || { 
-      currentStatus: 'PENDING', 
-      progress: 0, 
-      events: [] 
-    }
+    const currentProcessing = processingSnapshot(document.processing)
 
     currentProcessing.currentStatus = 'PROCESSING'
     currentProcessing.progress = 10
@@ -309,7 +306,6 @@ export async function POST(
       {
         id: `evt_${Date.now()}_basic_start`,
         eventType: 'STARTED',
-        status: 'PROCESSING',
         message: 'Basic processing started',
         timestamp: new Date().toISOString(),
         success: true,
@@ -317,39 +313,39 @@ export async function POST(
       }
     ]
 
-    await prisma.document.update({
-      where: { id: documentId },
-      data: { 
-        status: 'PROCESSING',
-        processing: currentProcessing,
-        updatedAt: new Date()
-      }
-    })
+    const started = await updateProcessingState(documentId, current => {
+      if (['PROCESSING', 'QUEUED'].includes(current.currentStatus)) throw new ProcessingConflictError();
+      return processingTransition(current, 'PROCESSING');
+    }, user.organizationId)
+    const runId = processingSnapshot(started.processing).runId ?? undefined
+    activeRunId = runId
+    const updateResult = (transform: Parameters<typeof updateProcessingDocument>[2]) => updateProcessingDocument(documentId, user.organizationId, transform, runId)
+
 
     // 1. Text Extraction
     let extractedText = document.extractedText
     if (extractText && (!extractedText || options?.overwrite)) {
       console.log('📄 Starting text extraction...')
-      
+
       try {
         // Import document processor for text extraction
         const { documentProcessor } = await import("@/lib/ai/document-processor")
-        
+
         // Extract text only (basic operation)
-        const extractionResult = await documentProcessor.extractTextOnly(documentId)
-        
+        const extractionResult = await documentProcessor.extractTextOnly(documentId, options?.overwrite)
+
         if (extractionResult.success && extractionResult.extractedText) {
           extractedText = extractionResult.extractedText
           completedOperations.push('text_extraction')
           currentProcessing.progress = 40
-          
+
           console.log('✅ Text extraction completed:', extractedText.length, 'characters')
         } else {
-          console.warn('⚠️ Text extraction failed:', extractionResult.error)
+          throw new Error(extractionResult.error || 'Text extraction failed')
         }
       } catch (extractionError) {
         console.error('❌ Text extraction error:', extractionError)
-        // Continue processing even if text extraction fails
+        throw extractionError
       }
     } else if (extractedText) {
       completedOperations.push('text_extraction')
@@ -360,14 +356,14 @@ export async function POST(
     let documentContent = (document.content as any) || { sections: [], tables: [], images: [] }
     if (parseStructure && (!documentContent.sections?.length || options?.overwrite)) {
       console.log('📋 Starting structure parsing...')
-      
+
       try {
         // Import document processor for structure parsing
         const { documentProcessor } = await import("@/lib/ai/document-processor")
-        
+
         // Parse document structure (basic operation)
-        const structureResult = await documentProcessor.parseStructureOnly(documentId)
-        
+        const structureResult = await documentProcessor.parseStructureOnly(documentId, extractedText ?? undefined)
+
         if (structureResult.success && structureResult.structure) {
           documentContent = {
             sections: structureResult.structure.sections || [],
@@ -376,18 +372,18 @@ export async function POST(
           }
           completedOperations.push('structure_parsing')
           currentProcessing.progress = 70
-          
+
           console.log('✅ Structure parsing completed:', {
             sections: documentContent.sections.length,
             tables: documentContent.tables.length,
             images: documentContent.images.length
           })
         } else {
-          console.warn('⚠️ Structure parsing failed:', structureResult.error)
+          throw new Error(structureResult.error || 'Structure parsing failed')
         }
       } catch (structureError) {
         console.error('❌ Structure parsing error:', structureError)
-        // Continue processing even if structure parsing fails
+        throw structureError
       }
     } else if (documentContent.sections?.length) {
       completedOperations.push('structure_parsing')
@@ -398,17 +394,19 @@ export async function POST(
     const documentUpdates: any = {}
     if (updateFields) {
       console.log('📝 Updating document fields...')
-      
+
       if (updateFields.name !== undefined) documentUpdates.name = updateFields.name
       if (updateFields.tags !== undefined) documentUpdates.tags = updateFields.tags
-      if (updateFields.setAsideType !== undefined) documentUpdates.setAsideType = updateFields.setAsideType
-      if (updateFields.naicsCodes !== undefined) documentUpdates.naicsCodes = updateFields.naicsCodes
+      if (updateFields.setAsideType !== undefined || updateFields.naicsCodes !== undefined) {
+        const analysis = jsonObject((await prisma.document.findUnique({ where: { id: documentId }, select: { analysis: true } }))?.analysis);
+        documentUpdates.analysis = { ...analysis, metadata: { ...jsonObject(analysis.metadata), ...(updateFields.setAsideType !== undefined && { setAsideType: updateFields.setAsideType }), ...(updateFields.naicsCodes !== undefined && { naicsCodes: updateFields.naicsCodes }) } };
+      }
       if (updateFields.description !== undefined) documentUpdates.description = updateFields.description
       if (updateFields.documentType !== undefined) documentUpdates.documentType = updateFields.documentType
-      
+
       completedOperations.push('field_updates')
       currentProcessing.progress = 90
-      
+
       console.log('✅ Field updates prepared:', Object.keys(documentUpdates))
     }
 
@@ -422,30 +420,24 @@ export async function POST(
       message: `Basic processing completed: ${completedOperations.join(', ')}`,
       timestamp: new Date().toISOString(),
       success: true,
-      metadata: { 
-        level: 'basic', 
+      metadata: {
+        level: 'basic',
         operations: completedOperations,
         duration: `${((Date.now() - startTime) / 1000).toFixed(1)}s`
       }
     })
 
     // Update document with all changes
-    const finalUpdatedDocument = await prisma.document.update({
-      where: { id: documentId },
-      data: {
-        ...documentUpdates,
-        extractedText,
-        content: documentContent,
-        processing: currentProcessing,
-        status: 'COMPLETED',
-        processedAt: new Date(),
-        updatedAt: new Date()
-      },
-      include: {
-        folder: { select: { id: true, name: true } },
-        uploadedBy: { select: { id: true, firstName: true, lastName: true, email: true } }
-      }
-    })
+    const finalUpdatedDocument = await updateResult( current => {
+      if (current.extractedText !== document.extractedText || JSON.stringify(current.content) !== JSON.stringify(document.content)) throw new Error('Document content changed during processing');
+      return {
+      ...documentUpdates,
+      ...(documentUpdates.analysis && { analysis: { ...jsonObject(current.analysis), ...documentUpdates.analysis } }),
+      extractedText,
+      content: { ...jsonObject(current.content), ...documentContent },
+      ...(current.extractedText !== extractedText && { embeddings: {} }),
+      processing: processingTransition(current.processing, 'COMPLETED'),
+    }} )
 
     const processingDuration = `${((Date.now() - startTime) / 1000).toFixed(1)}s`
 
@@ -456,22 +448,7 @@ export async function POST(
     })
 
     // Format response
-    const responseDocument = {
-      id: finalUpdatedDocument.id,
-      name: finalUpdatedDocument.name,
-      extractedText: finalUpdatedDocument.extractedText,
-      content: documentContent,
-      tags: finalUpdatedDocument.tags || [],
-      setAsideType: finalUpdatedDocument.setAsideType,
-      naicsCodes: finalUpdatedDocument.naicsCodes || [],
-      description: finalUpdatedDocument.description,
-      documentType: finalUpdatedDocument.documentType,
-      status: finalUpdatedDocument.status,
-      processedAt: finalUpdatedDocument.processedAt?.toISOString(),
-      folder: finalUpdatedDocument.folder,
-      uploadedBy: finalUpdatedDocument.uploadedBy,
-      opportunity: finalUpdatedDocument.opportunity
-    }
+    const responseDocument = serializeDocument(finalUpdatedDocument)
 
     return NextResponse.json({
       success: true,
@@ -490,38 +467,18 @@ export async function POST(
     })
 
   } catch (error) {
+    if (error instanceof ProcessingConflictError) return NextResponse.json({ error: error.message }, { status: 409 })
     console.error('❌ Basic processing error:', error)
-    
+
     // Update document status to failed
     try {
-      const currentProcessing = { 
-        currentStatus: 'FAILED', 
-        progress: 0, 
-        events: [{
-          id: `evt_${Date.now()}_basic_failed`,
-          eventType: 'FAILED',
-          status: 'FAILED',
-          message: error instanceof Error ? error.message : 'Basic processing failed',
-          timestamp: new Date().toISOString(),
-          success: false
-        }]
-      }
-
-      await prisma.document.update({
-        where: { id: documentId },
-        data: { 
-          status: 'FAILED',
-          processing: currentProcessing,
-          processingError: error instanceof Error ? error.message : 'Basic processing failed',
-          updatedAt: new Date()
-        }
-      })
+      await updateProcessingState(documentId, current => processingTransition(current, 'FAILED', error instanceof Error ? error.message : 'Basic processing failed'));
     } catch (updateError) {
       console.error('❌ Failed to update document status:', updateError)
     }
-    
+
     return NextResponse.json(
-      { 
+      {
         error: 'Basic processing failed',
         details: error instanceof Error ? error.message : 'Unknown error'
       },

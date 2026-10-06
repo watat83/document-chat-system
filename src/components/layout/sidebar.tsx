@@ -77,7 +77,7 @@ export function Sidebar({
     (href: string) => {
       // During SSR, don't highlight any paths to prevent hydration mismatch
       if (!isClient) return false
-      
+
       if (href === '/dashboard') {
         return pathname === '/dashboard'
       }
@@ -149,14 +149,9 @@ export function Sidebar({
                           isCurrent && 'bg-muted'
                         )}
                       >
-                        <Link href={item.href} prefetch={true}>
+                        <Link href={{ pathname: item.href }} prefetch={true}>
                           <item.icon className="mr-2 h-4 w-4" />
                           {item.name}
-                          {item.badge && (
-                            <Badge variant="secondary" className="ml-auto">
-                              {item.badge}
-                            </Badge>
-                          )}
                         </Link>
                       </Button>
                     )
@@ -179,7 +174,7 @@ export function Sidebar({
                         variant={isCurrent ? 'secondary' : 'ghost'}
                         className="w-full justify-start"
                       >
-                        <Link href={item.href} prefetch={true}>
+                        <Link href={{ pathname: item.href }} prefetch={true}>
                           <item.icon className="mr-2 h-4 w-4" />
                           {item.name}
                         </Link>

@@ -17,8 +17,6 @@ import { MarkdownKit } from './markdown-kit';
 export const aiChatPlugin = AIChatPlugin.extend({
   options: {
     chatOptions: {
-      api: '/api/ai/command',
-      body: {},
     } as UseChatOptions,
     promptTemplate: ({ isBlockSelecting, isSelecting }) => {
       return isBlockSelecting

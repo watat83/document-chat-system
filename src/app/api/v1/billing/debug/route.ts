@@ -30,18 +30,19 @@ export async function GET(request: NextRequest) {
       where: { clerkId: user.id },
       select: { organizationId: true }
     });
-    
+
     if (!dbUser) {
       return createErrorResponse('User not found in database', 404);
     }
 
     const organization = await db.organization.findUnique({
       where: { id: dbUser.organizationId },
-      select: { 
+      select: {
         id: true,
         name: true,
         stripeCustomerId: true,
-        subscription: {
+        subscriptions: {
+          orderBy: { createdAt: 'desc' }, take: 1,
           select: {
             id: true,
             status: true,
@@ -59,15 +60,19 @@ export async function GET(request: NextRequest) {
         configured: !!process.env.STRIPE_SECRET_KEY,
         publicKeyConfigured: !!process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY,
         webhookSecretConfigured: !!process.env.STRIPE_WEBHOOK_SECRET,
+        customerExists: undefined as boolean | undefined,
+        customerEmail: undefined as string | null | undefined,
+        customerError: undefined as string | undefined,
+        customerErrorCode: undefined as string | undefined,
       },
       organization: {
         exists: !!organization,
         id: organization?.id,
         name: organization?.name,
         stripeCustomerId: organization?.stripeCustomerId,
-        hasSubscription: !!organization?.subscription,
-        subscriptionStatus: organization?.subscription?.status,
-        subscriptionId: organization?.subscription?.stripeSubscriptionId,
+        hasSubscription: !!organization?.subscriptions[0],
+        subscriptionStatus: organization?.subscriptions[0]?.status,
+        subscriptionId: organization?.subscriptions[0]?.stripeSubscriptionId,
       },
       user: {
         clerkId: user.id,

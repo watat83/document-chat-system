@@ -43,7 +43,7 @@ export interface ResponseFormat {
 
 // Optimization hints for provider selection
 export interface OptimizationHints {
-  taskType: string;
+  taskType: import('./types').TaskType;
   complexity: 'low' | 'medium' | 'high';
   latencySensitive: boolean;
   qualityRequirement: 'standard' | 'high' | 'premium';
@@ -55,11 +55,11 @@ export interface OptimizationHints {
 export interface CompletionRequest {
   // Required fields
   messages: Message[];
-  
+
   // Provider selection
   provider?: string;
   model?: ModelTier | string;
-  
+
   // Generation parameters
   temperature?: number;
   maxTokens?: number;
@@ -67,17 +67,17 @@ export interface CompletionRequest {
   frequencyPenalty?: number;
   presencePenalty?: number;
   stopSequences?: string[];
-  
+
   // Advanced features
   responseFormat?: ResponseFormat;
   tools?: Tool[];
   toolChoice?: ToolChoice;
   seed?: number;
-  
+
   // Context and metadata
   user?: string;
   metadata?: Record<string, any>;
-  
+
   // Optimization hints
   hints?: OptimizationHints;
 }
@@ -87,21 +87,21 @@ export interface CompletionResponse {
   // Core response
   content: string;
   role: 'assistant';
-  
+
   // Tool calls if applicable
   toolCalls?: ToolCall[];
-  
+
   // Usage information
   usage: TokenUsage;
-  
+
   // Provider information
   provider: string;
   model: string;
-  
+
   // Performance metrics
   latency: number;
   cost: number;
-  
+
   // Response metadata
   id: string;
   created: Date;
@@ -120,15 +120,15 @@ export interface TokenUsage {
 export interface EmbeddingRequest {
   // Content to embed
   text: string;
-  
+
   // Model selection
   provider?: string;
   model?: EmbeddingModel | string;
-  
+
   // Embedding parameters
   dimensions?: number;
   normalize?: boolean;
-  
+
   // Metadata
   user?: string;
   metadata?: Record<string, any>;
@@ -229,24 +229,24 @@ export interface ServiceMetrics {
   averageLatency: number;
   p95Latency: number;
   p99Latency: number;
-  
+
   // Throughput metrics
   requestsPerSecond: number;
   tokensPerSecond: number;
-  
+
   // Cost metrics
   costPerRequest: number;
   costPerToken: number;
   totalCost: number;
-  
+
   // Reliability metrics
   successRate: number;
   errorRate: number;
   availability: number;
-  
+
   // Provider breakdown
   providerMetrics: Map<string, ProviderMetrics>;
-  
+
   // Time range
   startTime: Date;
   endTime: Date;
@@ -266,19 +266,19 @@ export interface IAIService {
   // Text generation
   complete(request: CompletionRequest): Promise<CompletionResponse>;
   stream(request: StreamRequest): AsyncIterator<StreamChunk>;
-  
+
   // Embeddings
   embed(request: EmbeddingRequest): Promise<EmbeddingResponse>;
   batchEmbed(request: BatchEmbeddingRequest): Promise<BatchEmbeddingResponse>;
-  
+
   // Provider management
   getProviders(): Provider[];
   getProvider(name: string): Provider | null;
   setPreferredProvider(provider: string): void;
-  
+
   // Cost estimation
   estimateCost(request: EstimationRequest): Promise<CostEstimate>;
-  
+
   // Health and status
   healthCheck(): Promise<HealthStatus>;
   getMetrics(): Promise<ServiceMetrics>;
@@ -290,20 +290,20 @@ export interface Provider {
   name: string;
   displayName: string;
   version: string;
-  
+
   // Capabilities
   capabilities: ProviderCapabilities;
-  
+
   // Models
   models: ModelCatalog;
-  
+
   // Status
   status: ProviderStatus;
-  
+
   // Operations
   initialize(config: ProviderConfig): Promise<void>;
   shutdown(): Promise<void>;
-  
+
   // Request handling
   complete(request: ProviderRequest): Promise<ProviderResponse>;
   stream(request: ProviderRequest): AsyncIterator<ProviderStreamChunk>;
@@ -319,12 +319,12 @@ export interface ProviderCapabilities {
   functionCalling: boolean;
   visionSupport: boolean;
   jsonMode: boolean;
-  
+
   // Limits
   maxTokens: number;
   maxContextLength: number;
   embeddingDimensions: number[];
-  
+
   // Advanced features
   fineTuning: boolean;
   customModels: boolean;
@@ -334,7 +334,7 @@ export interface ProviderCapabilities {
 export interface ModelCatalog {
   completion: ModelInfo[];
   embedding: ModelInfo[];
-  
+
   getModel(id: string): ModelInfo | null;
   getModelsByCapability(capability: string): ModelInfo[];
   getModelsByTier(tier: ModelTier): ModelInfo[];
@@ -369,14 +369,14 @@ export interface ProviderConfig {
   apiKey: string;
   endpoint?: string;
   options?: Record<string, any>;
-  
+
   // Rate limiting
   rateLimit?: RateLimitConfig;
-  
+
   // Cost controls
   maxCostPerRequest?: number;
   maxDailyCost?: number;
-  
+
   // Model preferences
   modelMappings?: Record<ModelTier, string>;
 }

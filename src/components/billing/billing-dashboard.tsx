@@ -467,7 +467,7 @@ export function BillingDashboard() {
       } else if (typeof err === 'string') {
         errorMessage = err;
       } else if (err && typeof err === 'object') {
-        errorMessage = err.message || err.error || 'Unknown error occurred';
+        errorMessage = 'message' in err && typeof err.message === 'string' ? err.message : 'error' in err && typeof err.error === 'string' ? err.error : 'Unknown error occurred';
       }
 
       setError(`Unable to update subscription: ${errorMessage}`);
@@ -778,7 +778,7 @@ export function BillingDashboard() {
               <AlertTriangle className="h-16 w-16 text-red-500 mx-auto mb-4" />
               <h3 className="text-xl font-semibold text-foreground mb-2">Unable to Load Billing</h3>
               <p className="text-muted-foreground mb-6">{error}</p>
-              {error.includes('sign in') ? (
+              {error?.includes('sign in') ? (
                 <Button asChild size="lg" className="w-full">
                   <a href="/sign-in">Sign In to Continue</a>
                 </Button>
@@ -913,10 +913,10 @@ export function BillingDashboard() {
       progressColor: 'bg-blue-500'
     },
     {
-      name: 'Pages Processed',
+      name: 'Documents Processed',
       icon: FileText,
-      current: usage?.totals.SAVED_SEARCH || 0, // Will be updated to pages processed
-      limit: subscription?.limits?.savedSearches ?? 0, // Will be updated to pages limit
+      current: usage?.totals.DOCUMENT_PROCESSING || 0,
+      limit: subscription?.limits?.documentsPerMonth ?? 0,
       color: 'text-green-600',
       bgColor: 'bg-green-50',
       progressColor: 'bg-green-500'
