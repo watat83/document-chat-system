@@ -146,15 +146,15 @@ export class ABTestManager {
     // Check if user/org is in target audience
     if (test.targetAudience) {
       const { organizationIds, userIds, percentage } = test.targetAudience;
-      
+
       if (organizationIds && !organizationIds.includes(organizationId)) {
         return null;
       }
-      
+
       if (userIds && !userIds.includes(userId)) {
         return null;
       }
-      
+
       if (percentage) {
         // Use consistent hashing for user assignment
         const hash = this.hashUserId(userId);
@@ -195,7 +195,7 @@ export class ABTestManager {
   private selectVariantByWeight(variants: ABTestVariant[]): ABTestVariant {
     const totalWeight = variants.reduce((sum, v) => sum + v.weight, 0);
     const random = Math.random() * totalWeight;
-    
+
     let cumulativeWeight = 0;
     for (const variant of variants) {
       cumulativeWeight += variant.weight;
@@ -203,7 +203,7 @@ export class ABTestManager {
         return variant;
       }
     }
-    
+
     return variants[0]; // Fallback to first variant
   }
 
@@ -273,7 +273,7 @@ export class ABTestManager {
     const { fullStream } = await streamText({
       model: myProvider.languageModel(task.model),
       messages: task.messages,
-      maxTokens: task.maxTokens,
+      maxOutputTokens: task.maxTokens,
       temperature: task.temperature,
     });
 
@@ -282,7 +282,7 @@ export class ABTestManager {
 
     for await (const delta of fullStream) {
       if (delta.type === 'text-delta') {
-        content += delta.textDelta;
+        content += delta.text;
       } else if (delta.type === 'finish') {
         usage = delta.usage;
       }
@@ -383,7 +383,7 @@ export class ABTestManager {
 
   private async updateMetrics(result: ABTestResult) {
     const metricsKey = `ab_metrics:${result.testId}:${result.variantId}`;
-    
+
     // Get current metrics
     const current = await redis.get(metricsKey);
     const metrics: ABTestMetrics = current ? JSON.parse(current) : {
@@ -413,7 +413,7 @@ export class ABTestManager {
 
     if (result.tokensUsed > 0 && result.latency > 0) {
       const tokensPerSecond = (result.tokensUsed / result.latency) * 1000;
-      metrics.averageTokensPerSecond = 
+      metrics.averageTokensPerSecond =
         ((metrics.averageTokensPerSecond * (n - 1)) + tokensPerSecond) / n;
     }
 
@@ -426,11 +426,11 @@ export class ABTestManager {
     if (!test) return [];
 
     const metrics: ABTestMetrics[] = [];
-    
+
     for (const variant of test.variants) {
       const metricsKey = `ab_metrics:${testId}:${variant.id}`;
       const data = await redis.get(metricsKey);
-      
+
       if (data) {
         metrics.push(JSON.parse(data));
       } else {
@@ -448,7 +448,7 @@ export class ABTestManager {
         if (results.length > 0) {
           const variantMetrics = this.calculateMetricsFromResults(variant.id, results);
           metrics.push(variantMetrics);
-          
+
           // Cache the calculated metrics
           await redis.set(metricsKey, JSON.stringify(variantMetrics), { ex: 3600 });
         }
@@ -465,7 +465,7 @@ export class ABTestManager {
     const totalRequests = results.length;
     const successfulRequests = results.filter(r => r.success).length;
     const failedRequests = totalRequests - successfulRequests;
-    
+
     const totalLatency = results.reduce((sum, r) => sum + r.latency, 0);
     const totalCost = results.reduce((sum, r) => sum + r.cost, 0);
     const totalTokensPerSecond = results.reduce((sum, r) => {
@@ -475,7 +475,7 @@ export class ABTestManager {
       return sum;
     }, 0);
 
-    const satisfiedCount = results.filter(r => 
+    const satisfiedCount = results.filter(r =>
       r.userFeedback?.satisfied === true
     ).length;
 
@@ -622,20 +622,20 @@ export class ABTestManager {
 
     // Simple winner determination based on multiple factors
     const scores = metrics.map(m => {
-      const successRate = m.totalRequests > 0 
-        ? m.successfulRequests / m.totalRequests 
+      const successRate = m.totalRequests > 0
+        ? m.successfulRequests / m.totalRequests
         : 0;
-      
-      const latencyScore = m.averageLatency > 0 
+
+      const latencyScore = m.averageLatency > 0
         ? 1000 / m.averageLatency // Lower latency = higher score
         : 0;
-      
+
       const costScore = m.averageCost > 0
         ? 1 / m.averageCost // Lower cost = higher score
         : 0;
-      
+
       const satisfactionScore = m.userSatisfaction || 50;
-      
+
       // Weighted scoring
       return {
         variantId: m.variantId,
@@ -651,10 +651,10 @@ export class ABTestManager {
 
     // Sort by score
     scores.sort((a, b) => b.score - a.score);
-    
+
     const winner = scores[0];
     const runnerUp = scores[1];
-    
+
     // Calculate confidence based on score difference and sample size
     const scoreDiff = winner.score - runnerUp.score;
     const sampleSize = Math.min(winner.metrics.totalRequests, runnerUp.metrics.totalRequests);

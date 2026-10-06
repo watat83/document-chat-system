@@ -109,9 +109,9 @@ export async function POST(request: NextRequest) {
   let userId: string | null = null
   let user: any = null
   const startTime = Date.now()
-  
+
   try {
-    
+
     const authResult = await auth()
     userId = authResult?.userId || null
     if (!userId) {
@@ -176,7 +176,7 @@ export async function POST(request: NextRequest) {
 
   } catch (error) {
     console.error('Similarity search error:', error)
-    
+
     if (error instanceof z.ZodError) {
       return NextResponse.json(
         { error: 'Invalid request data', details: error.errors },
@@ -242,7 +242,7 @@ export async function POST(request: NextRequest) {
  *       500:
  *         description: Internal server error
  */
-export async function POST_REQUIREMENTS(request: NextRequest) {
+async function POST_REQUIREMENTS(request: NextRequest) {
   try {
     const { userId } = await auth()
     if (!userId) {

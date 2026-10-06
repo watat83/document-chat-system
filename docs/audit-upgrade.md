@@ -52,3 +52,24 @@ This branch implements the security and correctness foundation of the audit. It 
 - Review marketing claims and remove stale promises that do not match verified capabilities.
 
 No production deployment, database/provider mutation or merge has been performed.
+
+## Second modernization checkpoint (2026-10-06)
+
+AI SDK 7.0.128 and matching provider packages, Plate 53, and Stripe 23 are now pinned in the lockfile. SDK calls use the current token, usage, message conversion and stream response contracts; the application's public token fields remain compatible. Stripe requests target `2026-09-30.endive`, subscription periods come from subscription items, and Checkout no longer sends the removed `payment_method_types` field. No Stripe account configuration or webhook API version has been changed remotely.
+
+The active OpenRouter adapter now implements buffered, cancellable streaming and ordered batch embeddings. Catalog prices are converted from dollars per token to dollars per thousand tokens; provider price limits use the API's object format. Failed or truncated streams do not record successful usage. Fallback cannot append a second answer after the first provider has emitted output. Analytics persist metrics without incrementing the billing ledger. Enhanced chat authenticates first, resolves the tenant from the database, rejects path-only file attachments, and returns a service error when providers fail. Development demo answers require `AI_ENABLE_DEMO=true` and remain disabled in production.
+
+Document reads and mutations share one canonical serializer. New documents and uploads return that canonical shape. Section edits use persisted IDs and preserve extraction metadata; entity edits preserve IDs and metadata. Saving updates local state without sending a second mutation. Unsaved edits stay local and are reset when changing documents. Document responses omit share password/hash fields, avoid fabricated completion times and confidence, and only expose persisted security findings. Tenant resolution in the documents page uses the internal organization supplied by the profile API.
+
+Notification streams support multiple tabs with independent cleanup and request-scoped heartbeats. Security alerts persist to `SecurityIncident`; anomaly events do not recursively scan themselves. Audit writes and queries use the current schema. The additive migration `20261006020000_generic_audit_events` introduces accurate generic CRUD and match feedback audit events; apply it together with the earlier pending migration through the normal migration deployment process. Neither migration has been applied by this audit.
+
+Validation at this checkpoint:
+
+- 15 Node regression tests pass, including canonical creation/response, document metadata edits, item billing periods and multi-tab notifications.
+- 22 focused Jest tests pass across six suites, including authentication, tenant spoofing, path attachments, analytics billing, streaming/embedding contracts, partial stream fallback, cancellation and security monitoring.
+- Prisma client generation succeeds. Dependency inspection reports two extraneous optional native packages and no invalid peer dependency entries.
+- Strict checking of the production entry points and their full imported graph has fallen from 1,334 to 643 diagnostics. `tsconfig.build.json` checks that graph; `type-check:all` retains the original whole-project check for standalone examples, unused editor integrations and tests. Build errors remain enforced.
+- The complete Jest run still fails: 11 failed suites, seven passed suites; 29 failed and 58 passed tests. Remaining failures include old provider contracts, ESM/test environment configuration and namespace expectations.
+- npm audit reports 60 advisories (44 high, 12 moderate, four low; zero critical). Remaining transitive and spreadsheet advisories still need remediation.
+
+This is a development checkpoint, not a production release. Continue resolving the processing/schema, SDK UI transport, test and lint failures before main promotion. The earlier staging and infrastructure validation requirements still apply. Notifications remain process-local best-effort delivery; persistent notification reads provide recovery across serverless instances. The development-only Prisma query extension was removed to give production and development one stable client type; Prisma's native logging remains available.

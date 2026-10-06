@@ -1,3 +1,4 @@
+import { completionUsage, metricTokens } from '../usage';
 import { generateText, streamText, generateObject } from 'ai';
 import { openai } from '@ai-sdk/openai';
 import { anthropic } from '@ai-sdk/anthropic';
@@ -130,7 +131,7 @@ export class VercelAIAdapter extends AIProviderAdapter {
     request: UnifiedCompletionRequest
   ): Promise<UnifiedCompletionResponse> {
     const startTime = Date.now();
-    
+
     try {
       // Route through our existing system first for provider selection and cost optimization
       const routing = await this.router.route({
@@ -142,12 +143,12 @@ export class VercelAIAdapter extends AIProviderAdapter {
 
       // Use Vercel AI SDK for the actual API call
       const vercelModel = this.getVercelModel(routing.model, routing.selectedProvider);
-      
+
       const { text, usage, finishReason } = await generateText({
         model: vercelModel,
         messages: this.transformMessages(request.messages),
         temperature: request.temperature || 0.7,
-        maxTokens: request.maxTokens
+        maxOutputTokens: request.maxTokens
       });
 
       // Transform back to our unified format
@@ -175,9 +176,9 @@ export class VercelAIAdapter extends AIProviderAdapter {
     });
 
     const vercelModel = this.getVercelModel(routing.model, routing.selectedProvider);
-    
+
     const self = this;
-    
+
     return {
       async *[Symbol.asyncIterator]() {
         try {
@@ -185,7 +186,7 @@ export class VercelAIAdapter extends AIProviderAdapter {
             model: vercelModel,
             messages: self.transformMessages(request.messages),
             temperature: request.temperature || 0.7,
-            maxTokens: request.maxTokens
+            maxOutputTokens: request.maxTokens
           });
 
           for await (const chunk of textStream) {
@@ -225,13 +226,13 @@ export class VercelAIAdapter extends AIProviderAdapter {
     if (request.operation === 'stream' && this.vercelConfig.enableStreaming) return true;
     if (request.taskType === 'chat' && this.vercelConfig.enableStreaming) return true;
     if (request.prototype === true) return true; // For prototyping
-    
+
     // Don't use for:
     if (request.requiresCompliance) return false;
     if (request.complexCostOptimization) return false;
     if (request.organizationPolicies?.length > 0) return false;
     if (request.operation === 'embedding') return false; // Use our system for embeddings
-    
+
     return false;
   }
 
@@ -253,7 +254,7 @@ export class VercelAIAdapter extends AIProviderAdapter {
     });
 
     const vercelModel = this.getVercelModel(routing.model, routing.selectedProvider);
-    
+
     const result = await generateObject({
       model: vercelModel,
       messages: this.transformMessages(request.messages),
@@ -261,7 +262,7 @@ export class VercelAIAdapter extends AIProviderAdapter {
       schemaName: request.schemaName,
       schemaDescription: request.schemaDescription,
       temperature: request.temperature || 0.7,
-      maxTokens: request.maxTokens
+      maxOutputTokens: request.maxTokens
     });
 
     return {
@@ -351,18 +352,18 @@ export class VercelAIAdapter extends AIProviderAdapter {
 
   async estimateCost(request: UnifiedCompletionRequest | UnifiedEmbeddingRequest): Promise<CostEstimate> {
     const tokens = await this.estimateTokens(
-      'messages' in request ? 
-        request.messages.map(m => m.content).join(' ') : 
+      'messages' in request ?
+        request.messages.map(m => m.content).join(' ') :
         Array.isArray(request.text) ? request.text.join(' ') : request.text
     );
-    
+
     const model = request.model || 'gpt-4o';
     const modelInfo = this.getAvailableModels().find(m => m.name === model);
     const costInfo = modelInfo?.costPer1KTokens || { prompt: 0.005, completion: 0.015 };
-    
+
     const promptCost = (tokens.prompt / 1000) * costInfo.prompt;
     const completionCost = (tokens.completion / 1000) * costInfo.completion;
-    
+
     return {
       estimatedCost: promptCost + completionCost,
       breakdown: {
@@ -380,7 +381,7 @@ export class VercelAIAdapter extends AIProviderAdapter {
     // Rough token estimation: 1 token ≈ 4 characters
     const promptTokens = Math.ceil(text.length / 4);
     const completionTokens = Math.ceil(promptTokens * 0.5); // Estimate completion as 50% of prompt
-    
+
     return {
       prompt: promptTokens,
       completion: completionTokens,

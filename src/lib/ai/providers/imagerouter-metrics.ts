@@ -1,16 +1,16 @@
 /**
  * ImageRouter Metrics Collector
- * 
+ *
  * Comprehensive metrics collection and analysis for ImageRouter integration.
  * Tracks performance, costs, usage patterns, and provides optimization insights.
  */
 
 import { cacheManager } from '@/lib/cache';
 import { CACHE_TTL } from '@/lib/cache/config';
-import { 
-  ImageRouterMetrics, 
+import {
+  ImageRouterMetrics,
   ImageRouterModelPerformance,
-  ImageRouterError 
+  ImageRouterError
 } from '../interfaces/imagerouter-types';
 
 export interface MetricsConfig {
@@ -130,7 +130,7 @@ export class ImageRouterMetricsCollector {
   private config: MetricsConfig;
   private events: MetricsEvent[] = [];
   private readonly MAX_EVENTS_IN_MEMORY = 10000;
-  
+
   constructor(config: Partial<MetricsConfig> = {}) {
     this.config = {
       enableDetailedTracking: true,
@@ -156,7 +156,7 @@ export class ImageRouterMetricsCollector {
 
     // Add to in-memory storage
     this.events.push(timestampedEvent);
-    
+
     // Maintain memory limit
     if (this.events.length > this.MAX_EVENTS_IN_MEMORY) {
       this.events = this.events.slice(-this.MAX_EVENTS_IN_MEMORY);
@@ -266,9 +266,9 @@ export class ImageRouterMetricsCollector {
   ): Promise<AggregatedMetrics> {
     const end = endTime || new Date();
     const start = startTime || new Date(end.getTime() - this.config.aggregationWindow);
-    
+
     const cacheKey = `imagerouter:metrics:aggregated:${start.getTime()}-${end.getTime()}`;
-    
+
     // Try cache first
     const cached = await cacheManager.get<AggregatedMetrics>(cacheKey);
     if (cached) {
@@ -282,10 +282,10 @@ export class ImageRouterMetricsCollector {
     });
 
     const metrics = await this.aggregateEvents(windowEvents, start, end);
-    
+
     // Cache for 5 minutes
     await cacheManager.set(cacheKey, metrics, CACHE_TTL.SHORT);
-    
+
     return metrics;
   }
 
@@ -303,11 +303,11 @@ export class ImageRouterMetricsCollector {
     const oneMinuteAgo = new Date(now.getTime() - 60000);
     const oneHourAgo = new Date(now.getTime() - 3600000);
 
-    const recentEvents = this.events.filter(event => 
+    const recentEvents = this.events.filter(event =>
       new Date(event.timestamp) >= oneMinuteAgo
     );
-    
-    const hourlyEvents = this.events.filter(event => 
+
+    const hourlyEvents = this.events.filter(event =>
       new Date(event.timestamp) >= oneHourAgo
     );
 
@@ -322,8 +322,8 @@ export class ImageRouterMetricsCollector {
     return {
       currentRequests: requestEvents.length,
       requestsPerMinute: totalRequests,
-      averageLatency: totalResponses > 0 
-        ? successEvents.reduce((sum, e) => sum + (e.data.latency || 0), 0) / successEvents.length 
+      averageLatency: totalResponses > 0
+        ? successEvents.reduce((sum, e) => sum + (e.data.latency || 0), 0) / successEvents.length
         : 0,
       errorRate: totalResponses > 0 ? errorEvents.length / totalResponses : 0,
       currentCostPerHour: costEvents.reduce((sum, e) => sum + (e.data.cost || 0), 0)
@@ -337,7 +337,7 @@ export class ImageRouterMetricsCollector {
     [modelId: string]: ImageRouterModelPerformance;
   }> {
     const cacheKey = 'imagerouter:metrics:model-performance';
-    
+
     const cached = await cacheManager.get<{[modelId: string]: ImageRouterModelPerformance}>(cacheKey);
     if (cached) {
       return cached;
@@ -353,11 +353,11 @@ export class ImageRouterMetricsCollector {
       const qualityEvents = events.filter(e => e.type === 'quality');
 
       const totalRequests = successEvents.length + errorEvents.length;
-      
+
       if (totalRequests > 0) {
         modelPerformance[modelId] = {
           modelId,
-          averageLatency: successEvents.length > 0 
+          averageLatency: successEvents.length > 0
             ? successEvents.reduce((sum, e) => sum + (e.data.latency || 0), 0) / successEvents.length
             : 0,
           successRate: successEvents.length / totalRequests,
@@ -447,11 +447,11 @@ export class ImageRouterMetricsCollector {
    */
   async exportMetrics(format: 'json' | 'csv' = 'json'): Promise<string> {
     const metrics = await this.getAggregatedMetrics();
-    
+
     if (format === 'csv') {
       return this.convertToCSV(metrics);
     }
-    
+
     return JSON.stringify(metrics, null, 2);
   }
 
@@ -460,15 +460,15 @@ export class ImageRouterMetricsCollector {
    */
   async clearOldMetrics(maxAge?: number): Promise<void> {
     const cutoffTime = new Date(Date.now() - (maxAge || this.config.retentionPeriod));
-    
-    this.events = this.events.filter(event => 
+
+    this.events = this.events.filter(event =>
       new Date(event.timestamp) > cutoffTime
     );
-    
+
     // Clear cached data
     const keys = await this.getCachedMetricsKeys();
     for (const key of keys) {
-      await cacheManager.del(key);
+      await cacheManager.delete(key);
     }
   }
 
@@ -487,11 +487,11 @@ export class ImageRouterMetricsCollector {
         console.warn(`ImageRouter error rate alert: ${(recentErrorRate * 100).toFixed(1)}% > ${(this.config.alertThresholds.errorRate * 100).toFixed(1)}%`);
       }
     }
-    
+
     if (event.type === 'success' && event.data.latency && event.data.latency > this.config.alertThresholds.latency) {
       console.warn(`ImageRouter latency alert: ${event.data.latency}ms > ${this.config.alertThresholds.latency}ms for model ${event.data.model}`);
     }
-    
+
     if (event.type === 'cost' && event.data.cost && event.data.cost > this.config.alertThresholds.costPerRequest) {
       console.warn(`ImageRouter cost alert: $${event.data.cost} > $${this.config.alertThresholds.costPerRequest} for model ${event.data.model}`);
     }
@@ -499,20 +499,20 @@ export class ImageRouterMetricsCollector {
 
   private async calculateRecentErrorRate(): Promise<number> {
     const fifteenMinutesAgo = new Date(Date.now() - 900000);
-    const recentEvents = this.events.filter(event => 
+    const recentEvents = this.events.filter(event =>
       new Date(event.timestamp) >= fifteenMinutesAgo &&
       (event.type === 'success' || event.type === 'error')
     );
-    
+
     if (recentEvents.length === 0) return 0;
-    
+
     const errorEvents = recentEvents.filter(e => e.type === 'error');
     return errorEvents.length / recentEvents.length;
   }
 
   private async aggregateEvents(
-    events: MetricsEvent[], 
-    start: Date, 
+    events: MetricsEvent[],
+    start: Date,
     end: Date
   ): Promise<AggregatedMetrics> {
     const requestEvents = events.filter(e => e.type === 'request');
@@ -544,14 +544,14 @@ export class ImageRouterMetricsCollector {
     // Group by model
     const modelMetrics: { [modelId: string]: any } = {};
     const modelEvents = this.groupEventsByModel(events);
-    
+
     for (const [modelId, modelEventList] of Object.entries(modelEvents)) {
       const modelSuccessEvents = modelEventList.filter(e => e.type === 'success');
       const modelErrorEvents = modelEventList.filter(e => e.type === 'error');
       const modelCostEvents = modelEventList.filter(e => e.type === 'cost');
-      
+
       const modelTotalRequests = modelSuccessEvents.length + modelErrorEvents.length;
-      
+
       if (modelTotalRequests > 0) {
         modelMetrics[modelId] = {
           usage: modelTotalRequests,
@@ -642,7 +642,7 @@ export class ImageRouterMetricsCollector {
   private groupEventsByModel(events?: MetricsEvent[]): { [modelId: string]: MetricsEvent[] } {
     const eventsToGroup = events || this.events;
     const grouped: { [modelId: string]: MetricsEvent[] } = {};
-    
+
     for (const event of eventsToGroup) {
       const model = event.data.model || 'unknown';
       if (!grouped[model]) {
@@ -650,40 +650,40 @@ export class ImageRouterMetricsCollector {
       }
       grouped[model].push(event);
     }
-    
+
     return grouped;
   }
 
   private groupErrorsByType(errorEvents: MetricsEvent[]): { [errorType: string]: number } {
     const grouped: { [errorType: string]: number } = {};
-    
+
     for (const event of errorEvents) {
       const errorType = event.data.errorType || 'unknown';
       grouped[errorType] = (grouped[errorType] || 0) + 1;
     }
-    
+
     return grouped;
   }
 
   private groupErrorsByModel(errorEvents: MetricsEvent[]): { [modelId: string]: number } {
     const grouped: { [modelId: string]: number } = {};
-    
+
     for (const event of errorEvents) {
       const model = event.data.model || 'unknown';
       grouped[model] = (grouped[model] || 0) + 1;
     }
-    
+
     return grouped;
   }
 
   private groupErrorsByTime(errorEvents: MetricsEvent[]): { [hour: string]: number } {
     const grouped: { [hour: string]: number } = {};
-    
+
     for (const event of errorEvents) {
       const hour = new Date(event.timestamp).toISOString().slice(0, 13);
       grouped[hour] = (grouped[hour] || 0) + 1;
     }
-    
+
     return grouped;
   }
 
@@ -692,9 +692,9 @@ export class ImageRouterMetricsCollector {
     const successEvents = relevantEvents.filter(e => e.type === 'success');
     const errorEvents = relevantEvents.filter(e => e.type === 'error');
     const costEvents = relevantEvents.filter(e => e.type === 'cost');
-    
+
     const totalRequests = successEvents.length + errorEvents.length;
-    
+
     return {
       requests: totalRequests,
       successRate: totalRequests > 0 ? successEvents.length / totalRequests : 0,
@@ -706,24 +706,24 @@ export class ImageRouterMetricsCollector {
 
   private calculateQualityByModel(qualityEvents: MetricsEvent[]): { [modelId: string]: number } {
     const grouped: { [modelId: string]: { sum: number; count: number } } = {};
-    
+
     for (const event of qualityEvents) {
       const model = event.data.model || 'unknown';
       const score = event.data.qualityScore || 0;
-      
+
       if (!grouped[model]) {
         grouped[model] = { sum: 0, count: 0 };
       }
-      
+
       grouped[model].sum += score;
       grouped[model].count += 1;
     }
-    
+
     const result: { [modelId: string]: number } = {};
     for (const [model, data] of Object.entries(grouped)) {
       result[model] = data.count > 0 ? data.sum / data.count : 0;
     }
-    
+
     return result;
   }
 
@@ -731,7 +731,7 @@ export class ImageRouterMetricsCollector {
     // Simplified error pattern analysis
     const patterns: ErrorPattern[] = [];
     const errorTypes = this.groupErrorsByType(errorEvents);
-    
+
     for (const [errorType, frequency] of Object.entries(errorTypes)) {
       if (frequency >= 3) { // Only report patterns with significant frequency
         patterns.push({
@@ -747,7 +747,7 @@ export class ImageRouterMetricsCollector {
         });
       }
     }
-    
+
     return patterns;
   }
 
@@ -757,7 +757,7 @@ export class ImageRouterMetricsCollector {
     costs: { totalCost: number; averageCostPerRequest: number }
   ): Promise<OptimizationRecommendation[]> {
     const recommendations: OptimizationRecommendation[] = [];
-    
+
     // Error rate recommendation
     if (requests.totalRequests > 0) {
       const errorRate = requests.failedRequests / requests.totalRequests;
@@ -771,19 +771,19 @@ export class ImageRouterMetricsCollector {
         });
       }
     }
-    
+
     return recommendations;
   }
 
   private calculateModelTier(
-    modelId: string, 
-    successEvents: MetricsEvent[], 
+    modelId: string,
+    successEvents: MetricsEvent[],
     errorEvents: MetricsEvent[]
   ): 'fast' | 'balanced' | 'powerful' {
     const avgLatency = successEvents.length > 0
       ? successEvents.reduce((sum, e) => sum + (e.data.latency || 0), 0) / successEvents.length
       : 0;
-    
+
     if (avgLatency < 10000) return 'fast';
     if (avgLatency > 30000) return 'powerful';
     return 'balanced';
@@ -799,7 +799,7 @@ export class ImageRouterMetricsCollector {
       ['Total Cost', `$${metrics.costs.totalCost.toFixed(4)}`],
       ['Average Cost Per Request', `$${metrics.costs.averageCostPerRequest.toFixed(4)}`]
     ];
-    
+
     return [headers, ...rows].map(row => row.join(',')).join('\n');
   }
 

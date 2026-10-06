@@ -1291,6 +1291,11 @@ model SecurityIncident {
 // Comprehensive Audit and Security Enums
 
 enum AuditEventType {
+  DATA_CREATED
+  DATA_ACCESSED
+  DATA_UPDATED
+  DATA_DELETED
+  MATCH_SCORE_FEEDBACK_PROVIDED
   // =============================================
   // AUTHENTICATION & AUTHORIZATION
   // =============================================

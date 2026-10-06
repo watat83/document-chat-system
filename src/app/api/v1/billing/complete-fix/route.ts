@@ -1,3 +1,5 @@
+import { isPlatformAdmin } from '@/lib/security/platform-admin';
+import { getSubscriptionPeriod } from '@/lib/billing/subscription-period';
 import { auth, currentUser } from '@clerk/nextjs/server';
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
@@ -68,7 +70,7 @@ const completeFixSchema = z.object({
 export async function POST(request: NextRequest) {
   try {
     console.log('POST /api/billing/complete-fix - Starting complete subscription fix');
-    
+
     // Check if Stripe is configured
     if (!process.env.STRIPE_SECRET_KEY) {
       return createErrorResponse('Stripe is not configured. Please add STRIPE_SECRET_KEY to your environment variables.', 503, 'STRIPE_NOT_CONFIGURED');
@@ -88,19 +90,21 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
     const validatedData = completeFixSchema.parse(body);
-    
+
     console.log('Request data:', validatedData);
+
+    if (!isPlatformAdmin(user.id)) return createErrorResponse('Platform administrator access required', 403, 'FORBIDDEN');
 
     // Get user's organization from database
     const dbUser = await db.user.findUnique({
       where: { clerkId: user.id },
       select: { organizationId: true }
     });
-    
+
     if (!dbUser) {
       return createErrorResponse('User not found in database', 404, 'USER_NOT_FOUND');
     }
-    
+
     const organizationId = dbUser.organizationId;
 
     if (!organizationId) {
@@ -140,7 +144,7 @@ export async function POST(request: NextRequest) {
     for (const subscription of organization.subscriptions) {
       try {
         console.log(`🗑️ Canceling subscription: ${subscription.id}`);
-        
+
         if (!validatedData.dryRun) {
           // Cancel in Stripe
           if (subscription.stripeSubscriptionId) {
@@ -158,7 +162,7 @@ export async function POST(request: NextRequest) {
             }
           });
         }
-        
+
         result.canceledSubscriptions++;
         console.log(`✅ Canceled: ${subscription.id}`);
       } catch (error) {
@@ -180,7 +184,7 @@ export async function POST(request: NextRequest) {
           },
         });
         customerId = customer.id;
-        
+
         await db.organization.update({
           where: { id: organization.id },
           data: { stripeCustomerId: customerId }
@@ -220,8 +224,8 @@ export async function POST(request: NextRequest) {
           stripeCustomerId: customerId,
           planType: validatedData.planType,
           status: 'TRIALING',
-          currentPeriodStart: new Date(stripeSubscription.current_period_start * 1000),
-          currentPeriodEnd: new Date(stripeSubscription.current_period_end * 1000),
+          currentPeriodStart: getSubscriptionPeriod(stripeSubscription).start,
+          currentPeriodEnd: getSubscriptionPeriod(stripeSubscription).end,
           trialStart: stripeSubscription.trial_start ? new Date(stripeSubscription.trial_start * 1000) : null,
           trialEnd: stripeSubscription.trial_end ? new Date(stripeSubscription.trial_end * 1000) : null,
           cancelAtPeriodEnd: false,
@@ -248,13 +252,13 @@ export async function POST(request: NextRequest) {
       result.newStripeSubscriptionId = stripeSubscription.id;
       result.message = `Successfully created ${validatedData.planType} subscription with 14-day trial`;
     } else {
-      result.message = validatedData.dryRun 
+      result.message = validatedData.dryRun
         ? `DRY RUN: Would create ${validatedData.planType} subscription`
         : `Would create ${validatedData.planType} subscription`;
     }
 
     console.log('✅ Complete subscription fix completed successfully');
-    
+
     return NextResponse.json(result);
 
   } catch (error) {

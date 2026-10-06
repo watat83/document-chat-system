@@ -1,3 +1,4 @@
+import { normalizeError } from '@/lib/errors/normalize-error';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { cacheManager } from '@/lib/cache';
@@ -59,17 +60,17 @@ export async function GET(request: NextRequest) {
   try {
     // Check if this is an internal call from the /all endpoint
     const isInternalCall = request.headers.get('X-Internal-Call') === 'true' ||
-                          request.headers.get('user-agent')?.includes('node') || 
+                          request.headers.get('user-agent')?.includes('node') ||
                           request.url.includes('localhost');
-    
+
     console.log('🔍 ImageRouter API - Is internal call:', isInternalCall);
     console.log('🔍 ImageRouter API - X-Internal-Call header:', request.headers.get('X-Internal-Call'));
     console.log('🔍 ImageRouter API - User agent:', request.headers.get('user-agent'));
-    
+
     // For external calls, require authentication
     if (!isInternalCall) {
       const { userId } = await auth();
-      
+
       if (!userId) {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
       }
@@ -79,11 +80,11 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url);
     const forceRefresh = searchParams.get('force') === 'true';
-    
+
     // Check if ImageRouter is configured
     if (!imageRouter.apiKey) {
       console.log('⚠️ ImageRouter API key not configured, returning mock models for development');
-      
+
       // Return mock models for development/testing
       const mockModels = [
         {
@@ -165,21 +166,22 @@ export async function GET(request: NextRequest) {
           cost: 8
         }
       ];
-      
+
       console.log(`✅ Returning ${mockModels.length} mock ImageRouter models for development`);
       return NextResponse.json(mockModels);
     }
 
     // Instead of using the complex adapter, make a direct API call as per ImageRouter documentation
     console.log('🎨 Making direct ImageRouter API call...');
-    
+
     try {
       // Clear cache if force refresh is requested
       if (forceRefresh) {
         console.log('🗑️ Force refresh requested, clearing ImageRouter cache...');
         try {
           await cacheManager.invalidate('ai:imagerouter:models');
-        } catch (error) {
+        } catch (caughtError) {
+      const error = normalizeError(caughtError);
           console.warn('Could not clear cache:', error);
         }
       }
@@ -188,7 +190,7 @@ export async function GET(request: NextRequest) {
       const url = 'https://api.imagerouter.io/v1/models';
       console.log('🌐 ImageRouter API URL:', url);
       console.log('🔑 API Key configured:', imageRouter.apiKey ? 'YES' : 'NO');
-      
+
       const response = await fetch(url, {
         method: 'GET',
         headers: {
@@ -217,13 +219,13 @@ export async function GET(request: NextRequest) {
         const modelKeys = Object.keys(data);
         console.log(`✅ ImageRouter response is object with ${modelKeys.length} models`);
         console.log('🔍 Sample model keys:', modelKeys.slice(0, 5));
-        
+
         models = modelKeys.map(modelId => ({
           id: modelId,
           name: modelId.split('/').pop() || modelId, // Get model name from ID
           ...data[modelId] // Spread the model data
         }));
-        
+
         console.log(`✅ Converted ${models.length} ImageRouter models from object to array format`);
       } else if (Array.isArray(data)) {
         models = data;
@@ -247,28 +249,28 @@ export async function GET(request: NextRequest) {
       // Transform to UI format based on ImageRouter API structure
       const uiModels = models.map(model => {
         console.log('🔍 Processing ImageRouter model:', model.id);
-        
+
         // Extract pricing from providers array
         const pricing = model.providers?.[0]?.pricing || {};
         const costPerPrompt = pricing.value || pricing.range?.average || pricing.range?.min || 0.02;
-        
+
         // Determine tier based on cost
         let tier = 'balanced';
         if (costPerPrompt === 0) tier = 'fast';
         else if (costPerPrompt >= 0.05) tier = 'powerful';
         else if (costPerPrompt <= 0.01) tier = 'fast';
-        
+
         // Generate features based on output type
         const features = ['media-generation'];
         if (model.output?.includes('image')) features.push('image-generation');
         if (model.output?.includes('video')) features.push('video-generation');
         if (model.supported_params?.edit) features.push('image-editing');
-        
+
         // Create display name from model ID
-        const displayName = model.id.split('/').map(part => 
+        const displayName = model.id.split('/').map(part =>
           part.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
         ).join(' ');
-        
+
         return {
           id: model.id,
           name: displayName,
@@ -289,13 +291,14 @@ export async function GET(request: NextRequest) {
       console.log('🎨 Transformed ImageRouter models:', uiModels);
       return NextResponse.json(uiModels);
 
-    } catch (error) {
+    } catch (caughtError) {
+      const error = normalizeError(caughtError);
       console.error('❌ Failed to load ImageRouter models:', error);
       console.error('❌ Error details:', error.message, error.stack);
-      
+
       // For development, return mock models on error
       console.log('⚠️ API failed, falling back to mock ImageRouter models for development');
-      
+
       const fallbackModels = [
         {
           id: 'dall-e-3',
@@ -324,12 +327,13 @@ export async function GET(request: NextRequest) {
           cost: 3
         }
       ];
-      
+
       console.log(`✅ Returning ${fallbackModels.length} fallback ImageRouter models`);
       return NextResponse.json(fallbackModels);
     }
 
-  } catch (error) {
+  } catch (caughtError) {
+      const error = normalizeError(caughtError);
     console.error('Error loading ImageRouter models:', error);
     return NextResponse.json(
       { error: 'Failed to load ImageRouter models' },
@@ -369,7 +373,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const { userId } = await auth();
-    
+
     if (!userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
@@ -401,10 +405,11 @@ export async function POST(request: NextRequest) {
       try {
         await cacheManager.invalidate('ai:imagerouter:models');
         console.log('🗑️ Cleared ImageRouter models cache for refresh');
-      } catch (error) {
+      } catch (caughtError) {
+      const error = normalizeError(caughtError);
         console.warn('Could not clear cache:', error);
       }
-      
+
       // Get updated models
       const models = await adapter.loadAvailableModels();
 
@@ -414,7 +419,8 @@ export async function POST(request: NextRequest) {
         modelsCount: models.length
       });
 
-    } catch (error) {
+    } catch (caughtError) {
+      const error = normalizeError(caughtError);
       console.error('❌ Failed to refresh ImageRouter models:', error);
       return NextResponse.json({
         success: true,
@@ -423,7 +429,8 @@ export async function POST(request: NextRequest) {
       });
     }
 
-  } catch (error) {
+  } catch (caughtError) {
+      const error = normalizeError(caughtError);
     console.error('Error refreshing ImageRouter models:', error);
     return NextResponse.json(
       { error: 'Failed to refresh ImageRouter models' },

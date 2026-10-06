@@ -1,4 +1,4 @@
-import { 
+import {
   UnifiedCompletionRequest,
   UnifiedCompletionResponse,
   UnifiedEmbeddingRequest,
@@ -37,7 +37,7 @@ export interface FallbackConfig {
   initialBackoffMs: number;
   enableRetries: boolean;
   retryableErrors: string[];
-  fallbackPreferences: Record<TaskType, string[]>;
+  fallbackPreferences: Partial<Record<TaskType, string[]>>;
   degradedModeThreshold: number;
 }
 
@@ -82,7 +82,7 @@ export class AIFallbackStrategy {
       return result;
     } catch (primaryError) {
       console.error(`Primary provider failed for ${context}:`, primaryError);
-      
+
       attempts.push({
         provider: 'primary',
         adapter: null as any,
@@ -95,7 +95,7 @@ export class AIFallbackStrategy {
         try {
           const fallbackStart = Date.now();
           const result = await this.executeWithBackoff(fallbacks[i], i);
-          
+
           attempts.push({
             provider: `fallback-${i}`,
             adapter: null as any,
@@ -106,7 +106,7 @@ export class AIFallbackStrategy {
           return result;
         } catch (fallbackError) {
           console.error(`Fallback ${i} failed for ${context}:`, fallbackError);
-          
+
           attempts.push({
             provider: `fallback-${i}`,
             adapter: null as any,
@@ -114,11 +114,11 @@ export class AIFallbackStrategy {
             success: false,
             latency: Date.now() - fallbackStart
           });
-          
+
           continue;
         }
       }
-      
+
       throw new AllProvidersFailedError(`All providers failed for ${context}`);
     }
   }
@@ -128,12 +128,13 @@ export class AIFallbackStrategy {
   ): Promise<FallbackResult<UnifiedCompletionResponse>> {
     const attempts: FallbackAttempt[] = [];
     const startTime = Date.now();
-    
+
     const routingDecision = await this.router.route({
       model: request.model,
       taskType: 'simple_qa',
       complexity: 'medium',
-      messages: request.messages
+      messages: request.messages,
+      provider: request.metadata?.provider
     });
 
     const fallbackProviders = this.getFallbackProviders(
@@ -142,14 +143,14 @@ export class AIFallbackStrategy {
     );
 
     let primaryAttempt: FallbackAttempt;
-    
+
     try {
       const primaryStart = Date.now();
       const result = await this.circuitBreaker.executeWithCircuitBreaker(
         routingDecision.selectedProvider,
         () => routingDecision.adapter.generateCompletion(request)
       );
-      
+
       primaryAttempt = {
         provider: routingDecision.selectedProvider,
         adapter: routingDecision.adapter,
@@ -188,12 +189,12 @@ export class AIFallbackStrategy {
         }
 
         await this.applyBackoff(attempts.length);
-        
+
         const result = await this.circuitBreaker.executeWithCircuitBreaker(
           providerName,
           () => adapter.generateCompletion(request)
         );
-        
+
         const fallbackAttempt: FallbackAttempt = {
           provider: providerName,
           adapter,
@@ -236,10 +237,10 @@ export class AIFallbackStrategy {
   ): Promise<FallbackResult<UnifiedEmbeddingResponse>> {
     const attempts: FallbackAttempt[] = [];
     const startTime = Date.now();
-    
+
     console.log('🤖 Starting embedding fallback strategy...')
     console.log('📋 Available providers:', this.registry.getAvailableProviders())
-    
+
     const routingDecision = await this.router.route({
       model: request.model,
       taskType: 'embedding',
@@ -248,12 +249,12 @@ export class AIFallbackStrategy {
     });
 
     console.log('🎯 Primary provider selected:', routingDecision.selectedProvider)
-    
+
     const fallbackProviders = this.getFallbackProviders('embedding', routingDecision.selectedProvider);
     console.log('🔄 Fallback providers:', fallbackProviders)
 
     let primaryAttempt: FallbackAttempt;
-    
+
     try {
       const primaryStart = Date.now();
       console.log(`🚀 Attempting primary provider: ${routingDecision.selectedProvider}`)
@@ -262,7 +263,7 @@ export class AIFallbackStrategy {
         () => routingDecision.adapter.generateEmbedding(request)
       );
       console.log(`✅ Primary provider ${routingDecision.selectedProvider} succeeded`)
-      
+
       primaryAttempt = {
         provider: routingDecision.selectedProvider,
         adapter: routingDecision.adapter,
@@ -292,7 +293,7 @@ export class AIFallbackStrategy {
 
     for (const providerName of fallbackProviders) {
       const fallbackStart = Date.now();
-      
+
       try {
         console.log(`🔄 Attempting fallback provider: ${providerName}`)
         const adapter = this.registry.getProvider(providerName);
@@ -302,13 +303,13 @@ export class AIFallbackStrategy {
         }
 
         await this.applyBackoff(attempts.length);
-        
+
         const result = await this.circuitBreaker.executeWithCircuitBreaker(
           providerName,
           () => adapter.generateEmbedding(request)
         );
         console.log(`✅ Fallback provider ${providerName} succeeded`)
-        
+
         const fallbackAttempt: FallbackAttempt = {
           provider: providerName,
           adapter,
@@ -335,7 +336,7 @@ export class AIFallbackStrategy {
           success: false,
           latency: Date.now() - fallbackStart
         });
-        
+
         continue;
       }
     }
@@ -345,12 +346,13 @@ export class AIFallbackStrategy {
 
   async *executeStreamWithFallback(
     request: UnifiedStreamRequest
-  ): AsyncIterator<UnifiedStreamChunk> {
+  ): AsyncGenerator<UnifiedStreamChunk> {
     const routingDecision = await this.router.route({
       model: request.model,
       taskType: 'simple_qa',
       complexity: 'medium',
-      messages: request.messages
+      messages: request.messages,
+      provider: request.metadata?.provider
     });
 
     const fallbackProviders = this.getFallbackProviders(
@@ -358,31 +360,20 @@ export class AIFallbackStrategy {
       routingDecision.selectedProvider
     );
 
-    try {
-      const stream = routingDecision.adapter.streamCompletion(request);
-      yield* stream;
-      return;
-    } catch (primaryError) {
-      console.error(`Primary streaming provider ${routingDecision.selectedProvider} failed:`, primaryError);
-      
-      if (!this.isRetryableError(primaryError as Error)) {
-        throw primaryError;
-      }
-    }
-
-    for (const providerName of fallbackProviders) {
+    let emitted = false;
+    for (const providerName of [routingDecision.selectedProvider, ...fallbackProviders]) {
       try {
+        if (request.signal?.aborted) throw request.signal.reason ?? new Error('Request cancelled');
         const adapter = this.registry.getProvider(providerName);
-        if (!adapter) {
-          continue;
+        if (!adapter) continue;
+        for await (const chunk of await adapter.streamCompletion(request)) {
+          emitted = true;
+          yield chunk;
         }
-
-        const stream = adapter.streamCompletion(request);
-        yield* stream;
         return;
-      } catch (fallbackError) {
-        console.error(`Fallback streaming provider ${providerName} failed:`, fallbackError);
-        continue;
+      } catch (error) {
+        // Retrying after output would append a second answer to a partial first answer.
+        if (emitted || request.signal?.aborted || !this.isRetryableError(error as Error)) throw error;
       }
     }
 
@@ -392,7 +383,7 @@ export class AIFallbackStrategy {
   private getFallbackProviders(taskType: TaskType, primaryProvider: string): string[] {
     const preferred = this.config.fallbackPreferences[taskType] || [];
     const available = this.registry.getAvailableProviders();
-    
+
     const fallbacks = preferred
       .filter(provider => provider !== primaryProvider && available.includes(provider))
       .slice(0, this.config.maxAttempts - 1);
@@ -424,7 +415,7 @@ export class AIFallbackStrategy {
   }
 
   private isRetryableError(error: Error): boolean {
-    return this.config.retryableErrors.some(errorType => 
+    return this.config.retryableErrors.some(errorType =>
       error.name === errorType || error.constructor.name === errorType
     );
   }
@@ -432,7 +423,7 @@ export class AIFallbackStrategy {
   isDegradedMode(): boolean {
     const availableProviders = this.registry.getAvailableProviders();
     const allProviders = Array.from(this.registry.getAllProviders().keys());
-    
+
     const availabilityRatio = availableProviders.length / Math.max(allProviders.length, 1);
     return availabilityRatio < this.config.degradedModeThreshold;
   }
@@ -447,9 +438,9 @@ export class AIFallbackStrategy {
     const availableProviders = this.registry.getAvailableProviders();
     const allProviders = Array.from(this.registry.getAllProviders().keys());
     const unavailableProviders = allProviders.filter(p => !availableProviders.includes(p));
-    
+
     const healthScore = availableProviders.length / Math.max(allProviders.length, 1);
-    
+
     return {
       degradedMode: this.isDegradedMode(),
       availableProviders,

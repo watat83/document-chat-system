@@ -1,4 +1,5 @@
 'use client'
+import { normalizeError } from '@/lib/errors/normalize-error';
 
 import React, { useState, useCallback, useRef, useEffect } from 'react'
 
@@ -34,6 +35,7 @@ import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels'
 import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd'
 import { AIEditor } from '@/components/ui/ai-editor'
 import { StableEditor } from '@/components/ui/stable-editor'
+import { applySectionEdits } from '@/lib/documents/section-edits'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { FolderHierarchyItem, useFolderHierarchy } from '@/components/ui/folder-hierarchy-item'
 import { ProcessingProgress } from '@/components/ui/processing-progress'
@@ -175,13 +177,13 @@ const getOriginalFileExtension = (document: Document): string => {
   if (document.name && document.name.includes('.')) {
     return document.name.split('.').pop()?.toLowerCase() || ''
   }
-  
+
   // Fallback to filePath if document name has no extension
   const originalFileName = getOriginalFileName(document)
   if (originalFileName && originalFileName.includes('.')) {
     return originalFileName.split('.').pop()?.toLowerCase() || ''
   }
-  
+
   // If no extension found anywhere, derive from MIME type
   if (document.mimeType) {
     const mimeToExt: { [key: string]: string } = {
@@ -199,7 +201,7 @@ const getOriginalFileExtension = (document: Document): string => {
     }
     return mimeToExt[document.mimeType] || ''
   }
-  
+
   return ''
 }
 
@@ -212,7 +214,7 @@ const generateSectionsFromDocument = (document: Document | null) => {
     sectionsLength: document?.content?.sections?.length || 0,
     firstSectionTitle: document?.content?.sections?.[0]?.title || 'N/A'
   });
-  
+
   // Handle case where document doesn't exist
   if (!document) {
     return [{
@@ -223,7 +225,7 @@ const generateSectionsFromDocument = (document: Document | null) => {
   }
 
   // Check if document has minimal processing (just uploaded, no AI data)
-  const hasMinimalData = !document.content || 
+  const hasMinimalData = !document.content ||
     (!document.content?.sections || document.content.sections.length === 0) &&
     (!document.extractedText) &&
     (!document.entities?.entities || document.entities.entities.length === 0);
@@ -233,9 +235,9 @@ const generateSectionsFromDocument = (document: Document | null) => {
     const status = document.processing?.currentStatus || 'PENDING';
     const isProcessing = status === 'PROCESSING';
     const hasFailed = status === 'FAILED';
-    
+
     let content = '<h2>Document Content</h2>';
-    
+
     if (isProcessing) {
       content += '<p>🔄 Document is being processed. AI analysis and content extraction are in progress...</p>';
     } else if (hasFailed) {
@@ -243,7 +245,7 @@ const generateSectionsFromDocument = (document: Document | null) => {
     } else {
       content += '<p>📄 Document uploaded successfully. Click "Analyze Document" to extract content and generate insights.</p>';
     }
-    
+
     return [{
       id: '1',
       title: 'Document Content',
@@ -254,7 +256,7 @@ const generateSectionsFromDocument = (document: Document | null) => {
   // Helper function to format text content properly with enhanced readability
   const formatTextContent = (content: string): string => {
     if (!content) return ''
-    
+
     // Enhanced text formatting for better readability
     return content
       // Normalize line breaks
@@ -273,11 +275,11 @@ const generateSectionsFromDocument = (document: Document | null) => {
       .map(paragraph => {
         // Handle bullet points and lists more robustly
         const lines = paragraph.split('\n').map(line => line.trim())
-        
+
         // Check for bullet lists (•, -, *, or starting with numbers)
         const isBulletList = lines.some(line => line.match(/^[•\-*]\s+/) || line.match(/^\d+\.\s+/))
         const isNumberedList = lines.some(line => line.match(/^\d+\.\s+/))
-        
+
         if (isBulletList) {
           const listItems = lines
             .filter(line => line.match(/^[•\-*]\s+/) || line.match(/^\d+\.\s+/))
@@ -289,20 +291,20 @@ const generateSectionsFromDocument = (document: Document | null) => {
               return `<li style="margin-bottom: 8px; line-height: 1.5;">${cleanItem}</li>`
             })
             .join('')
-          
+
           const listTag = isNumberedList ? 'ol' : 'ul'
-          const listStyle = isNumberedList 
+          const listStyle = isNumberedList
             ? 'style="margin: 16px 0; padding-left: 24px; line-height: 1.6;"'
             : 'style="margin: 16px 0; padding-left: 24px; line-height: 1.6; list-style-type: disc;"'
-          
+
           return `<${listTag} ${listStyle}>${listItems}</${listTag}>`
         }
-        
+
         // Handle headers (lines that look like titles)
         if (paragraph.length < 100 && !paragraph.includes('.') && paragraph.match(/^[A-Z][A-Za-z\s]+$/)) {
           return `<h3 style="margin: 24px 0 16px 0; font-size: 1.1em; font-weight: 600; color: #374151;">${paragraph}</h3>`
         }
-        
+
         // Regular paragraphs with improved styling
         return `<p style="margin: 16px 0; line-height: 1.6; color: #4b5563; text-align: justify;">${paragraph}</p>`
       })
@@ -316,21 +318,21 @@ const generateSectionsFromDocument = (document: Document | null) => {
   // This creates sections from available content like extracted text, entities, etc.
   if (!document.content?.sections || document.content.sections.length === 0) {
     const sections = [];
-    
+
     // Create a main content section from extracted text if available
     if (document.extractedText) {
       let content = '<h2>Document Content</h2>';
       content += `<div style="margin-top: 20px; padding: 15px; background-color: #f8f9fa; border-radius: 8px;">
         <p>${formatTextContent(document.extractedText)}</p>
       </div>`;
-      
+
       sections.push({
         id: '1',
         title: 'Document Content',
         content: content
       });
     }
-    
+
     // Create an entities section if entities exist
     if (document.entities?.entities && document.entities.entities.length > 0) {
       let content = '<h2>Extracted Information</h2>';
@@ -341,19 +343,19 @@ const generateSectionsFromDocument = (document: Document | null) => {
         content += `<li><strong>${entity.type.toUpperCase()}:</strong> ${entity.text} (${Math.round(entity.confidence * 100)}% confidence)</li>`;
       });
       content += '</ul></div>';
-      
+
       sections.push({
         id: '2',
         title: 'Extracted Information',
         content: content
       });
     }
-    
+
     // If we created any sections, return them
     if (sections.length > 0) {
       return sections;
     }
-    
+
     // Otherwise, fall back to basic content
     return [{
       id: '1',
@@ -364,15 +366,17 @@ const generateSectionsFromDocument = (document: Document | null) => {
 
   // Handle fully processed documents with content data
   return document.content.sections.map((section, index) => {
-    const formattedContent = formatTextContent(section.content)
+    const formattedContent = /<\/?[a-z][\s>]/i.test(section.content)
+      ? section.content
+      : formatTextContent(section.content)
     let content = `<h2>${section.title.replace(/^\d+\.\d+\s*/, '')}</h2>${formattedContent}`;
-    
+
     // Add tables to appropriate sections if they exist
     if (document.content?.tables && document.content.tables.length > 0) {
-      const shouldAddTable = section.title.toLowerCase().includes('project') || 
-                            section.title.toLowerCase().includes('plan') || 
+      const shouldAddTable = section.title.toLowerCase().includes('project') ||
+                            section.title.toLowerCase().includes('plan') ||
                             index === Math.min(2, document.content.sections.length - 1);
-      
+
       if (shouldAddTable) {
         const table = document.content.tables[0];
         const tableTitle = table.caption || 'Data Table';
@@ -396,9 +400,9 @@ const generateSectionsFromDocument = (document: Document | null) => {
         content = content.replace('</h2>', `</h2>${tableHtml}`);
       }
     }
-    
+
     return {
-      id: String(index + 1),
+      id: section.id,
       title: section.title,
       content: content
     };
@@ -418,7 +422,7 @@ const highlightColors = [
 // Helper function to get file icon and colors based on type
 const getFileTypeInfo = (type: string) => {
   const fileType = type.toLowerCase()
-  
+
   switch (fileType) {
     case 'pdf':
       return {
@@ -490,28 +494,28 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
   const { moveDocument } = useDocumentOperations()
   const { navigateToFolder, currentFolderId } = useTreeNavigation()
   const { state } = useTree()
-  
+
   // Notification and sound hooks
   const notify = useNotify()
   const { play: playSound } = useSoundEffects()
   const setDocuments = useDocumentChatStore((state) => state.documents.setDocuments)
-  
+
   // Loading state
   const [isLoading, setIsLoading] = useState(true)
   const [fetchedDocument, setFetchedDocument] = useState<Document | null>(null)
-  
+
   // Chat interface state
   const [isChatOpen, setIsChatOpen] = useState(false)
-  
+
   // Build folder hierarchy for dropdown
   const folderHierarchy = useFolderHierarchy(state.folders)
-  
+
   // Use findDocument to get the actual document data
   const foundDocument = findDocument(documentId)
-  
+
   // Prioritize fetchedDocument (fresh API data) over foundDocument (potentially stale store data)
   const document = fetchedDocument || foundDocument
-  
+
   // Debug document availability
   console.log('🔍 [DOCUMENT_DEBUG] Component state:', {
     documentId,
@@ -522,7 +526,7 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
     isLoading,
     storeDocuments: state.documents.map(d => ({ id: d.id, name: d.name }))
   })
-  
+
   if (!document && !isLoading) {
     console.log('🔍 [DOCUMENT_DEBUG] No document in store, API fetch should be triggered')
   } else if (document) {
@@ -539,20 +543,20 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
     })
   }
 
-  
-  
+
+
   // Force immediate API fetch on component mount - bypassing useEffect dependency issues
   React.useEffect(() => {
     console.log('🔄 [FETCH EFFECT] Document fetch useEffect triggered for documentId:', documentId)
     console.log('🔄 [FETCH EFFECT] useEffect dependencies:', { documentId, setDocuments: !!setDocuments })
     console.log('🔄 [FETCH EFFECT] Current store state:', { storeDocuments: state.documents.length })
-    
+
     if (!documentId) {
       console.warn('⚠️ [FETCH EFFECT] No documentId provided, skipping API fetch')
       setIsLoading(false)
       return
     }
-    
+
     // Force execution regardless of store state since hydration is broken
     const fetchDocument = async () => {
       // Always fetch from API to get complete document data including vectorProperties
@@ -560,7 +564,7 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
         const apiUrl = `/api/v1/documents/${documentId}`
         console.log('🌐 Making API request to fetch document:', apiUrl)
         console.log('🌐 Full URL will be:', window.location.origin + apiUrl)
-        
+
         const response = await fetch(apiUrl, {
           credentials: 'include',
           headers: {
@@ -568,28 +572,28 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
             'Content-Type': 'application/json'
           }
         })
-        
+
         console.log('🌐 API Response received:', {
           status: response.status,
           statusText: response.statusText,
           ok: response.ok,
           url: response.url
         })
-        
+
         if (response.ok) {
           const documentData = await response.json()
           console.log('✅ Document fetched from API:', documentData)
           setFetchedDocument(documentData)
-          
+
           // Update the Zustand store with the complete document data
           // This ensures the store has the latest data including vectorProperties
           try {
             console.log('🔄 Updating Zustand store with complete fetched document data')
-            
+
             // Find the document in the current documents array and replace it
             const currentDocuments = state.documents
             const documentIndex = currentDocuments.findIndex((d: any) => d.id === documentId)
-            
+
             if (documentIndex >= 0) {
               // Create a new documents array with the updated document
               const updatedDocuments = [...currentDocuments]
@@ -598,7 +602,7 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
                 ...documentData,  // Replace with complete fetched data including vectorProperties
                 id: documentId    // Ensure the document maintains its ID
               }
-              
+
               // Update the store with the new documents array
               setDocuments(updatedDocuments)
               console.log('✅ Successfully updated store with complete document data including vectorProperties')
@@ -627,27 +631,27 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
         setIsLoading(false)
       }
     }
-    
+
     console.log('🚀 [FETCH EFFECT] Starting fetchDocument() call')
     fetchDocument()
   }, [documentId, setDocuments]) // Always fetch when documentId changes
-  
+
   // BACKUP: Also try to fetch document immediately if useEffect doesn't run
   React.useEffect(() => {
     console.log('🆘 [BACKUP FETCH] Backup fetch mechanism triggered')
     console.log('🆘 [BACKUP FETCH] Document state:', { document: !!document, fetchedDocument: !!fetchedDocument, isLoading })
-    
+
     // If no document is found and we're not already loading, try to fetch
     if (!document && !isLoading && documentId) {
       console.log('🆘 [BACKUP FETCH] No document found, triggering backup API fetch')
-      
+
       const backupFetch = async () => {
         setIsLoading(true)
         try {
           const response = await fetch(`/api/v1/documents/${documentId}`, {
             credentials: 'include'
           })
-          
+
           if (response.ok) {
             const documentData = await response.json()
             console.log('✅ [BACKUP FETCH] Document fetched successfully:', documentData.name)
@@ -661,13 +665,13 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
           setIsLoading(false)
         }
       }
-      
+
       backupFetch()
     }
     // Only trigger on documentId or loading state changes, not document object changes
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [documentId, isLoading])
-  
+
   // Only warn if store has documents loaded but our document isn't found
   if (!foundDocument && !isLoading && state.documents.length > 0) {
     console.warn('⚠️ Document not found in store, DocumentId:', documentId)
@@ -677,27 +681,27 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
       documentIds: state.documents.map(d => d.id)
     })
   }
-  
+
   // Get folder path for breadcrumb (full hierarchy)
   const getFolderPath = useCallback((folderId: string | null): Array<{id: string | null, name: string}> => {
     if (!folderId) return [{id: null, name: 'Root'}];
-    
+
     const folder = state.folders.find(f => f.id === folderId);
     if (!folder) return [{id: null, name: 'Root'}];
-    
+
     const parentPath = folder.parentId ? getFolderPath(folder.parentId) : [{id: null, name: 'Root'}];
     return [...parentPath, {id: folder.id, name: folder.name}];
   }, [state.folders]);
-  
+
   const folderPath = getFolderPath(document?.folderId || null)
-  
+
   // Move document handler - PRESERVED
   const handleMoveDocument = useCallback((targetFolderId: string) => {
     if (!document) return
-    
+
     const actualTargetId = targetFolderId === UI_CONSTANTS.ROOT_FOLDER_ID ? null : targetFolderId
     moveDocument(document.id, actualTargetId)
-    
+
     // Navigate to the target folder to show the moved document
     if (actualTargetId) {
       navigateToFolder(actualTargetId)
@@ -706,7 +710,7 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [moveDocument, navigateToFolder])
-  
+
   // Generate sections dynamically from document data
   // Use deep dependency tracking to ensure sections update when AI data changes
   const sections = React.useMemo(() => {
@@ -717,10 +721,10 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
       documentStatus: document?.processing?.currentStatus,
       timestamp: new Date().toISOString()
     });
-    
+
     // Debug logging for sections
     if (document?.content?.sections) {
-      console.log('📚 [SECTIONS DEBUG] Found sections in content:', 
+      console.log('📚 [SECTIONS DEBUG] Found sections in content:',
         document.content.sections.map(s => ({
           title: s.title,
           contentLength: s.content?.length || 0,
@@ -728,16 +732,16 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
         }))
       );
     }
-    
-    const generatedSections = generateSectionsFromDocument(document);
-    console.log('📚 [SECTIONS DEBUG] Generated sections:', 
+
+    const generatedSections = generateSectionsFromDocument(document ?? null);
+    console.log('📚 [SECTIONS DEBUG] Generated sections:',
       generatedSections.map(s => ({
         id: s.id,
         title: s.title,
         contentLength: s.content?.length || 0
       }))
     );
-    
+
     return generatedSections;
   }, [
     document?.id,
@@ -767,7 +771,13 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [document?.id, document?.name])
   const [isEditing, setIsEditing] = useState(false)
-  const [pendingChanges, setPendingChanges] = useState<any>({})
+  const [pendingChanges, setPendingChanges] = useState<Partial<Document>>({})
+  const [sectionEdits, setSectionEdits] = useState<Record<string, string>>({})
+  const applyDocumentToStore = (id: string, patch: Partial<Document>) => {
+    const current = useDocumentChatStore.getState().documents.documents;
+    setDocuments(current.map(item => item.id === id ? { ...item, ...patch } : item));
+  }
+
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
   const [useStableEditor, setUseStableEditor] = useState(false)
   const [isPreviewMode, setIsPreviewMode] = useState(false)
@@ -777,7 +787,7 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
   const [isUploadingFile, setIsUploadingFile] = useState(false)
   const [isVectorizing, setIsVectorizing] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
-  
+
   // Get file manager services
   const { fileOps, isUploading } = useFileManager()
   const [leftSidebarOpen, setLeftSidebarOpen] = useState(true)
@@ -790,18 +800,18 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
   // Only set isAnalyzing to true when explicitly triggered by user action
   // NOT automatically based on document status to prevent infinite polling loops
   const [isAnalyzing, setIsAnalyzing] = useState(false)
-  
+
   // Emergency stop for polling - set this to true to force stop all polling
   const [forceStopPolling, setForceStopPolling] = useState(false)
-  
+
   // Track if we've already notified about analysis completion to prevent duplicates
   const [hasNotifiedCompletion, setHasNotifiedCompletion] = useState(false)
-  
+
   // Reset notification flag when document changes
   useEffect(() => {
     setHasNotifiedCompletion(false)
   }, [document?.id])
-  
+
   // Component mount/unmount logging
   React.useEffect(() => {
     console.log('🏗️ DocumentDetailsView mounted for document:', document?.id)
@@ -826,7 +836,7 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
     currentStep?: string
     estimatedCompletion?: string
   }>({ progress: 0 })
-  
+
   // Check if document is processing on mount/refresh
   useEffect(() => {
     if (document && document.processing?.currentStatus === 'PROCESSING' && !isAnalyzing) {
@@ -850,7 +860,7 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
       console.log('❌ [ANALYSIS START] No document available');
       return;
     }
-    
+
     // Check if document has extracted text available
     const hasExtractedText = document.extractedText;
     if (!hasExtractedText) {
@@ -872,25 +882,25 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
     setIsAnalyzing(true)
     setHasNotifiedCompletion(false) // Reset notification flag for new analysis
     console.log('🔄 [ANALYSIS START] setIsAnalyzing(true) called, should trigger ProcessingProgress visibility');
-    
+
     // Initialize processing status immediately for better UX
     setProcessingStatus({
       progress: 0,
       currentStep: 'Initializing AI analysis...',
       estimatedCompletion: new Date(Date.now() + 2 * 60 * 1000).toISOString() // 2 minutes estimate
     })
-    
+
     try {
       // Remove intermediate notification - only show final completion
       // notify.info('AI Analysis', `Starting full AI analysis for "${document.name}"...`)
-      
+
       // Update status to show request is being sent
       setProcessingStatus({
         progress: 5,
         currentStep: 'Sending analysis request to server...',
         estimatedCompletion: new Date(Date.now() + 2 * 60 * 1000).toISOString()
       })
-      
+
       const result = await triggerDocumentAnalysis(document.id, {
         includeSecurityAnalysis: true,
         includeEntityExtraction: true,
@@ -905,7 +915,7 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
           currentStep: 'Analysis started on server - processing document...',
           estimatedCompletion: result.estimatedCompletion || new Date(Date.now() + 2 * 60 * 1000).toISOString()
         })
-        
+
         // Add processing history entry for analysis start
         await updateDocumentField({
           processingHistory: [
@@ -927,7 +937,7 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
           source: 'processing',
           debounce: false
         })
-        
+
         console.log('✅ [ANALYSIS START] Analysis triggered successfully, keeping isAnalyzing=true');
         // Remove intermediate notification - only show final completion
         // notify.success('AI Analysis', `Analysis started for "${document.name}". Processing in background...`)
@@ -950,13 +960,13 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
   // Handler for cancelling processing
   const handleCancelProcessing = async () => {
     if (!document) return
-    
+
     setIsCancelling(true)
     try {
       notify.info('Cancelling', `Cancelling processing for "${document.name}"...`)
-      
+
       const result = await cancelDocumentProcessing(document.id)
-      
+
       if (result.success) {
         notify.success('Processing Cancelled', result.message)
         playSound(SoundEffect.SUCCESS)
@@ -984,7 +994,7 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
       const response = await fetch(`/api/v1/documents/${documentId}`, {
         credentials: 'include'
       })
-      
+
       if (response.ok) {
         const documentData = await response.json()
         console.log('✅ Document refreshed from API:', documentData)
@@ -999,11 +1009,11 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
           analysisKeys: documentData.analysis ? Object.keys(documentData.analysis) : []
         })
         setFetchedDocument(documentData)
-        
+
         // Update the Zustand store with the fresh document data
         const currentDocuments = state.documents
         const documentIndex = currentDocuments.findIndex((d: any) => d.id === documentId)
-        
+
         if (documentIndex >= 0) {
           const updatedDocuments = [...currentDocuments]
           updatedDocuments[documentIndex] = {
@@ -1013,7 +1023,7 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
           }
           setDocuments(updatedDocuments)
         }
-        
+
         return documentData
       } else {
         console.error('Failed to refresh document data:', response.statusText)
@@ -1026,18 +1036,18 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
   // Handler for vectorizing document (synchronous)
   const handleVectorizeDocument = useCallback((useBackgroundJob = false) => {
     if (!document) return
-    
+
     // Set loading state immediately
     console.log('🚀 Setting vectorizing state to true...')
     setIsVectorizing(true)
-    
+
     // Start async processing in separate function
     const processVectorization = async () => {
       try {
         console.log('🔄 Starting vectorization process...', { useBackgroundJob })
-        
+
         notify.info('Vectorizing', `${useBackgroundJob ? 'Queueing' : 'Generating'} embeddings for "${document.name}"...`)
-        
+
         // Use the new document-specific endpoint
         const response = await fetch(`/api/v1/documents/${document.id}/vectorize`, {
           method: 'POST',
@@ -1050,36 +1060,36 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
             useBackgroundJob
           })
         })
-        
+
         if (!response.ok) {
           const errorData = await response.json().catch(() => ({}))
           throw new Error(errorData.error || `HTTP ${response.status}`)
         }
-        
+
         const result = await response.json()
-        
+
         if (result.success) {
           if (useBackgroundJob) {
             // Background job queued
-            notify.success('Vectorization Queued', 
+            notify.success('Vectorization Queued',
               `Job queued: ${result.jobId}. Processing will complete in background.`)
             playSound(SoundEffect.SUCCESS)
-            
+
             // Start polling for progress updates
             startProgressPolling(result.jobId)
           } else {
             // Synchronous completion
-            notify.success('Vectorization Complete', 
+            notify.success('Vectorization Complete',
               `Generated ${result.embeddings.totalChunks} chunks using ${result.embeddings.model}`)
             playSound(SoundEffect.SUCCESS)
-            
+
             // Update document in store with new embeddings
-            updateDocument(document.id, {
+            applyDocumentToStore(document.id, {
               ...document,
               embeddings: result.embeddings,
-              updatedAt: new Date()
+              updatedAt: new Date().toISOString()
             })
-            
+
             // Refresh document data to ensure consistency
             await refreshDocumentData()
           }
@@ -1088,7 +1098,7 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
         }
       } catch (error) {
         console.error('Error vectorizing document:', error)
-        notify.error('Vectorization Failed', 
+        notify.error('Vectorization Failed',
           error instanceof Error ? error.message : 'Failed to generate embeddings. Please try again.')
         playSound(SoundEffect.ERROR)
       } finally {
@@ -1098,7 +1108,7 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
         }
       }
     }
-    
+
     // Start the async process
     processVectorization()
     // Only depend on document.id to avoid infinite loops
@@ -1108,29 +1118,29 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
   // Progress polling for background jobs
   const startProgressPolling = useCallback((jobId: string) => {
     console.log('📊 Starting progress polling for job:', jobId)
-    
+
     const pollInterval = setInterval(async () => {
       try {
         // Check document processing status
         const response = await fetch(`/api/v1/documents/${document?.id}/status`, {
           credentials: 'include'
         })
-        
+
         if (response.ok) {
           const statusData = await response.json()
           const processing = statusData.processing
-          
+
           if (processing?.currentStatus === 'COMPLETED') {
             clearInterval(pollInterval)
             setIsVectorizing(false)
-            notify.success('Background Vectorization Complete', 
+            notify.success('Background Vectorization Complete',
               `Document "${document?.name}" has been successfully vectorized`)
             playSound(SoundEffect.SUCCESS)
             await refreshDocumentData()
           } else if (processing?.currentStatus === 'FAILED') {
             clearInterval(pollInterval)
             setIsVectorizing(false)
-            notify.error('Background Vectorization Failed', 
+            notify.error('Background Vectorization Failed',
               processing?.error || 'Vectorization job failed')
             playSound(SoundEffect.ERROR)
           } else if (processing?.currentStatus === 'VECTORIZING') {
@@ -1148,7 +1158,7 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
       clearInterval(pollInterval)
       if (isVectorizing) {
         setIsVectorizing(false)
-        notify.warning('Progress Polling Stopped', 
+        notify.warning('Progress Polling Stopped',
           'Background job may still be running. Check document status later.')
       }
     }, 300000) // 5 minutes
@@ -1159,20 +1169,20 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
   // Handler for deleting document vectors
   const handleDeleteVectors = useCallback(async () => {
     if (!document) return
-    
+
     const confirmed = window.confirm(
       `Are you sure you want to delete all vector embeddings for "${document.name}"? This action cannot be undone.`
     )
-    
+
     if (!confirmed) return
-    
+
     setIsVectorizing(true) // Reuse the same loading state
-    
+
     try {
       console.log('🗑️ Deleting vectors for document:', document.id)
-      
+
       notify.info('Deleting Vectors', `Removing embeddings for "${document.name}"...`)
-      
+
       const response = await fetch('/api/v1/vectors/delete', {
         method: 'DELETE',
         headers: {
@@ -1183,24 +1193,24 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
           documentId: document.id
         })
       })
-      
+
       if (!response.ok) {
         const errorData = await response.json()
         throw new Error(errorData.error || `HTTP ${response.status}`)
       }
-      
+
       const result = await response.json()
       console.log('✅ Vectors deleted successfully:', result)
-      
+
       notify.success('Vectors Deleted', `Deleted ${result.deletedCount} embeddings for "${document.name}"`)
       playSound(SoundEffect.SUCCESS)
-      
+
       // Refresh document data to update UI
       await refreshDocumentData()
-      
+
     } catch (error) {
       console.error('Error deleting vectors:', error)
-      notify.error('Deletion Failed', 
+      notify.error('Deletion Failed',
         error instanceof Error ? error.message : 'Failed to delete vectors. Please try again.')
       playSound(SoundEffect.ERROR)
     } finally {
@@ -1209,11 +1219,11 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
     // Only depend on document.id to avoid infinite loops
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [document?.id, refreshDocumentData, notify, playSound])
-  
+
   // Polling function to check analysis progress and update when complete
   React.useEffect(() => {
     let pollInterval: NodeJS.Timeout | null = null
-    
+
     // Emergency stop - force stop all polling if flag is set
     if (forceStopPolling) {
       console.log('🛑 EMERGENCY STOP: Polling forcibly disabled')
@@ -1229,7 +1239,7 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
         forceStopPolling,
         timestamp: new Date().toISOString()
       })
-      
+
       // Only stop polling if document has failed and we weren't already analyzing
       // Allow polling to continue if isAnalyzing is true (user initiated analysis)
       if (document.processing?.currentStatus === 'FAILED' && !isAnalyzing) {
@@ -1241,36 +1251,36 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
         setForceStopPolling(true) // Prevent restart
         return
       }
-      
+
       // If document is completed but we're still analyzing, continue polling (analysis may be in progress)
       if (document.processing?.currentStatus === 'COMPLETED' && isAnalyzing) {
         console.log('📊 Document completed but analysis in progress, continuing polling to check for updates');
       }
-      
+
       pollInterval = setInterval(async () => {
         try {
           console.log('📊 Polling document status for:', document.id)
           const response = await fetch(`/api/v1/documents/${document.id}/status`, {
             credentials: 'include'
           })
-          
+
           if (response.ok) {
             const statusData = await response.json()
             console.log('📊 Analysis progress update:', statusData)
-            
+
             // Update processing status
             setProcessingStatus({
               progress: statusData.processingProgress || 0,
               currentStep: statusData.currentStep,
               estimatedCompletion: statusData.estimatedCompletion
             })
-            
+
             // Check if analysis is complete
             if (statusData.status === 'COMPLETED' && !hasNotifiedCompletion) {
               console.log('✅ Analysis completed! Updating document data...')
               setIsAnalyzing(false)
               setHasNotifiedCompletion(true) // Mark as notified to prevent duplicates
-              
+
               // Add processing history entry for completion
               await updateDocumentField({
                 processingHistory: [
@@ -1287,11 +1297,11 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
                 source: 'processing',
                 debounce: false
               })
-              
+
               // Refresh document data to get latest AI analysis results
               console.log('🔄 [ANALYSIS COMPLETE] Refreshing document data after successful analysis')
               const updatedDoc = await refreshDocumentData()
-              
+
               if (updatedDoc) {
                 console.log('✅ [ANALYSIS COMPLETE] Document refreshed successfully:', {
                   documentId: updatedDoc.id,
@@ -1311,7 +1321,7 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
                 console.warn('⚠️ [ANALYSIS COMPLETE] Document refresh returned null - data may not have updated properly')
                 notify.warning('Analysis Complete', 'Analysis finished but document data may need manual refresh.')
               }
-              
+
               // Clear polling
               if (pollInterval) {
                 clearInterval(pollInterval)
@@ -1322,7 +1332,7 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
               setIsAnalyzing(false)
               notify.error('AI Analysis Failed', (statusData.processing as any)?.error || 'Analysis failed. Please try again.')
               playSound(SoundEffect.ERROR)
-              
+
               // Clear polling
               if (pollInterval) {
                 clearInterval(pollInterval)
@@ -1332,9 +1342,9 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
           }
         } catch (error) {
           console.error('Error polling analysis status:', error)
-          
+
           // If it's a network error, don't stop polling but reduce frequency
-          if (error.message.includes('Failed to fetch') || error.name === 'TypeError') {
+          if (error instanceof Error && (error.message.includes('Failed to fetch') || error.name === 'TypeError')) {
             console.warn('📊 Network error during polling, will retry...')
             // Continue polling but maybe reduce frequency or add exponential backoff
           } else {
@@ -1349,7 +1359,7 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
         }
       }, 3000) // Poll every 3 seconds
     }
-    
+
     // Cleanup polling on unmount or when analysis stops
     return () => {
       if (pollInterval) {
@@ -1359,42 +1369,42 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
       }
     }
   }, [isAnalyzing, document?.id, forceStopPolling])
-  
+
   // Log document source and metadata check
   console.log('📋 DocumentDetailsView Component State:', {
     documentSource: foundDocument ? 'store' : fetchedDocument ? 'api' : 'none',
     documentId: document?.id || 'no-id',
     hasContent: !!(document?.content)
   })
-  
+
   // Section ordering state for drag-and-drop
   const [editableSectionOrder, setEditableSectionOrder] = useState(['contract-details', 'tags-keywords', 'entities'])
   const [nonEditableSectionOrder, setNonEditableSectionOrder] = useState(['ai-analysis', 'security-analysis', 'processing-history', 'vector-analysis'])
-  
+
   // Editing states for document fields - gracefully handles documents without AI data
   const [editableData, setEditableData] = useState(() => ({
-    tags: [], // Will be populated when document loads
+    tags: [] as string[], // Will be populated when document loads
     contractValue: '', // Will be populated when document loads
     deadline: '', // Will be populated when document loads
     documentType: 'OTHER', // Will be populated when document loads
     urgencyLevel: 'medium', // User-defined priority
-    entities: [] // Will be populated when document loads
+    entities: [] as Array<Document['entities']['entities'][number] & { value: string }> // Will be populated when document loads
   }))
 
   // Auto-save state management
   const [savingFields, setSavingFields] = useState<Set<string>>(new Set())
   const autoSaveTimeouts = useRef<Map<string, NodeJS.Timeout>>(new Map())
   const [lastSavedData, setLastSavedData] = useState<typeof editableData>(editableData)
-  
+
   const [editingField, setEditingField] = useState<string | null>(null)
   const [tempValue, setTempValue] = useState<string>('')
-  
+
   // Track document ID to prevent unnecessary resets
   const [lastDocumentId, setLastDocumentId] = React.useState<string | null>(null)
-  
+
   // Local state for AI keywords to prevent UI resets
   const [localAIKeywords, setLocalAIKeywords] = useState<string[]>([])
-  
+
   // Update local AI keywords when document changes (but not when localAIKeywords changes)
   React.useEffect(() => {
     console.log('🔄 Syncing local AI keywords with document:', {
@@ -1404,12 +1414,12 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
       isEditing,
       hasUnsavedChanges
     })
-    
+
     // Sync from document to local state when:
     // 1. NOT editing and no pending changes (normal sync)
     // 2. OR we just saved changes (isEditing but no unsaved changes) - this fixes the real-time update issue
     const shouldSyncKeywords = (!isEditing && !hasUnsavedChanges) || (isEditing && !hasUnsavedChanges)
-    
+
     if (document?.content?.keywords && shouldSyncKeywords) {
       console.log('✅ Syncing keywords from document to local state:', document.content.keywords)
       setLocalAIKeywords([...document.content.keywords])
@@ -1419,37 +1429,7 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
       setLocalAIKeywords([])
     }
   }, [document?.content?.keywords, document?.id, isEditing, hasUnsavedChanges])
-  
-  // Track entities changes to update store
-  const [previousEntities, setPreviousEntities] = React.useState<any[]>([])
-  
-  // Update store when entities change (but not during initial load)
-  React.useEffect(() => {
-    if (document && editableData.entities.length > 0 && JSON.stringify(editableData.entities) !== JSON.stringify(previousEntities)) {
-      console.log(`🔄 Entities changed, updating store`, editableData.entities)
-      
-      // CRITICAL FIX: Merge entities update with existing document data
-      const existingDoc = findDocument(document.id)
-      if (existingDoc) {
-        updateDocument(document.id, {
-          ...existingDoc, // Preserve all existing fields
-          entities: {
-            entities: editableData.entities
-          },
-          lastModified: new Date().toISOString()
-        })
-      } else {
-        // Fallback to partial update if document not in store
-        updateDocument(document.id, {
-          entities: {
-            entities: editableData.entities
-          }
-        })
-      }
-      setPreviousEntities([...editableData.entities])
-    }
-  }, [editableData.entities, document, updateDocument, previousEntities, findDocument])
-  
+
   // Update editable data when document changes or is first loaded
   React.useEffect(() => {
     // Early return if document is not available to prevent property access errors
@@ -1457,14 +1437,14 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
       console.log('🎯 useEffect: Document not available, skipping editableData update')
       return
     }
-    
+
     console.log('🎯 useEffect triggered for editableData update:', {
       hasDocument: !!document,
       documentId: document?.id,
       lastDocumentId,
       shouldUpdate: document && (document.id !== lastDocumentId || !lastDocumentId)
     })
-    
+
     if (document && (document.id !== lastDocumentId || !lastDocumentId)) {
       console.log(`🔄 New document loaded, updating editableData. Document ID:`, document.id)
       console.log('📊 Document analysis structure:', {
@@ -1478,46 +1458,46 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
         directDeadline: document.deadline,
         documentType: document.documentType
       })
-      
+
       setEditableData({
         tags: document.tags || [], // User tags from database
-        contractValue: document.analysis?.contract?.estimatedValue || 
-                      document.analysis?.contractAnalysis?.estimatedValue || 
+        contractValue: document.analysis?.contract?.estimatedValue ||
+                      document.analysis?.contractAnalysis?.estimatedValue ||
                       document.contractValue || '', // From AI contract analysis or alternative sources
-        deadline: document.analysis?.contract?.deadlines?.[0] || 
-                 document.analysis?.contract?.timeline || 
+        deadline: document.analysis?.contract?.deadlines?.[0] ||
+                 document.analysis?.contract?.timeline ||
                  document.deadline || '', // From AI contract analysis or alternative sources
         documentType: document.documentType || 'OTHER', // Basic document type from database
         urgencyLevel: 'medium', // User-defined priority
         entities: document.entities?.entities?.map(entity => ({
-          type: entity.type,
+          ...entity,
+            type: entity.type,
           value: entity.text
         })) || [] // AI-extracted entities (empty if not processed)
       })
-      
+
+      setSectionEdits({});
+      setPendingChanges({});
+      setHasUnsavedChanges(false);
       setLastDocumentId(document.id)
-      setPreviousEntities([...(document.entities?.entities?.map(entity => ({
-        type: entity.type,
-        value: entity.text
-      })) || [])])
-      
       // Update last saved data to match initial document state
       setLastSavedData({
         tags: document.tags || [],
-        contractValue: document.analysis?.contract?.estimatedValue || 
-                      document.analysis?.contractAnalysis?.estimatedValue || 
+        contractValue: document.analysis?.contract?.estimatedValue ||
+                      document.analysis?.contractAnalysis?.estimatedValue ||
                       document.contractValue || '',
-        deadline: document.analysis?.contract?.deadlines?.[0] || 
-                 document.analysis?.contract?.timeline || 
+        deadline: document.analysis?.contract?.deadlines?.[0] ||
+                 document.analysis?.contract?.timeline ||
                  document.deadline || '',
         documentType: document.documentType || 'OTHER',
         urgencyLevel: 'medium',
         entities: document.entities?.entities?.map(entity => ({
-          type: entity.type,
+          ...entity,
+            type: entity.type,
           value: entity.text
         })) || []
       })
-      
+
     } else if (document && document.id === lastDocumentId) {
     }
     // Only trigger when document ID changes, not when document object reference changes
@@ -1532,7 +1512,7 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
       autoSaveTimeouts.current.clear()
     }
   }, [])
-  
+
   React.useEffect(() => {
     const checkMobile = () => {
       const mobile = window.innerWidth < 768
@@ -1542,7 +1522,7 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
         setRightSidebarOpen(false)
       }
     }
-    
+
     checkMobile()
     window.addEventListener('resize', checkMobile)
     return () => window.removeEventListener('resize', checkMobile)
@@ -1558,9 +1538,9 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
             setRightPanelWidth(width)
           }
         })
-        
+
         resizeObserver.observe(rightPanelRef.current)
-        
+
         // Set initial width with a slight delay to ensure proper measurement
         setTimeout(() => {
           if (rightPanelRef.current) {
@@ -1569,7 +1549,7 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
             setRightPanelWidth(initialWidth)
           }
         }, 100)
-        
+
         return resizeObserver
       }
     }
@@ -1581,7 +1561,7 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
       }
     }
   }, [rightSidebarOpen])
-  
+
   React.useEffect(() => {
     if (isEditingTitle && titleInputRef.current) {
       titleInputRef.current.focus()
@@ -1594,7 +1574,7 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
 
   // Track if the section change was user-initiated or automatic
   const [lastUserSelectedSectionId, setLastUserSelectedSectionId] = React.useState<string | null>(null)
-  
+
   // TODO: Replace with PlateEditor logic
   // React.useEffect(() => {
   //   if (editor && selectedSection) {
@@ -1603,10 +1583,10 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
   //     const currentContent = editor.getHTML()
   //     const isContentEmpty = currentContent === '<p></p>' || currentContent.trim() === ''
   //     const isUserSelection = selectedSection.id === lastUserSelectedSectionId
-  //     
+  //
   //     // Update editor content only when:
   //     // 1. User explicitly selected a section, OR
-  //     // 2. Editor is empty and needs initial content, OR  
+  //     // 2. Editor is empty and needs initial content, OR
   //     // 3. Selected section content is significantly different from editor content
   //     if (isUserSelection || isContentEmpty || currentContent !== selectedSection.content) {
   //       console.log('📝 Setting editor content for section:', selectedSection.id, {
@@ -1644,111 +1624,59 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
       {children}
     </Button>
   )
-  
+
   const handleTitleSubmit = async () => {
     setIsEditingTitle(false)
     if (document && documentTitle !== document.name) {
       await handleSaveDocument()
     }
   }
-  
+
   const handleSaveDocument = async (overrideData?: Partial<typeof editableData>) => {
     if (!document) return
-    
+
     // Use override data if provided, otherwise use current state
     const dataToSave = overrideData ? { ...editableData, ...overrideData } : editableData
-    
+
     console.log('💾 Saving document with data:', {
       contractValue: dataToSave.contractValue,
       deadline: dataToSave.deadline
     })
-    
+
     try {
-      // TODO: Replace with PlateEditor content handling
-      let updatedSections = null
-      // if (editor && selectedSection) {
-      //   const currentEditorContent = editor.getHTML()
-      //   console.log('📝 Current editor content:', currentEditorContent)
-      //   console.log('📝 Selected section:', selectedSection.id)
-      //   console.log('📝 Is editing:', isEditing)
-      //   
-      //   // Update the sections with the current editor content if there's any content
-      //   const sections = document.content?.sections || []
-      //   if (sections.length > 0) {
-      //     updatedSections = sections.map((section, index) => {
-      //       // Create section with ID to match UI structure
-      //       const sectionWithId = {
-      //         id: String(index + 1),
-      //         title: section.title,
-      //         content: section.content,
-      //         pageNumber: section.pageNumber
-      //       }
-      //       
-      //       // Update the selected section with current editor content
-      //       if (sectionWithId.id === selectedSection.id) {
-      //         console.log('📝 Updating section:', sectionWithId.id, 'with new content')
-      //         return {
-      //           ...sectionWithId,
-      //           content: currentEditorContent
-      //         }
-      //       }
-      //       return sectionWithId
-      //     })
-      //     
-      //     console.log('📝 Updated sections with editor content:', updatedSections)
-      //   }
-      // }
-      
+      const updatedSections = Object.keys(sectionEdits).length
+        ? applySectionEdits(document.content?.sections ?? [], sectionEdits)
+        : null;
+
       // Prepare the payload for the API
       const payload: any = {
-        name: documentTitle,
+        name: documentTitle === removeFileExtension(document.name) ? document.name : documentTitle,
         documentType: dataToSave.documentType,
+        tags: dataToSave.tags,
         description: document.description, // Preserve existing description
         entities: dataToSave.entities // Add entities to payload
       }
-      
+
       // Always include contract analysis to preserve existing data
       payload.analysis = {
         ...document.analysis,
         contract: {
           ...document.analysis?.contract,
-          estimatedValue: dataToSave.contractValue || document.analysis?.contract?.estimatedValue || '',
-          deadlines: dataToSave.deadline ? [dataToSave.deadline] : document.analysis?.contract?.deadlines || []
+          estimatedValue: dataToSave.contractValue,
+          deadlines: dataToSave.deadline ? [dataToSave.deadline] : []
         }
       }
-      
+
       // Include updated sections if editor content was modified
+      if (pendingChanges.content) payload.content = { ...document.content, ...pendingChanges.content };
       if (updatedSections && document.content) {
-        // Convert UI sections back to database sections format
-        const databaseSections = updatedSections.map(section => {
-          // Extract title from HTML content if it starts with <h2>
-          let title = section.title
-          let content = section.content
-          
-          // If content starts with <h2>, extract the title and remove it from content
-          const h2Match = content.match(/^<h2[^>]*>([^<]+)<\/h2>/)
-          if (h2Match) {
-            title = h2Match[1]
-            content = content.replace(/^<h2[^>]*>[^<]+<\/h2>/, '').trim()
-          }
-          
-          return {
-            title: title,
-            content: content,
-            pageNumber: 1 // Default page number
-          }
-        })
-        
-        payload.content = {
-          ...document.content,
-          sections: databaseSections
-        }
-        
+        const databaseSections = updatedSections;
+        payload.content = { ...document.content, ...pendingChanges.content, sections: databaseSections };
         console.log('📝 Including updated sections in payload:', databaseSections)
       }
-      
+
       console.log('📤 Sending PATCH request to update document:', document.id)
-      
+
       // Update the document via API using PATCH for partial updates
       const response = await fetch(`/api/v1/documents/${document.id}`, {
         method: 'PATCH',
@@ -1758,24 +1686,27 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
         credentials: 'include',
         body: JSON.stringify(payload),
       })
-      
+
       if (!response.ok) {
         throw new Error('Failed to update document')
       }
-      
+
       const result = await response.json()
       console.log('📥 API Response:', result)
-      
+
+      if (!result.success || !result.document) {
+        throw new Error(result.error || 'The server did not confirm the document update');
+      }
       if (result.success && result.document) {
         // Use the full document data from the API response
         const updatedDoc = result.document
-        
+
         console.log('🔄 PATCH Response - Full Updated Document:', updatedDoc)
         console.log('🔍 PATCH Response - Key Fields Check:', {
           tags: updatedDoc.tags,
           contractAnalysis: updatedDoc.analysis?.contractAnalysis
         })
-        
+
         // CRITICAL FIX: Create a complete merged document that preserves all data
         const completeUpdatedDoc = {
           ...document, // Start with current document (preserves all existing fields)
@@ -1787,9 +1718,9 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
           processing: updatedDoc.processing || document.processing,
           lastModified: new Date().toISOString()
         }
-        
+
         console.log('📝 Content sections in response:', completeUpdatedDoc.content?.sections)
-        
+
         console.log('🔍 Complete merged document:', {
           hasContent: !!completeUpdatedDoc.content,
           hasSections: !!completeUpdatedDoc.content?.sections?.length,
@@ -1797,51 +1728,38 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
           sectionsCount: completeUpdatedDoc.content?.sections?.length || 0,
           analysisKeys: completeUpdatedDoc.analysis ? Object.keys(completeUpdatedDoc.analysis) : []
         })
-        
+
         // Update fetchedDocument with complete merged data
         setFetchedDocument(completeUpdatedDoc)
-        
-        // Update the store with complete document data
-        const existingDoc = findDocument(document.id)
-        if (existingDoc) {
-          await updateDocument(document.id, {
-            ...existingDoc, // Preserve all existing fields
-            ...completeUpdatedDoc, // Apply all updates
-            // Ensure specific fields are properly updated
-            name: completeUpdatedDoc.name,
-            tags: completeUpdatedDoc.tags,
-            documentType: completeUpdatedDoc.documentType,
-            content: completeUpdatedDoc.content,
-            analysis: completeUpdatedDoc.analysis,
-            entities: completeUpdatedDoc.entities,
-            lastModified: completeUpdatedDoc.lastModified
-          })
-        } else {
-          // If document not in store, add it with complete data
-          await updateDocument(document.id, completeUpdatedDoc)
-        }
-        
+
+        // The PATCH above already persisted the update. Refresh local state only.
+        const currentDocuments = useDocumentChatStore.getState().documents.documents;
+        setDocuments(currentDocuments.some(item => item.id === document.id)
+          ? currentDocuments.map(item => item.id === document.id ? completeUpdatedDoc : item)
+          : [...currentDocuments, completeUpdatedDoc]);
+
         // CRITICAL FIX: Update editableData using the complete merged document
         setEditableData(prev => ({
           ...prev, // Preserve all existing editable data
           // Update fields from the complete merged document
           tags: completeUpdatedDoc.tags || prev.tags || [],
           documentType: completeUpdatedDoc.documentType || prev.documentType || 'OTHER',
-          contractValue: completeUpdatedDoc.analysis?.contractAnalysis?.estimatedValue || 
-                        completeUpdatedDoc.analysis?.contract?.estimatedValue || 
+          contractValue: completeUpdatedDoc.analysis?.contractAnalysis?.estimatedValue ||
+                        completeUpdatedDoc.analysis?.contract?.estimatedValue ||
                         prev.contractValue || '',
-          deadline: completeUpdatedDoc.analysis?.contractAnalysis?.deadlines?.[0] || 
-                   completeUpdatedDoc.analysis?.contract?.deadlines?.[0] || 
+          deadline: completeUpdatedDoc.analysis?.contractAnalysis?.deadlines?.[0] ||
+                   completeUpdatedDoc.analysis?.contract?.deadlines?.[0] ||
                    prev.deadline || '',
           entities: completeUpdatedDoc.entities?.entities?.map((entity: any) => ({
+            ...entity,
             type: entity.type,
             value: entity.text
           })) || prev.entities || []
         }))
-        
+
         console.log('✅ UI State Updated - Document should now display fresh PATCH data')
       }
-      
+
       // If we updated sections and there's a selected section, update the current section content
       if (updatedSections && selectedSection) {
         const updatedSection = updatedSections.find(s => s.id === selectedSection.id)
@@ -1850,8 +1768,10 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
           setSelectedSection(updatedSection)
         }
       }
-      
+
       // Show success notification
+      setSectionEdits({});
+      setHasUnsavedChanges(false);
       notify.success('Document Saved', 'All changes have been saved to the database.')
       console.log('✅ Document saved successfully and store updated')
     } catch (err) {
@@ -1859,12 +1779,12 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
       notify.error('Failed to Save Document', 'Please check your connection and try again.')
     }
   }
-  
+
   const handleTitleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
       handleTitleSubmit()
     } else if (e.key === 'Escape') {
-      setDocumentTitle(removeFileExtension(document.name))
+      setDocumentTitle(removeFileExtension(document?.name ?? ''))
       setIsEditingTitle(false)
     }
   }
@@ -1922,44 +1842,44 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
     // Reset input
     event.target.value = ''
   }
-  
+
   // Field editing handlers
   const startEditing = (field: string, currentValue: string = '') => {
     console.log(`✏️ Starting edit for field '${field}' with current value:`, currentValue)
     setEditingField(field)
     setTempValue(currentValue)
   }
-  
+
   const saveField = (field: string) => {
     console.log(`🔄 saveField called for '${field}' with tempValue:`, tempValue)
-    
+
     let newValue: any
-    
+
     if (field === 'tags') {
       newValue = tempValue.split(',').map(item => item.trim()).filter(item => item)
     } else if (field === 'entities') {
-      newValue = value // Entities are passed directly as an array
+      return // Entity arrays are handled by the dedicated entity editor
     } else {
       newValue = tempValue
     }
-    
+
     // Close editing mode immediately
     setEditingField(null)
     setTempValue('')
-    
+
     // Store change in pending changes - will save when user clicks Save
     setPendingChanges(prev => ({ ...prev, [field]: newValue }))
     setHasUnsavedChanges(true)
   }
-  
+
   // cancelEditing function moved below - see comprehensive version with pending changes handling
 
   const saveFieldDirectly = (field: string, value: any) => {
     console.log(`🔄 saveFieldDirectly called for '${field}' with value:`, value)
-    
+
     // Update local state immediately
     setEditableData(prev => ({ ...prev, [field]: value }))
-    
+
     // Store change in pending changes - will save when user clicks Save
     setPendingChanges(prev => ({ ...prev, [field]: value }))
     setHasUnsavedChanges(true)
@@ -1968,16 +1888,17 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
   const updateAIKeywords = (updatedKeywords: string[]) => {
     console.log(`🔄 updateAIKeywords called with:`, updatedKeywords)
     console.log('Current localAIKeywords before update:', localAIKeywords)
-    
+
     // Only update local state for UI feedback - no API calls during editing
     setLocalAIKeywords(updatedKeywords)
     console.log('✅ setLocalAIKeywords called with:', updatedKeywords)
-    
+
     // Track as pending change
     setPendingChanges(prev => {
       const newChanges = {
         ...prev,
         content: {
+          ...document!.content,
           ...prev.content,
           keywords: updatedKeywords
         }
@@ -1991,15 +1912,15 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
 
   const updateAIKeywordsImmediate = async (updatedKeywords: string[]) => {
     console.log(`🚀 updateAIKeywordsImmediate called with:`, updatedKeywords)
-    
+
     if (!document?.id) {
       console.error('❌ No document ID available for immediate save')
       return
     }
-    
+
     // Update local state immediately for UI feedback
     setLocalAIKeywords(updatedKeywords)
-    
+
     try {
       // Save immediately to database
       const response = await fetch(`/api/v1/documents/${document.id}`, {
@@ -2011,21 +1932,21 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
           }
         })
       })
-      
+
       if (!response.ok) {
         const errorText = await response.text()
         console.error('❌ Immediate keywords save failed:', response.status, errorText)
         throw new Error(`Save failed: ${response.status} - ${errorText}`)
       }
-      
+
       const responseData = await response.json()
       console.log('✅ Keywords saved immediately to database')
-      
+
       // Update store with response to keep everything in sync
       if (responseData.document) {
-        updateDocument(document.id, responseData.document)
+        applyDocumentToStore(document.id, responseData.document)
       }
-      
+
     } catch (error) {
       console.error('❌ Error saving keywords immediately:', error)
       // Revert local state on error
@@ -2033,48 +1954,48 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
       // Could show a toast notification here if available
     }
   }
-  
+
   const saveAllChanges = async () => {
     if (!document || !document.id || !hasUnsavedChanges) {
       console.log('🔄 No changes to save')
       return
     }
-    
+
     console.log('💾 Saving all pending changes:', pendingChanges)
-    
+
     try {
       const response = await fetch(`/api/v1/documents/${document.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(pendingChanges)
       })
-      
+
       if (!response.ok) {
         const errorText = await response.text()
         console.error('❌ Save failed:', response.status, errorText)
         throw new Error(`Save failed: ${response.status} - ${errorText}`)
       }
-      
+
       const responseData = await response.json()
       console.log('✅ All changes saved successfully')
-      
+
       // Update store with response
       if (responseData.document) {
-        updateDocument(document.id, responseData.document)
+        applyDocumentToStore(document.id, responseData.document)
       }
-      
+
       // Clear pending changes
       setPendingChanges({})
       setHasUnsavedChanges(false)
-      
+
       // Show success message
       if (notify) {
         notify.success('Changes saved successfully!')
       }
-      
+
       // Exit editing mode
       setIsEditing(false)
-      
+
     } catch (error) {
       console.error('❌ Failed to save changes:', error)
       if (notify) {
@@ -2082,36 +2003,37 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
       }
     }
   }
-  
+
   const cancelEditing = () => {
     console.log('❌ Canceling editing mode')
-    
+
     // Revert all local changes
     if (document) {
       setLocalAIKeywords(document.content?.keywords || [])
       setEditableData({
         tags: document.tags || [],
-        contractValue: document.analysis?.contract?.estimatedValue || 
-                      document.analysis?.contractAnalysis?.estimatedValue || 
+        contractValue: document.analysis?.contract?.estimatedValue ||
+                      document.analysis?.contractAnalysis?.estimatedValue ||
                       document.contractValue || '',
-        deadline: document.analysis?.contract?.deadlines?.[0] || 
-                 document.analysis?.contract?.timeline || 
+        deadline: document.analysis?.contract?.deadlines?.[0] ||
+                 document.analysis?.contract?.timeline ||
                  document.deadline || '',
         documentType: document.documentType || 'OTHER',
         urgencyLevel: 'medium',
         entities: document.entities?.entities?.map(entity => ({
-          type: entity.type,
+          ...entity,
+            type: entity.type,
           value: entity.text
         })) || []
       })
     }
-    
+
     // Clear all pending changes
     setPendingChanges({})
     setHasUnsavedChanges(false)
     setEditingField(null)
     setTempValue('')
-    
+
     // Exit editing mode
     setIsEditing(false)
   }
@@ -2120,16 +2042,16 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
    * FUTURE-READY: Centralized document update function for all field types
    * Supports user edits, AI analysis updates, security analysis, processing history, and vector properties
    * Designed to handle both immediate (AI/system) and debounced (user) updates
-   * 
+   *
    * USAGE EXAMPLES:
-   * 
+   *
    * 1. User field update (current functionality):
    *    await updateDocumentField({
    *      field: 'tags',
    *      value: ['contract', 'proposal'],
    *      source: 'user'
    *    })
-   * 
+   *
    * 2. AI analysis update (future):
    *    await updateDocumentField({
    *      aiAnalysis: {
@@ -2139,7 +2061,7 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
    *      source: 'ai',
    *      debounce: false  // AI updates are immediate
    *    })
-   * 
+   *
    * 3. Security analysis update (future):
    *    await updateDocumentField({
    *      securityAnalysis: {
@@ -2151,7 +2073,7 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
    *      source: 'security',
    *      debounce: false
    *    })
-   * 
+   *
    * 4. Processing history update (future):
    *    await updateDocumentField({
    *      processingHistory: [{
@@ -2163,7 +2085,7 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
    *      source: 'processing',
    *      debounce: false
    *    })
-   * 
+   *
    * 5. Batch update (multiple fields at once):
    *    await updateDocumentField({
    *      batchUpdates: {
@@ -2172,7 +2094,7 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
    *      source: 'batch',
    *      debounce: false
    *    })
-   * 
+   *
    * 6. Vector properties update (future AI integration):
    *    await updateDocumentField({
    *      aiAnalysis: {
@@ -2190,7 +2112,7 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
     // User-editable fields (current functionality)
     field?: string
     value?: any
-    
+
     // AI-driven update payload (for future AI analysis updates)
     aiAnalysis?: {
       content?: any           // AI content analysis updates
@@ -2199,7 +2121,7 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
       complianceCheck?: any   // AI compliance analysis
       vectorProperties?: any  // AI vector analysis
     }
-    
+
     // Security analysis updates (for future security tools)
     securityAnalysis?: {
       classification?: string
@@ -2208,7 +2130,7 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
       complianceStatus?: string
       redactionNeeded?: boolean
     }
-    
+
     // Processing history updates (for future processing tracking)
     processingHistory?: Array<{
       timestamp: string
@@ -2216,41 +2138,41 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
       success: boolean
       details?: any
     }>
-    
+
     // Batch updates (for multiple field updates at once)
     batchUpdates?: Record<string, any>
-    
+
     // Update source tracking
     source?: 'user' | 'ai' | 'security' | 'processing' | 'batch'
-    
+
     // Debounce control (user updates get debounced, AI/system updates are immediate)
     debounce?: boolean
   }) => {
     if (!document) return
-    
-    const { 
-      field, 
-      value, 
-      aiAnalysis, 
-      securityAnalysis, 
-      processingHistory, 
-      batchUpdates, 
-      source = 'user', 
-      debounce = source === 'user' 
+
+    const {
+      field,
+      value,
+      aiAnalysis,
+      securityAnalysis,
+      processingHistory,
+      batchUpdates,
+      source = 'user',
+      debounce = source === 'user'
     } = updates
-    
-    console.log(`🔄 Document update triggered:`, { 
-      field, 
-      source, 
-      hasAiAnalysis: !!aiAnalysis, 
+
+    console.log(`🔄 Document update triggered:`, {
+      field,
+      source,
+      hasAiAnalysis: !!aiAnalysis,
       hasSecurityAnalysis: !!securityAnalysis,
       hasProcessingHistory: !!processingHistory,
-      hasBatchUpdates: !!batchUpdates 
+      hasBatchUpdates: !!batchUpdates
     })
-    
+
     // Determine update key for timeout management
     const updateKey = field || `${source}_${Date.now()}`
-    
+
     // Handle debouncing for user updates
     if (debounce) {
       const existingTimeout = autoSaveTimeouts.current.get(updateKey)
@@ -2259,7 +2181,7 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
       }
       setSavingFields(prev => new Set([...prev, updateKey]))
     }
-    
+
     // Update local state immediately for user field updates
     if (source === 'user' && field && value !== undefined) {
       setEditableData(prev => {
@@ -2272,21 +2194,21 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
       // Use existing document as base to preserve all other fields
       const existingDoc = findDocument(document.id)
       if (existingDoc) {
-        updateDocument(document.id, { 
+        applyDocumentToStore(document.id, {
           ...existingDoc, // Preserve all existing fields
           [field]: value, // Apply the immediate update
           lastModified: new Date().toISOString()
         })
       } else {
         // Fallback to partial update if document not in store
-        updateDocument(document.id, { [field]: value })
+        applyDocumentToStore(document.id, { [field]: value })
       }
     }
-    
+
     // Build update payload based on update type and source
     const buildUpdatePayload = () => {
       let saveData: any = {}
-      
+
       // Handle user field updates (current functionality)
       if (source === 'user' && field && value !== undefined) {
         if (field === 'documentType') {
@@ -2311,7 +2233,7 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
           saveData.entities = Array.isArray(value) ? value : []
         }
       }
-      
+
       // Handle AI analysis updates (future AI integration)
       if (aiAnalysis) {
         if (aiAnalysis.content) {
@@ -2330,7 +2252,7 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
           saveData.embeddings = { ...saveData.embeddings, ...aiAnalysis.vectorProperties }
         }
       }
-      
+
       // Handle security analysis updates (future security tools)
       if (securityAnalysis) {
         if (securityAnalysis.classification) {
@@ -2339,74 +2261,55 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
         // Full security analysis object
         saveData.securityAnalysis = securityAnalysis
       }
-      
-      // Handle processing history updates (append new entries to existing history in processing)
-      if (processingHistory) {
-        const existingHistory = document.processing?.history || []
-        const existingProcessing = document.processing || {}
-        console.log('🔄 [PROCESSING HISTORY] Appending new entries:', {
-          existingHistoryLength: existingHistory.length,
-          newEntriesLength: processingHistory.length,
-          existingEntries: existingHistory.map(e => `${e.event} (${e.timestamp})`),
-          newEntries: processingHistory.map(e => `${e.event} (${e.timestamp})`),
-          documentHasProcessing: !!document.processing,
-          documentId: document.id
-        })
-        const combinedHistory = [...existingHistory, ...processingHistory]
-        saveData.processing = { 
-          ...existingProcessing, 
-          history: combinedHistory
-        }
-        saveData.source = source // Add source to help API endpoint debugging
-        console.log('🔄 [PROCESSING HISTORY] Final combined history:', combinedHistory.map(e => `${e.event} (${e.timestamp})`))
-        console.log('🔄 [PROCESSING HISTORY] Final saveData.processing:', saveData.processing)
-      }
-      
+
+      // Processing events are persisted by the server job; clients refresh them from the response.
+
       // Handle batch updates (multiple fields at once)
       if (batchUpdates) {
         saveData = { ...saveData, ...batchUpdates }
       }
-      
+
       return saveData
     }
-    
+
     // Execute the save operation
     const executeSave = async () => {
       try {
         console.log(`💾 Updating document from ${source}...`)
-        
+
         const saveData = buildUpdatePayload()
-        
+
         if (Object.keys(saveData).length === 0) {
           console.warn('No data to save, skipping update')
           return
         }
-        
+
         // CRITICAL FIX: Add race condition protection
         // Store current document state before API call to detect if it changed during the request
         const documentStateBeforeApi = findDocument(document.id)
-        
+
         console.log(`💾 Sending update request with data:`, saveData)
         console.log(`💾 Document ID:`, document.id)
         console.log(`💾 Request URL:`, `/api/v1/documents/${document.id}`)
-        
+
         let requestBody: string
         try {
           requestBody = JSON.stringify(saveData)
           console.log(`💾 Request body:`, requestBody)
-        } catch (stringifyError) {
+        } catch (caughtStringifyerror) {
+      const stringifyError = normalizeError(caughtStringifyerror);
           console.error('❌ Failed to stringify save data:', stringifyError)
           console.error('❌ Save data causing issues:', saveData)
           throw new Error(`Failed to prepare request data: ${stringifyError.message}`)
         }
-        
+
         const response = await fetch(`/api/v1/documents/${document.id}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
           body: requestBody
         })
-        
+
         console.log(`💾 Response status:`, response.status)
         console.log(`💾 Response statusText:`, response.statusText)
         console.log(`💾 Response headers:`, Object.fromEntries(response.headers.entries()))
@@ -2418,17 +2321,17 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
 
           // CRITICAL FIX: Race condition protection - check if document changed during API call
           const currentDocumentState = findDocument(document.id)
-          const documentChangedDuringRequest = currentDocumentState && 
-            documentStateBeforeApi && 
+          const documentChangedDuringRequest = currentDocumentState &&
+            documentStateBeforeApi &&
             currentDocumentState.lastModified !== documentStateBeforeApi.lastModified
-          
+
           if (documentChangedDuringRequest) {
             console.warn('⚠️ Document was modified during API request, using careful merge to prevent data loss')
           }
 
           // Update fetchedDocument with fresh data
           setFetchedDocument(updatedDoc.document)
-          
+
           // CRITICAL FIX: Merge updated data with existing document instead of replacing
           // Use the most current document state for merging to prevent race conditions
           const existingDoc = findDocument(document.id)
@@ -2442,10 +2345,10 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
             aiData: updatedDoc.document.aiData || existingDoc?.aiData,
             lastModified: new Date().toISOString()
           }
-          
+
           // Update the document in the store with merged data
-          updateDocument(document.id, mergedDocument)
-          
+          applyDocumentToStore(document.id, mergedDocument)
+
           // Update local editableData for user updates with proper data preservation
           if (source === 'user') {
             setEditableData(prev => ({
@@ -2454,8 +2357,8 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
               ...(updatedDoc.document.tags !== undefined && {
                 tags: updatedDoc.document.tags || []
               }),
-              ...(updatedDoc.document.documentType !== undefined && { 
-                documentType: updatedDoc.document.documentType || 'OTHER' 
+              ...(updatedDoc.document.documentType !== undefined && {
+                documentType: updatedDoc.document.documentType || 'OTHER'
               }),
               // Preserve contract analysis values if available
               ...(updatedDoc.document.analysis?.contractAnalysis?.estimatedValue !== undefined && {
@@ -2467,29 +2370,30 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
               // Preserve entities if available
               ...(updatedDoc.document.analysis?.entities !== undefined && {
                 entities: updatedDoc.document.analysis.entities.map((entity: any) => ({
-                  type: entity.type,
+                  ...entity,
+            type: entity.type,
                   value: entity.text
                 })) || prev.entities // Fallback to previous entities
               })
             }))
-            
+
             // Update last saved data for user updates
             if (field) {
               setLastSavedData(prev => ({ ...prev, [field]: value }))
             }
           }
-          
+
         } else {
           let errorData: any = {}
           let errorText = ''
-          
+
           console.error(`❌ API Request failed with status:`, response.status, response.statusText)
-          
+
           try {
             const responseText = await response.text()
             errorText = responseText
             console.error(`❌ Raw response text:`, responseText)
-            
+
             if (responseText.trim()) {
               errorData = JSON.parse(responseText)
             } else {
@@ -2499,11 +2403,11 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
             console.error('❌ Failed to parse error response:', parseError)
             errorData = { error: `Response parsing failed. Raw response: "${errorText}"` }
           }
-          
+
           const errorMessage = errorData.error || errorData.message || `HTTP ${response.status}: ${response.statusText}`
-          console.error(`❌ API Error Response:`, { 
-            status: response.status, 
-            statusText: response.statusText, 
+          console.error(`❌ API Error Response:`, {
+            status: response.status,
+            statusText: response.statusText,
             errorData,
             responseText: errorText,
             url: `/api/v1/documents/${document.id}`,
@@ -2517,21 +2421,21 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
         console.error(`❌ Save data attempted:`, buildUpdatePayload())
         console.error(`❌ Document ID:`, document.id)
         console.error(`❌ Field:`, field, 'Value:', value)
-        
+
         // CRITICAL FIX: Revert UI state on error for user updates (partial revert)
         if (source === 'user' && field) {
           const lastValue = lastSavedData[field as keyof typeof lastSavedData]
-          
+
           // Revert local editable data to last saved value
-          setEditableData(prev => ({ 
-            ...prev, 
+          setEditableData(prev => ({
+            ...prev,
             [field]: lastValue
           }))
-          
+
           // Revert store to last saved value (partial update, preserve other fields)
           const existingDoc = findDocument(document.id)
           if (existingDoc) {
-            updateDocument(document.id, {
+            applyDocumentToStore(document.id, {
               ...existingDoc,
               [field]: lastValue,
               lastModified: new Date().toISOString()
@@ -2549,7 +2453,7 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
         }
       }
     }
-    
+
     // Execute with or without debounce based on source
     if (debounce) {
       const timeoutId = setTimeout(executeSave, 1000)
@@ -2568,17 +2472,17 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
    */
   const handleSelectChange = (field: string, value: string) => {
     console.log(`🔄 Select change for field '${field}':`, value)
-    
+
     // Close any open editing state
     setEditingField(null)
     setTempValue('')
-    
+
     // Store change in pending changes - will save when user clicks Save
     setPendingChanges(prev => ({ ...prev, [field]: value }))
     setHasUnsavedChanges(true)
   }
-  
-  
+
+
   const handleKeyDown = (e: React.KeyboardEvent, field: string) => {
     if (e.key === 'Enter') {
       saveField(field)
@@ -2586,59 +2490,59 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
       cancelEditing()
     }
   }
-  
+
   const addEntity = () => {
     const newEntity = {
-      type: EntityType.ORGANIZATION.toLowerCase(),
-      value: 'New Entity'
+      id: crypto.randomUUID(), type: EntityType.ORGANIZATION, text: 'New Entity',
+      value: 'New Entity', confidence: 1, startOffset: 0, endOffset: 0, context: null, metadata: null,
     }
-    
+
     // Update state first
     setEditableData(prev => {
       const updatedEntities = [...prev.entities, newEntity]
-      
+
       // Store entities change in pending changes - will save when user clicks Save
       setTimeout(() => {
         setPendingChanges(prev => ({ ...prev, entities: { entities: updatedEntities } }))
         setHasUnsavedChanges(true)
       }, 0)
-      
+
       return {
         ...prev,
         entities: updatedEntities
       }
     })
   }
-  
+
   const removeEntity = (index: number) => {
     setEditableData(prev => {
       const updatedEntities = prev.entities.filter((_, i) => i !== index)
-      
+
       // Store entities change in pending changes - will save when user clicks Save
       setTimeout(() => {
         setPendingChanges(prev => ({ ...prev, entities: { entities: updatedEntities } }))
         setHasUnsavedChanges(true)
       }, 0)
-      
+
       return {
         ...prev,
         entities: updatedEntities
       }
     })
   }
-  
+
   const updateEntity = (index: number, field: 'type' | 'value', value: string) => {
     setEditableData(prev => {
-      const updatedEntities = prev.entities.map((entity, i) => 
-        i === index ? { ...entity, [field]: value } : entity
+      const updatedEntities = prev.entities.map((entity, i) =>
+        i === index ? (field === 'value' ? { ...entity, value, text: value } : { ...entity, type: Object.values(EntityType).find(type => type === value.toUpperCase()) ?? EntityType.MISC }) : entity
       )
-      
+
       // Store entities change in pending changes - will save when user clicks Save
       setTimeout(() => {
         setPendingChanges(prev => ({ ...prev, entities: { entities: updatedEntities } }))
         setHasUnsavedChanges(true)
       }, 0)
-      
+
       return {
         ...prev,
         entities: updatedEntities
@@ -2673,10 +2577,10 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
   const formatUrgency = (level: string) => {
     const colors = {
       low: 'default',
-      medium: 'secondary', 
+      medium: 'secondary',
       high: 'destructive',
       critical: 'destructive'
-    }
+    } as const
     return colors[level as keyof typeof colors] || 'default'
   }
 
@@ -2691,7 +2595,7 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
 
   // Determine if we should use 2-column layout based on panel width
   const useColumnLayout = rightPanelWidth > 400 && !isMobile
-  
+
   // Debug: log when layout should change
   React.useEffect(() => {
     console.log('🔧 Layout Update:', {
@@ -2702,13 +2606,13 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
       rightSidebarOpen
     })
   }, [rightPanelWidth, isMobile, useColumnLayout, rightSidebarOpen])
-  
+
   // Main status polling is handled above in the comprehensive polling effect
 
   // Define sections with their editable status - only calculate when document exists
   const cardSections = React.useMemo(() => {
     if (!document) return [];
-    
+
     return [
     // Editable sections (show at top)
     {
@@ -2767,7 +2671,7 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
                   </div>
                 )}
               </div>
-              
+
               {/* Deadline */}
               <div className="flex justify-between items-center text-sm min-w-0">
                 <span className="text-muted-foreground shrink-0">Deadline</span>
@@ -2807,7 +2711,7 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
                   </div>
                 )}
               </div>
-              
+
               {/* Document Type */}
               <div className="flex justify-between items-center text-sm min-w-0">
                 <span className="text-muted-foreground shrink-0">Document Type</span>
@@ -2931,9 +2835,9 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
                   </div>
                 )}
               </div>
-              
+
               <Separator />
-              
+
               {/* AI Keywords */}
               <div>
                 <div className="flex items-center justify-between mb-2">
@@ -2956,9 +2860,9 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
                 ) : (
                   <div className="flex flex-wrap gap-2">
                     {localAIKeywords.map((keyword, i) => (
-                      <Badge 
-                        key={`keyword-${i}-${keyword}`} 
-                        variant="secondary" 
+                      <Badge
+                        key={`keyword-${i}-${keyword}`}
+                        variant="secondary"
                         className="text-xs"
                       >
                         {keyword}
@@ -2970,7 +2874,7 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
                   </div>
                 )}
               </div>
-              
+
             </div>
           </CardContent>
         </Card>
@@ -3000,8 +2904,8 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
               <div className="space-y-2">
                 {editableData.entities.map((entity, i) => (
                   <div key={i} className="flex items-center gap-2 text-xs">
-                    <Select 
-                      value={entity.type?.toLowerCase() || ''} 
+                    <Select
+                      value={entity.type || ''}
                       onValueChange={(value) => updateEntity(i, 'type', value)}
                     >
                       <SelectTrigger className="h-6 w-24 text-xs">
@@ -3009,7 +2913,7 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
                       </SelectTrigger>
                       <SelectContent>
                         {Object.values(EntityType).map((entityType) => (
-                          <SelectItem key={entityType} value={entityType.toLowerCase()}>
+                          <SelectItem key={entityType} value={entityType}>
                             {entityType.charAt(0) + entityType.slice(1).toLowerCase().replace(/_/g, ' ')}
                           </SelectItem>
                         ))}
@@ -3081,7 +2985,7 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
                 <TabsTrigger value="insights">Insights</TabsTrigger>
                 <TabsTrigger value="contract">Contract</TabsTrigger>
               </TabsList>
-              
+
               <TabsContent value="summary" className="mt-4 space-y-3">
                 <div className="space-y-2">
                   <p className="text-sm">{document.content?.summary || ''}</p>
@@ -3104,13 +3008,13 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
                   </ul>
                 </div>
               </TabsContent>
-              
+
               <TabsContent value="insights" className="mt-4 space-y-3">
                 <div className="space-y-2">
                   <div className="text-xs font-medium text-muted-foreground uppercase">Document Quality</div>
                   <div className="flex items-center gap-2">
                     <div className="flex-1 bg-secondary rounded-full h-2">
-                      <div 
+                      <div
                         className="bg-green-500 h-2 rounded-full transition-all"
                         style={{ width: `${(document.analysis?.qualityScore || 0)}%` }}
                       />
@@ -3123,7 +3027,7 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
                   <div className="text-xs font-medium text-muted-foreground uppercase">Readability</div>
                   <div className="flex items-center gap-2">
                     <div className="flex-1 bg-secondary rounded-full h-2">
-                      <div 
+                      <div
                         className="bg-blue-500 h-2 rounded-full transition-all"
                         style={{ width: `${(document.analysis?.readabilityScore || 0)}%` }}
                       />
@@ -3132,7 +3036,7 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
                   </div>
                 </div>
               </TabsContent>
-              
+
               <TabsContent value="contract" className="mt-4 space-y-3">
                 {(document.analysis as any)?.contractAnalysis ? (
                   <div className="space-y-3">
@@ -3303,7 +3207,7 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
                   </div>
                 </div>
               </div>
-                
+
               {/* Security Risks */}
               {(document.analysis as any)?.security?.securityRisks?.length > 0 && (
                 <>
@@ -3375,7 +3279,7 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
                 </>
               )}
 
-                
+
             </div>
           </CardContent>
         </Card>
@@ -3391,14 +3295,14 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
               <Activity className="h-4 w-4" />
               Processing History
               <Badge variant="secondary" className="ml-auto text-xs">
-                {(document.processing?.history?.length || 0) + (document.processing?.events?.length || 0)} events
+                {(0) + (document.processing?.events?.length || 0)} events
               </Badge>
             </CardTitle>
           </CardHeader>
           <CardContent className="p-4 pt-0">
             <div className="h-64 overflow-y-auto space-y-2 scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent">
               {/* Display processing history or events */}
-              {(document.processing?.history || document.processing?.events || [])
+              {(document.processing?.events || [])
                 .slice().reverse().map((event, i) => (
                 <div key={i} className="flex items-start gap-2">
                   <div className={cn(
@@ -3407,7 +3311,7 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
                   )} />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-medium">{event.message || event.event}</span>
+                      <span className="text-xs font-medium">{event.event}</span>
                       <span className="text-xs text-muted-foreground">
                         {new Date(event.timestamp).toLocaleTimeString()}
                       </span>
@@ -3420,9 +3324,9 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
                   </div>
                 </div>
               ))}
-              
+
               {/* Show message if no processing history available */}
-              {!(document.processing?.history?.length > 0 || document.processing?.events?.length > 0) && (
+              {!((document.processing?.events?.length ?? 0) > 0) && (
                 <div className="text-xs text-muted-foreground">
                   No processing history available yet
                 </div>
@@ -3503,7 +3407,7 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
                   </div>
                 </div>
               </div>
-              
+
               {/* Document Context Information */}
               {(document.embeddings as DocumentEmbeddings)?.documentId && (
                 <>
@@ -3533,7 +3437,7 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
                   </div>
                 </>
               )}
-              
+
               <Separator />
               <div className="space-y-2">
                 <div className="text-xs font-medium text-muted-foreground uppercase">Last Processed</div>
@@ -3556,27 +3460,27 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
     acc[section.id] = section
     return acc
   }, {} as Record<string, typeof cardSections[0]>)
-  
+
   const editableSections = editableSectionOrder.map(id => allSections[id]).filter(Boolean)
-  
+
   // Filter non-editable sections based on available data
   const nonEditableSections = nonEditableSectionOrder.map(id => {
     const section = allSections[id]
     if (!section) return null
-    
+
     // Only show AI Analysis section if document has any AI data or analysis
     if (id === 'ai-analysis') {
-      const hasAiAnalysis = document?.content?.summary || 
-                          document?.content?.keyPoints?.length > 0 ||
+      const hasAiAnalysis = document?.content?.summary ||
+                          (document?.content?.keyPoints?.length ?? 0) > 0 ||
                           document?.analysis?.qualityScore ||
                           document?.analysis?.readabilityScore ||
                           document?.analysis?.contractAnalysis ||
-                          document?.analysis?.entities?.length > 0 ||
-                          document?.content?.sections?.length > 0 ||
+                          (document?.analysis?.entities?.length ?? 0) > 0 ||
+                          (document?.content?.sections?.length ?? 0) > 0 ||
                           document?.extractedText // Show if we have basic extracted text
       if (!hasAiAnalysis) return null
     }
-    
+
     // Only show Security Analysis section if document has security data
     if (id === 'security-analysis') {
       const hasSecurityAnalysis = document?.analysis?.security ||
@@ -3585,30 +3489,29 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
                                  document?.extractedText // Show if we have content to analyze
       if (!hasSecurityAnalysis) return null
     }
-    
+
     // Only show Processing History if it has entries or processing status
     if (id === 'processing-history') {
-      const hasProcessingHistory = document?.processing?.history?.length > 0 ||
-                                  document?.processing?.status ||
-                                  document?.processing?.events?.length > 0
+      const hasProcessingHistory = document?.processing?.currentStatus ||
+                                  (document?.processing?.events?.length ?? 0) > 0
       if (!hasProcessingHistory) return null
     }
-    
+
     // Always show Vector Analysis section - users need to see the vectorize button
     if (id === 'vector-analysis') {
       // Always visible so users can generate embeddings
       return section
     }
-    
+
     return section
-  }).filter(Boolean)
-  
+  }).filter((section): section is NonNullable<typeof section> => section !== null)
+
   // Log section data and layout variables
-  
+
   // Drag and drop handlers
   const handleDragEnd = (result: DropResult) => {
     const { destination, source, draggableId } = result
-    
+
     console.log('🎯 Drag & Drop Event:', {
       result,
       destination,
@@ -3617,20 +3520,20 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
       editableSectionOrder,
       nonEditableSectionOrder
     })
-    
+
     // If dropped outside or no movement, do nothing
-    if (!destination || 
+    if (!destination ||
         (destination.droppableId === source.droppableId && destination.index === source.index)) {
       console.log('❌ Drop cancelled - no destination or no movement')
       return
     }
-    
+
     // Only allow reordering within the same group
     if (destination.droppableId !== source.droppableId) {
       console.log('❌ Drop cancelled - different droppable areas')
       return
     }
-    
+
     if (source.droppableId === 'editable-sections') {
       const newOrder = [...editableSectionOrder]
       const [reorderedItem] = newOrder.splice(source.index, 1)
@@ -3707,15 +3610,15 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
 
   return (
     <div className="flex h-screen bg-background">
-      
+
       <PanelGroup direction="horizontal">
         {/* Left Sidebar - Document Sections */}
         {(leftSidebarOpen || !isMobile) && (
           <>
             <Panel defaultSize={20} minSize={15} maxSize={30} className={cn(
               "flex flex-col",
-              isMobile && leftSidebarOpen 
-                ? "absolute inset-y-0 left-0 z-50 w-64 bg-background border-r transform transition-transform duration-200 ease-in-out shadow-xl" 
+              isMobile && leftSidebarOpen
+                ? "absolute inset-y-0 left-0 z-50 w-64 bg-background border-r transform transition-transform duration-200 ease-in-out shadow-xl"
                 : "bg-muted/10"
             )}>
               <div className="p-4 border-b bg-background">
@@ -3798,9 +3701,9 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
                   )}
                   {/* Back to Documents Button - PRESERVED */}
                   <Link href="/documents" prefetch={true}>
-                    <Button 
-                      variant="ghost" 
-                      size="sm" 
+                    <Button
+                      variant="ghost"
+                      size="sm"
                       className="text-muted-foreground hover:text-foreground mr-2"
                     >
                       <ArrowLeft className="h-4 w-4 mr-2" />
@@ -3817,7 +3720,7 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
                         </span>
                       ) : (
                         // Parent folders - clickable and navigate to /documents with folder selected
-                        <Link 
+                        <Link
                           href={pathItem.id ? `/documents?folder=${pathItem.id}` : '/documents'}
                           className="text-muted-foreground hover:text-foreground cursor-pointer"
                         >
@@ -3828,7 +3731,7 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
                   ))}
                 </div>
               </div>
-              
+
               {/* Title and Actions */}
               <div className="flex items-start justify-between gap-4">
                 <div className="flex-1 min-w-0">
@@ -3843,7 +3746,7 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
                       className="text-2xl font-bold bg-transparent border-none outline-none w-full max-w-2xl"
                     />
                   ) : (
-                    <h1 
+                    <h1
                       className="text-2xl font-bold cursor-pointer hover:bg-muted/50 rounded px-1 -ml-1 max-w-2xl truncate"
                       onClick={() => setIsEditingTitle(true)}
                       title="Click to edit title"
@@ -3862,7 +3765,7 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="start" className="w-56">
-                      <DropdownMenuItem 
+                      <DropdownMenuItem
                         onClick={() => handleMoveDocument(UI_CONSTANTS.ROOT_FOLDER_ID)}
                         disabled={!currentFolderId}
                       >
@@ -3900,9 +3803,9 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
                           if (document) {
                             try {
                               notify.info('Cancelling', `Cancelling processing for "${document.name}"...`)
-                              
+
                               const result = await cancelDocumentProcessing(document.id)
-                              
+
                               if (result.success) {
                                 notify.success('Processing Cancelled', result.message)
                                 playSound(SoundEffect.SUCCESS)
@@ -3927,7 +3830,7 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
                       </Button>
                     )}
                   </div>
-                  
+
                   {!isMobile && (
                     <>
                       <div className="h-8 w-px bg-border" />
@@ -3972,11 +3875,11 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
                         </Button>
                       )}
                       <div className="h-8 w-px bg-border" />
-                      <Button 
-                        variant="outline" 
+                      <Button
+                        variant="outline"
                         size="icon"
                         title="Save"
-                        onClick={handleSaveDocument}
+                        onClick={() => void handleSaveDocument()}
                       >
                         <Save className="h-4 w-4" />
                       </Button>
@@ -3994,8 +3897,8 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
                   )}
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                      <Button 
-                        variant="outline" 
+                      <Button
+                        variant="outline"
                         size="icon"
                         title={isMobile ? "More actions" : "Export"}
                       >
@@ -4026,12 +3929,12 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
                               Edit
                             </DropdownMenuItem>
                           )}
-                          <DropdownMenuItem onClick={handleSaveDocument}>
+                          <DropdownMenuItem onClick={() => void handleSaveDocument()}>
                             <Save className="h-4 w-4 mr-2" />
                             Save
                           </DropdownMenuItem>
                           {/* Upload File option for all documents */}
-                          <DropdownMenuItem 
+                          <DropdownMenuItem
                             onClick={() => fileInputRef.current?.click()}
                             disabled={isUploadingFile || isUploading}
                           >
@@ -4066,7 +3969,7 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
                   </DropdownMenu>
                 </div>
               </div>
-              
+
               {/* Document Metadata Row */}
               <div className="flex flex-wrap items-center gap-4 mt-3 text-sm text-muted-foreground">
                 <div className="flex items-center gap-1">
@@ -4097,372 +4000,7 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
               </div>
             </div>
 
-            {/* Editor Toolbar */}
-            {isEditing && editor && (
-              <div className="px-4 pb-3">
-                <div className="flex items-center gap-1 p-1 border rounded-lg bg-background overflow-x-auto">
-                  {/* Text Formatting */}
-                  <div className="flex items-center gap-0.5 flex-shrink-0">
-                    <ToolbarButton
-                      onClick={() => editor.chain().focus().toggleBold().run()}
-                      isActive={editor.isActive('bold')}
-                      tooltip="Bold (Ctrl+B)"
-                    >
-                      <Bold className="h-4 w-4" />
-                    </ToolbarButton>
-                    <ToolbarButton
-                      onClick={() => editor.chain().focus().toggleItalic().run()}
-                      isActive={editor.isActive('italic')}
-                      tooltip="Italic (Ctrl+I)"
-                    >
-                      <Italic className="h-4 w-4" />
-                    </ToolbarButton>
-                    <ToolbarButton
-                      onClick={() => editor.chain().focus().toggleUnderline().run()}
-                      isActive={editor.isActive('underline')}
-                      tooltip="Underline (Ctrl+U)"
-                    >
-                      <UnderlineIcon className="h-4 w-4" />
-                    </ToolbarButton>
-                    {!isMobile && (
-                      <>
-                        <ToolbarButton
-                          onClick={() => editor.chain().focus().toggleStrike().run()}
-                          isActive={editor.isActive('strike')}
-                          tooltip="Strikethrough"
-                        >
-                          <Strikethrough className="h-4 w-4" />
-                        </ToolbarButton>
-                        <ToolbarButton
-                          onClick={() => editor.chain().focus().toggleCode().run()}
-                          isActive={editor.isActive('code')}
-                          tooltip="Code"
-                        >
-                          <Code className="h-4 w-4" />
-                        </ToolbarButton>
-                      </>
-                    )}
-                  </div>
-                  
-                  <Separator orientation="vertical" className="h-6 flex-shrink-0" />
-                  
-                  {/* Text Color and Highlight */}
-                  <div className="flex items-center gap-0.5 flex-shrink-0">
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8"
-                          title="Text Color"
-                        >
-                          <Type className="h-4 w-4" />
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto p-2">
-                        <div className="flex flex-wrap gap-1">
-                          {textColors.map((color) => (
-                            <button
-                              key={color.name}
-                              onClick={() => 
-                                color.value 
-                                  ? editor.chain().focus().setColor(color.value).run()
-                                  : editor.chain().focus().unsetColor().run()
-                              }
-                              className={cn(
-                                "w-8 h-8 rounded border-2",
-                                color.value ? "border-border" : "border-gray-300"
-                              )}
-                              style={{ backgroundColor: color.value || '#ffffff' }}
-                              title={color.name}
-                            />
-                          ))}
-                        </div>
-                      </PopoverContent>
-                    </Popover>
-                    
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <Button
-                          variant={editor.isActive('highlight') ? "secondary" : "ghost"}
-                          size="icon"
-                          className="h-8 w-8"
-                          title="Highlight"
-                        >
-                          <Highlighter className="h-4 w-4" />
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto p-2">
-                        <div className="flex flex-wrap gap-1">
-                          {highlightColors.map((color) => (
-                            <button
-                              key={color.name}
-                              onClick={() => editor.chain().focus().toggleHighlight({ color: color.value }).run()}
-                              className="w-8 h-8 rounded border-2 border-border"
-                              style={{ backgroundColor: color.value }}
-                              title={color.name}
-                            />
-                          ))}
-                          <button
-                            onClick={() => editor.chain().focus().unsetHighlight().run()}
-                            className="w-8 h-8 rounded border-2 border-border bg-white flex items-center justify-center"
-                            title="Remove highlight"
-                          >
-                            <Minus className="h-3 w-3" />
-                          </button>
-                        </div>
-                      </PopoverContent>
-                    </Popover>
-                  </div>
-                  
-                  {!isMobile && <Separator orientation="vertical" className="h-6 flex-shrink-0" />}
-                  
-                  {/* Headings */}
-                  {!isMobile && (
-                    <div className="flex items-center gap-0.5 flex-shrink-0">
-                      <ToolbarButton
-                        onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
-                        isActive={editor.isActive('heading', { level: 1 })}
-                        tooltip="Heading 1"
-                      >
-                        <Heading1 className="h-4 w-4" />
-                      </ToolbarButton>
-                      <ToolbarButton
-                        onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
-                        isActive={editor.isActive('heading', { level: 2 })}
-                        tooltip="Heading 2"
-                      >
-                        <Heading2 className="h-4 w-4" />
-                      </ToolbarButton>
-                      <ToolbarButton
-                        onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}
-                        isActive={editor.isActive('heading', { level: 3 })}
-                        tooltip="Heading 3"
-                      >
-                        <Heading3 className="h-4 w-4" />
-                      </ToolbarButton>
-                    </div>
-                  )}
-                  
-                  {!isMobile && <Separator orientation="vertical" className="h-6 flex-shrink-0" />}
-                  
-                  {/* Alignment */}
-                  {!isMobile && (
-                    <div className="flex items-center gap-0.5 flex-shrink-0">
-                      <ToolbarButton
-                        onClick={() => editor.chain().focus().setTextAlign('left').run()}
-                        isActive={editor.isActive({ textAlign: 'left' })}
-                        tooltip="Align Left"
-                      >
-                        <AlignLeft className="h-4 w-4" />
-                      </ToolbarButton>
-                      <ToolbarButton
-                        onClick={() => editor.chain().focus().setTextAlign('center').run()}
-                        isActive={editor.isActive({ textAlign: 'center' })}
-                        tooltip="Align Center"
-                      >
-                        <AlignCenter className="h-4 w-4" />
-                      </ToolbarButton>
-                      <ToolbarButton
-                        onClick={() => editor.chain().focus().setTextAlign('right').run()}
-                        isActive={editor.isActive({ textAlign: 'right' })}
-                        tooltip="Align Right"
-                      >
-                        <AlignRight className="h-4 w-4" />
-                      </ToolbarButton>
-                      <ToolbarButton
-                        onClick={() => editor.chain().focus().setTextAlign('justify').run()}
-                        isActive={editor.isActive({ textAlign: 'justify' })}
-                        tooltip="Justify"
-                      >
-                        <AlignJustify className="h-4 w-4" />
-                      </ToolbarButton>
-                    </div>
-                  )}
-                  
-                  <Separator orientation="vertical" className="h-6 flex-shrink-0" />
-                  
-                  {/* Lists */}
-                  <div className="flex items-center gap-0.5 flex-shrink-0">
-                    <ToolbarButton
-                      onClick={() => editor.chain().focus().toggleBulletList().run()}
-                      isActive={editor.isActive('bulletList')}
-                      tooltip="Bullet List"
-                    >
-                      <List className="h-4 w-4" />
-                    </ToolbarButton>
-                    <ToolbarButton
-                      onClick={() => editor.chain().focus().toggleOrderedList().run()}
-                      isActive={editor.isActive('orderedList')}
-                      tooltip="Numbered List"
-                    >
-                      <ListOrdered className="h-4 w-4" />
-                    </ToolbarButton>
-                    <ToolbarButton
-                      onClick={() => editor.chain().focus().toggleTaskList().run()}
-                      isActive={editor.isActive('taskList')}
-                      tooltip="Task List"
-                    >
-                      <CheckSquare className="h-4 w-4" />
-                    </ToolbarButton>
-                  </div>
-                  
-                  <Separator orientation="vertical" className="h-6 flex-shrink-0" />
-                  
-                  {/* Special Text */}
-                  {!isMobile && (
-                    <div className="flex items-center gap-0.5 flex-shrink-0">
-                      <ToolbarButton
-                        onClick={() => editor.chain().focus().toggleSubscript().run()}
-                        isActive={editor.isActive('subscript')}
-                        tooltip="Subscript"
-                      >
-                        <SubscriptIcon className="h-4 w-4" />
-                      </ToolbarButton>
-                      <ToolbarButton
-                        onClick={() => editor.chain().focus().toggleSuperscript().run()}
-                        isActive={editor.isActive('superscript')}
-                        tooltip="Superscript"
-                      >
-                        <SuperscriptIcon className="h-4 w-4" />
-                      </ToolbarButton>
-                      <ToolbarButton
-                        onClick={() => editor.chain().focus().toggleBlockquote().run()}
-                        isActive={editor.isActive('blockquote')}
-                        tooltip="Quote"
-                      >
-                        <Quote className="h-4 w-4" />
-                      </ToolbarButton>
-                      <ToolbarButton
-                        onClick={() => editor.chain().focus().toggleCodeBlock().run()}
-                        isActive={editor.isActive('codeBlock')}
-                        tooltip="Code Block"
-                      >
-                        <Code className="h-4 w-4" />
-                      </ToolbarButton>
-                    </div>
-                  )}
-                  
-                  {!isMobile && <Separator orientation="vertical" className="h-6 flex-shrink-0" />}
-                  
-                  {/* Insert */}
-                  {!isMobile && (
-                    <div className="flex items-center gap-0.5 flex-shrink-0">
-                      <ToolbarButton
-                        onClick={setLink}
-                        isActive={editor.isActive('link')}
-                        tooltip="Link"
-                      >
-                        <LinkIcon className="h-4 w-4" />
-                      </ToolbarButton>
-                      <ToolbarButton
-                        onClick={addImage}
-                        tooltip="Image"
-                      >
-                        <ImageIcon className="h-4 w-4" />
-                      </ToolbarButton>
-                      <ToolbarButton
-                        onClick={() => editor.chain().focus().setHorizontalRule().run()}
-                        tooltip="Horizontal Rule"
-                      >
-                        <Minus className="h-4 w-4" />
-                      </ToolbarButton>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8"
-                            title="Table"
-                          >
-                            <TableIcon className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent>
-                          <DropdownMenuItem
-                            onClick={() => editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()}
-                          >
-                            Insert Table (3x3)
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() => editor.chain().focus().insertTable({ rows: 4, cols: 4, withHeaderRow: true }).run()}
-                          >
-                            Insert Table (4x4)
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() => editor.chain().focus().insertTable({ rows: 5, cols: 5, withHeaderRow: true }).run()}
-                          >
-                            Insert Table (5x5)
-                          </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem
-                            onClick={() => editor.chain().focus().addColumnBefore().run()}
-                            disabled={!editor.can().addColumnBefore()}
-                          >
-                            Add Column Before
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() => editor.chain().focus().addColumnAfter().run()}
-                            disabled={!editor.can().addColumnAfter()}
-                          >
-                            Add Column After
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() => editor.chain().focus().deleteColumn().run()}
-                            disabled={!editor.can().deleteColumn()}
-                          >
-                            Delete Column
-                          </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem
-                            onClick={() => editor.chain().focus().addRowBefore().run()}
-                            disabled={!editor.can().addRowBefore()}
-                          >
-                            Add Row Before
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() => editor.chain().focus().addRowAfter().run()}
-                            disabled={!editor.can().addRowAfter()}
-                          >
-                            Add Row After
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() => editor.chain().focus().deleteRow().run()}
-                            disabled={!editor.can().deleteRow()}
-                          >
-                            Delete Row
-                          </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem
-                            onClick={() => editor.chain().focus().deleteTable().run()}
-                            disabled={!editor.can().deleteTable()}
-                          >
-                            Delete Table
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </div>
-                  )}
-                  
-                  <div className="flex items-center gap-0.5 ml-auto flex-shrink-0">
-                    <ToolbarButton
-                      onClick={() => editor.chain().focus().undo().run()}
-                      disabled={!editor.can().undo()}
-                      tooltip="Undo (Ctrl+Z)"
-                    >
-                      <Undo className="h-4 w-4" />
-                    </ToolbarButton>
-                    <ToolbarButton
-                      onClick={() => editor.chain().focus().redo().run()}
-                      disabled={!editor.can().redo()}
-                      tooltip="Redo (Ctrl+Y)"
-                    >
-                      <Redo className="h-4 w-4" />
-                    </ToolbarButton>
-                  </div>
-                </div>
-              </div>
-            )}
+
           </div>
 
           {/* Editor Content */}
@@ -4476,80 +4014,23 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
                 "w-full max-w-full",
                 isEditing ? "overflow-x-auto overflow-y-visible" : "prose prose-lg dark:prose-invert max-w-none mx-auto px-4"
               )}>
-                {true ? (
-                  <StableEditor
-                    content={selectedSection?.content || '<p>No content available. This is a test message to verify the Stable Editor is working.</p>'}
-                    onChange={(content) => {
-                      console.log('📝 Stable Editor content changed:', content)
-                      // Update the section content in the store/state
-                      if (selectedSection) {
-                        // Handle content updates - implement your save logic here
-                      }
-                    }}
-                    placeholder="Start writing your document content..."
-                    editable={isEditing}
-                    variant="default"
-                    minHeight={isEditing ? "400px" : "300px"}
-                    maxHeight="600px"
-                    showToolbar={isEditing}
-                    readOnly={!isEditing}
-                    className="w-full max-w-full"
-                  />
-                ) : (
-                  <ErrorBoundary
-                    fallback={
-                      <div className="border rounded-lg p-4 bg-yellow-50 border-yellow-200">
-                        <div className="flex items-center gap-2 text-yellow-800 mb-2">
-                          <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                            <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                          </svg>
-                          <span className="font-medium">Editor Loading Issue</span>
-                        </div>
-                        <p className="text-yellow-700 mb-3">
-                          The full-featured editor encountered an error. Switching to stable mode...
-                        </p>
-                        <button
-                          onClick={() => setUseStableEditor(true)}
-                          className="px-3 py-1 bg-yellow-600 text-white rounded text-sm hover:bg-yellow-700"
-                        >
-                          Use Stable Editor
-                        </button>
-                      </div>
-                    }
-                    onError={(error) => {
-                      console.error('AIEditor error:', error)
-                      setUseStableEditor(true)
-                    }}
-                  >
-                    <AIEditor
-                      content={selectedSection?.content || '<p>No content available. This is a test message to verify the Official Plate AI Editor is working.</p>'}
-                      onChange={(content) => {
-                        console.log('📝 AI Editor content changed:', content)
-                        // Update the section content in the store/state
-                        if (selectedSection) {
-                          // Handle content updates - implement your save logic here
-                        }
-                      }}
-                      placeholder="Start writing your document content..."
-                      editable={isEditing}
-                      variant="default"
-                      minHeight={isEditing ? "400px" : "300px"}
-                      maxHeight="600px"
-                      showFixedToolbar={isEditing}
-                      showFloatingToolbar={isEditing}
-                      enableAI={true}
-                      enableComments={true}
-                      enableMentions={true}
-                      enableTables={true}
-                      enableMedia={true}
-                      enableMath={true}
-                      enableColumns={true}
-                      enableDragDrop={true}
-                      readOnly={!isEditing}
-                      className="w-full max-w-full focus:outline-none"
-                    />
-                  </ErrorBoundary>
-                )}
+                <StableEditor
+                  content={sectionEdits[selectedSection?.id] ?? (isEditing
+                    ? document.content?.sections?.find(section => section.id === selectedSection?.id)?.content
+                    : selectedSection?.content) ?? ''}
+                  onChange={(content) => {
+                    if (!isEditing || !document.content?.sections?.some(section => section.id === selectedSection?.id)) return;
+                    setSectionEdits(previous => ({ ...previous, [selectedSection.id]: content }));
+                    setHasUnsavedChanges(true);
+                  }}
+                  placeholder="Start writing your document content..."
+                  editable={isEditing && !!document.content?.sections?.length}
+                  minHeight={isEditing ? '400px' : '300px'}
+                  maxHeight="600px"
+                  showToolbar={isEditing}
+                  readOnly={!isEditing || !document.content?.sections?.length}
+                  className="w-full max-w-full focus:outline-none"
+                />
               </div>
             </div>
           </ScrollArea>
@@ -4561,8 +4042,8 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
             {!isMobile && <PanelResizeHandle className="w-1 bg-border hover:bg-primary/20 transition-colors" />}
             <Panel defaultSize={25} minSize={15} maxSize={45} className={cn(
               "flex flex-col",
-              isMobile && rightSidebarOpen 
-                ? "absolute inset-y-0 right-0 z-50 w-80 bg-background border-l transform transition-transform duration-200 ease-in-out shadow-xl" 
+              isMobile && rightSidebarOpen
+                ? "absolute inset-y-0 right-0 z-50 w-80 bg-background border-l transform transition-transform duration-200 ease-in-out shadow-xl"
                 : "bg-muted/10"
             )} style={{ minWidth: '435px' }}>
               <div className="p-4 border-b bg-background">
@@ -4588,7 +4069,7 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
                   )}
                 </div>
               </div>
-              
+
               <ScrollArea className="flex-1 bg-background" ref={rightPanelRef}>
                 <DragDropContext onDragEnd={handleDragEnd}>
                   <div className="p-4">
@@ -4628,23 +4109,23 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
                               })
                               const fileInfo = getFileTypeInfo(fileType)
                               const FileIcon = fileInfo.icon
-                              
+
                               // Check if we should show a preview instead of just an icon
                               // ALWAYS use original filename from filePath for preview logic (never use editable document.name)
                               const fileExtension = getOriginalFileExtension(document)
-                              
+
                               const isImageFile = document.mimeType?.startsWith('image/')
                               const isTextFile = document.mimeType?.startsWith('text/') || ['txt', 'csv', 'md', 'log', 'json', 'xml'].includes(fileExtension)
                               const isPdfFile = document.mimeType === 'application/pdf'
                               const isOfficeFile = document.mimeType?.includes('word') || document.mimeType?.includes('sheet') || document.mimeType?.includes('presentation') || document.mimeType?.includes('officedocument')
                               const isVideoFile = document.mimeType?.startsWith('video/') || ['mp4', 'avi', 'mov', 'wmv', 'flv', 'mkv', 'webm'].includes(fileExtension)
                               const isAudioFile = document.mimeType?.startsWith('audio/') || ['mp3', 'wav', 'ogg', 'flac', 'aac'].includes(fileExtension)
-                              
+
                               // Check if this is a created document (no actual file)
                               const isCreatedDocument = document.filePath?.startsWith('/documents/') || (!document.originalFile && !document.filePath?.includes('/api/v1/documents/'))
-                              
+
                               const hasPreview = !isCreatedDocument && (isImageFile || isTextFile || isPdfFile || isOfficeFile || isVideoFile || isAudioFile)
-                              
+
                               return (
                                 <>
                                   <div className={cn(
@@ -4654,7 +4135,7 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
                                     "shadow-sm transition-transform hover:scale-105"
                                   )}>
                                     {hasPreview ? (
-                                      <FilePreview 
+                                      <FilePreview
                                         document={{...document, type: fileType}}
                                         className="w-full h-full"
                                       />
@@ -4685,7 +4166,7 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
                               )
                             })()}
                           </div>
-                          
+
                           {/* File Details */}
                           <div className="space-y-2">
                             {/* Title and Description */}
@@ -4697,7 +4178,7 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
                                 </div>
                               </div>
                             </div>
-                            
+
                             {/* Date Information */}
                             <div className="grid grid-cols-2 gap-2 text-sm">
                               <div>
@@ -4709,13 +4190,13 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
                                 <div className="font-medium">{new Date(document.lastModified).toLocaleDateString()}</div>
                               </div>
                             </div>
-                            
+
                             {/* Status and Type Information */}
                             <div className="grid grid-cols-2 gap-2">
                               <div>
                                 <div className="text-xs text-muted-foreground uppercase tracking-wide mb-0.5">Processing Status</div>
-                                <Badge 
-                                  variant={document.processing?.currentStatus === 'COMPLETED' ? 'default' : document.processing?.currentStatus === 'FAILED' ? 'destructive' : 'secondary'} 
+                                <Badge
+                                  variant={document.processing?.currentStatus === 'COMPLETED' ? 'default' : document.processing?.currentStatus === 'FAILED' ? 'destructive' : 'secondary'}
                                   className="text-xs"
                                 >
                                   {document.processing?.currentStatus === 'COMPLETED' && <CheckCircle className="h-3 w-3 mr-1" />}
@@ -4746,7 +4227,7 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
                                 </Badge>
                               </div>
                             </div>
-                            
+
                             <div className="space-y-2">
                             </div>
                           </div>
@@ -4779,7 +4260,7 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
                               processingType={isVectorizing ? "vectorize" : "full"}
                               estimatedCompletion={processingStatus.estimatedCompletion}
                             />
-                            
+
                           </>
                         ) : (
                           <div className="space-y-3">
@@ -4796,19 +4277,19 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
                                  document.processing?.currentStatus === 'PENDING' ? 'Processing' : document.processing?.currentStatus}
                               </Badge>
                             </div>
-                            
+
                             {document.processedAt && (
                               <div className="text-xs text-muted-foreground">
                                 Last processed: {new Date(document.processedAt).toLocaleString()}
                               </div>
                             )}
-                            
+
                             {(document.processing as any)?.error && (
                               <div className="text-xs text-red-600 bg-red-50 p-2 rounded">
                                 {(document.processing as any).error}
                               </div>
                             )}
-                            
+
                             {/* AI Analysis Button - Prominent Style */}
                             {canAnalyzeDocument(document) && (
                               <Button
@@ -4817,7 +4298,7 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
                                 className={cn(
                                   "shadow-md transition-all duration-200 w-full",
                                   isAnalyzing || document?.processing?.currentStatus === 'PROCESSING'
-                                    ? "bg-gradient-to-r from-violet-500 to-indigo-500 cursor-not-allowed opacity-90" 
+                                    ? "bg-gradient-to-r from-violet-500 to-indigo-500 cursor-not-allowed opacity-90"
                                     : "bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700",
                                   "text-white"
                                 )}
@@ -4836,7 +4317,7 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
                                 )}
                               </Button>
                             )}
-                            
+
                             {/* Cancel Processing Button - Only show if document status allows cancellation */}
                             {canCancelProcessing(document) && document.processing?.currentStatus === 'PROCESSING' && (
                               <Button
@@ -4859,7 +4340,7 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
                                 )}
                               </Button>
                             )}
-                            
+
                             {document.processing?.currentStatus === 'FAILED' && (
                               <div className="text-xs text-muted-foreground">
                                 Analysis failed. You can try again by clicking &ldquo;Start AI Analysis&rdquo;.
@@ -4994,18 +4475,18 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
           </>
         )}
       </PanelGroup>
-      
+
       {/* Mobile overlay */}
       {isMobile && (leftSidebarOpen || rightSidebarOpen) && (
-        <div 
-          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40" 
+        <div
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40"
           onClick={() => {
             setLeftSidebarOpen(false)
             setRightSidebarOpen(false)
           }}
         />
       )}
-      
+
       {/* Hidden file input for uploading files to created documents */}
       <input
         ref={fileInputRef}
@@ -5014,7 +4495,7 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
         onChange={handleFileInputChange}
         accept=".pdf,.doc,.docx,.txt,.rtf,.odt,.pages,.xls,.xlsx,.csv,.ppt,.pptx"
       />
-      
+
       {/* File Viewer Modal */}
       {document && (
         <FileViewerModal
@@ -5023,7 +4504,7 @@ export function DocumentDetailsView({ documentId }: DocumentDetailsViewProps) {
           document={document}
         />
       )}
-      
+
       {/* Chat Toggle Button - only show if document is vectorized and chat is closed */}
       {hasValidEmbeddings(document) && !isChatOpen && (
         <ChatToggleButton

@@ -1,9 +1,9 @@
-import { 
-  AIRequest, 
-  TaskType, 
-  Complexity, 
+import {
+  AIRequest,
+  TaskType,
+  Complexity,
   CostEstimate,
-  ModelInfo 
+  ModelInfo
 } from '../interfaces/types';
 import { AIProviderRegistry } from '../registry';
 import { AIProviderAdapter } from '../interfaces';
@@ -12,6 +12,7 @@ export interface ProviderSelectionCriteria {
   taskType: TaskType;
   complexity: Complexity;
   estimatedTokens: number;
+  requestedModel?: string;
   requiredFeatures: string[];
   maxLatency?: number;
   maxCost?: number;
@@ -28,7 +29,7 @@ export interface ProviderEvaluation {
   estimatedLatency: number;
   qualityScore: number;
   featureCompatibility: number;
-  reasoning: string[];
+  reasoningText: string[];
 }
 
 export interface RoutingDecision {
@@ -38,7 +39,7 @@ export interface RoutingDecision {
   estimatedCost: number;
   estimatedLatency: number;
   confidence: number;
-  reasoning: string[];
+  reasoningText: string[];
   alternatives: Array<{
     provider: string;
     score: number;
@@ -52,7 +53,7 @@ export class AIRequestRouter {
   async route(request: AIRequest & { provider?: string }): Promise<RoutingDecision> {
     const criteria = this.buildSelectionCriteria(request);
     const evaluations = await this.evaluateProviders(criteria);
-    
+
     if (evaluations.length === 0) {
       throw new Error('No suitable providers available for this request');
     }
@@ -67,22 +68,23 @@ export class AIRequestRouter {
       estimatedCost: selected.estimatedCost,
       estimatedLatency: selected.estimatedLatency,
       confidence: this.calculateConfidence(selected, evaluations),
-      reasoning: selected.reasoning,
+      reasoningText: selected.reasoningText,
       alternatives: evaluations.slice(1, 4).map(evaluation => ({
         provider: evaluation.name,
         score: evaluation.score,
-        reason: evaluation.reasoning[0] || 'Alternative option'
+        reason: evaluation.reasoningText[0] || 'Alternative option'
       }))
     };
   }
 
   private buildSelectionCriteria(request: AIRequest & { provider?: string }): ProviderSelectionCriteria {
     const tokenEstimate = this.estimateRequestTokens(request);
-    
+
     return {
       taskType: request.taskType,
       complexity: request.complexity,
       estimatedTokens: tokenEstimate,
+      requestedModel: request.model,
       requiredFeatures: request.features || [],
       maxLatency: request.maxLatency,
       maxCost: request.maxCost,
@@ -96,6 +98,7 @@ export class AIRequestRouter {
     const evaluations: ProviderEvaluation[] = [];
 
     for (const { name, provider } of availableProviders) {
+      if (criteria.preferredProviders?.length && !criteria.preferredProviders.includes(name)) continue;
       if (criteria.excludedProviders?.includes(name)) {
         continue;
       }
@@ -112,14 +115,14 @@ export class AIRequestRouter {
   }
 
   private async evaluateProvider(
-    name: string, 
-    adapter: AIProviderAdapter, 
+    name: string,
+    adapter: AIProviderAdapter,
     criteria: ProviderSelectionCriteria
   ): Promise<ProviderEvaluation> {
     const capabilities = adapter.getCapabilities();
     const costEstimate = await this.estimateProviderCost(adapter, criteria);
     const latencyEstimate = this.estimateProviderLatency(name, criteria);
-    
+
     const scores = {
       cost: this.scoreCost(costEstimate.estimatedCost, criteria.maxCost),
       latency: this.scoreLatency(latencyEstimate, criteria.maxLatency),
@@ -137,7 +140,7 @@ export class AIRequestRouter {
     }
 
     totalScore = this.calculateWeightedScore(scores, criteria);
-    
+
     this.addReasoningForScores(scores, reasoning, name);
 
     return {
@@ -148,13 +151,13 @@ export class AIRequestRouter {
       estimatedLatency: latencyEstimate,
       qualityScore: scores.quality,
       featureCompatibility: scores.features,
-      reasoning
+      reasoningText: reasoning
     };
   }
 
   private calculateWeightedScore(scores: any, criteria: ProviderSelectionCriteria): number {
     const weights = this.getWeightsForCriteria(criteria);
-    
+
     return (
       scores.cost * weights.cost +
       scores.latency * weights.latency +
@@ -195,7 +198,7 @@ export class AIRequestRouter {
     if (maxCost && cost > maxCost) {
       return 0;
     }
-    
+
     const normalizedCost = Math.min(cost / 0.1, 1);
     return Math.max(0, 1 - normalizedCost);
   }
@@ -204,7 +207,7 @@ export class AIRequestRouter {
     if (maxLatency && latency > maxLatency) {
       return 0;
     }
-    
+
     const normalizedLatency = Math.min(latency / 5000, 1);
     return Math.max(0, 1 - normalizedLatency);
   }
@@ -218,11 +221,11 @@ export class AIRequestRouter {
     };
 
     const baseScore = qualityScores[provider]?.[complexity] || 0.7;
-    
+
     if (requirement === 'premium') {
       return Math.min(baseScore * 1.1, 1.0);
     }
-    
+
     return baseScore;
   }
 
@@ -250,7 +253,7 @@ export class AIRequestRouter {
   }
 
   private scoreTaskSuitability(provider: string, taskType: TaskType): number {
-    const taskSuitability: Record<string, Record<TaskType, number>> = {
+    const taskSuitability: Record<string, Partial<Record<TaskType, number>>> = {
       'openai': {
         'document_analysis': 0.85,
         'opportunity_matching': 0.80,
@@ -287,14 +290,14 @@ export class AIRequestRouter {
   }
 
   private async estimateProviderCost(
-    adapter: AIProviderAdapter, 
+    adapter: AIProviderAdapter,
     criteria: ProviderSelectionCriteria
   ): Promise<CostEstimate> {
     const mockRequest = {
-      model: 'anthropic/claude-3.5-sonnet',
+      model: criteria.requestedModel ?? 'balanced',
       taskType: criteria.taskType,
       complexity: criteria.complexity,
-      messages: [{ role: 'user' as const, content: 'x'.repeat(criteria.estimatedTokens) }]
+      messages: [{ role: 'user' as const, content: 'x'.repeat(criteria.estimatedTokens * 4) }]
     };
 
     return adapter.estimateCost(mockRequest);
@@ -310,7 +313,7 @@ export class AIRequestRouter {
 
     const baseLatency = baseLatencies[provider] || 2000;
     const tokenMultiplier = Math.max(1, criteria.estimatedTokens / 1000);
-    
+
     return baseLatency * tokenMultiplier;
   }
 
@@ -319,16 +322,16 @@ export class AIRequestRouter {
     if (requestedModel && !this.isUnifiedModelName(requestedModel)) {
       return requestedModel;
     }
-    
+
     // Otherwise, use the unified model selection logic
     if (criteria.complexity === 'low' || criteria.taskType === 'simple_qa') {
       return 'fast';
     }
-    
+
     if (criteria.complexity === 'high' || criteria.qualityRequirement === 'premium') {
       return 'powerful';
     }
-    
+
     return 'balanced';
   }
 
@@ -339,29 +342,29 @@ export class AIRequestRouter {
   private estimateRequestTokens(request: AIRequest): number {
     if (request.messages) {
       return request.messages.reduce(
-        (total, msg) => total + Math.ceil(msg.content.split(/\s+/).length * 1.3), 
+        (total, msg) => total + Math.ceil(msg.content.split(/\s+/).length * 1.3),
         0
       );
     }
-    
+
     if (request.text) {
       return Math.ceil(request.text.split(/\s+/).length * 1.3);
     }
-    
+
     return 500; // Default estimate
   }
 
   private determineQualityRequirement(request: AIRequest): 'standard' | 'high' | 'premium' {
-    if (request.complexity === 'high' || 
+    if (request.complexity === 'high' ||
         ['complex_analysis', 'document_analysis'].includes(request.taskType)) {
       return 'premium';
     }
-    
-    if (request.complexity === 'medium' || 
+
+    if (request.complexity === 'medium' ||
         ['content_generation', 'summarization'].includes(request.taskType)) {
       return 'high';
     }
-    
+
     return 'standard';
   }
 
@@ -369,11 +372,11 @@ export class AIRequestRouter {
     if (all.length === 1) {
       return selected.score;
     }
-    
+
     const secondBest = all[1];
     const margin = selected.score - secondBest.score;
     const maxMargin = 1.0;
-    
+
     return Math.min(selected.score + (margin / maxMargin) * 0.2, 1.0);
   }
 

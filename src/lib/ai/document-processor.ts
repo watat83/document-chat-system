@@ -1,3 +1,4 @@
+import { normalizeError } from '@/lib/errors/normalize-error';
 import { fileProcessor } from '@/lib/file-processing'
 import { AIProcessingData, DocumentSection, DocumentImage, ExtractedEntity, ProcessingStatus, SecurityClassification, EntityType, DocumentContent } from '@/types/documents'
 import { prisma } from '@/lib/db'
@@ -16,14 +17,14 @@ import { downloadFileWithFallback } from '@/lib/storage/path-utils'
 
 /**
  * Document Processing Service
- * 
+ *
  * Leverages existing file processing from chat functionality to extract text,
- * then uses AI (via existing AIServiceManager and PromptLibrary) to organize 
+ * then uses AI (via existing AIServiceManager and PromptLibrary) to organize
  * content into structured document sections and metadata.
  */
 export class DocumentProcessor {
   private activeOperations: Map<string, AbortController> = new Map()
-  
+
   constructor() {
     // Using simpleAIClient directly - consolidated AI service approach
   }
@@ -60,7 +61,7 @@ export class DocumentProcessor {
       // Update status to processing
       await prisma.document.update({
         where: { id: documentId },
-        data: { 
+        data: {
           processing: {
             status: 'PROCESSING',
             startedAt: new Date(),
@@ -72,9 +73,9 @@ export class DocumentProcessor {
 
       // STEP 1/6: Extract text from file (17%)
       onProgress?.('Step 1/6: Extracting text from file', 17)
-      
+
       let extractionResult: { success: boolean; text?: string; metadata?: any; error?: string }
-      
+
       // Check if document already has extracted text
       if (document.extractedText && document.extractedText.trim().length > 0) {
         console.log(`✅ Using existing extracted text (${document.extractedText.length} chars)`);
@@ -90,7 +91,7 @@ export class DocumentProcessor {
         await this.updateDocumentStatus(documentId, 'FAILED', 'No file path available')
         return { success: false, error: 'No file path available' }
       }
-      
+
       if (!extractionResult.success) {
         await this.updateDocumentStatus(documentId, 'FAILED', extractionResult.error)
         return { success: false, error: extractionResult.error }
@@ -98,9 +99,9 @@ export class DocumentProcessor {
 
       // STEP 2/6: Organize document sections (33%)
       onProgress?.('Step 2/6: Organizing document sections', 33)
-      
+
       let sectionsResult: { success: boolean; sections?: any[]; error?: string }
-      
+
       // Check if document already has sections from previous processing
       const existingSections = (document.content as any)?.sections
       if (existingSections && Array.isArray(existingSections) && existingSections.length > 0) {
@@ -136,7 +137,7 @@ export class DocumentProcessor {
 
       // STEP 5/6: Prepare document data (83%)
       onProgress?.('Step 5/6: Preparing document data', 83)
-      
+
       const aiData: AIProcessingData = {
         status: {
           status: 'COMPLETED',
@@ -187,14 +188,15 @@ export class DocumentProcessor {
 
       return { success: true, aiData }
 
-    } catch (error) {
+    } catch (caughtError) {
+      const error = normalizeError(caughtError);
       console.error('Basic document processing error:', error)
       // Cancel any ongoing operations when processing fails
       this.cancelDocumentOperations(documentId);
       await this.updateDocumentStatus(documentId, 'FAILED', error instanceof Error ? error.message : 'Unknown error')
-      return { 
-        success: false, 
-        error: error instanceof Error ? error.message : 'Unknown processing error' 
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown processing error'
       }
     }
   }
@@ -231,7 +233,7 @@ export class DocumentProcessor {
       // Update status to processing
       await prisma.document.update({
         where: { id: documentId },
-        data: { 
+        data: {
           processing: {
             status: 'PROCESSING',
             startedAt: new Date(),
@@ -251,9 +253,9 @@ export class DocumentProcessor {
       await updateProgress('Extracting/verifying document text', 10)
       console.log(`🔍 [DOCUMENT PROCESSOR] Starting text extraction for document ${documentId}`)
       console.log(`📋 [DOCUMENT PROCESSOR] Document info: extractedText length = ${document.extractedText?.length || 0}, filePath = ${document.filePath}`)
-      
+
       let extractionResult: { success: boolean; text?: string; metadata?: any; error?: string }
-      
+
       // Optimize: Use existing extracted text if available to avoid slow file re-extraction
       if (document.extractedText && document.extractedText.trim().length > 0) {
         console.log(`✅ [DOCUMENT PROCESSOR] Using existing extracted text (${document.extractedText.length} chars) - skipping file extraction for performance`);
@@ -277,19 +279,19 @@ export class DocumentProcessor {
         await this.updateDocumentStatus(documentId, 'FAILED', 'No extracted text or file path available for processing')
         return { success: false, error: 'No extracted text or file path available for processing' }
       }
-      
+
       if (!extractionResult.success) {
         console.error(`❌ [DOCUMENT PROCESSOR] Text extraction failed for document ${documentId}:`, extractionResult.error)
         await this.updateDocumentStatus(documentId, 'FAILED', extractionResult.error)
         return { success: false, error: extractionResult.error }
       }
-      
+
       console.log(`✅ [DOCUMENT PROCESSOR] Text extraction completed, proceeding with ${extractionResult.text?.length || 0} characters of text`)
 
       // STEP 2/6: Organize document sections (33%)
       await updateProgress('Step 2/6: Organizing document sections', 33)
       console.log(`🔄 [SIMPLIFIED AI] Organizing document sections...`)
-      
+
       const sectionsResult = await this.withTimeout(
         documentSectionsAnalyzer.analyzeSections(
           extractionResult.text!,
@@ -311,7 +313,7 @@ export class DocumentProcessor {
       // STEP 3/6: Run comprehensive AI analysis (50% - 90%)
       await updateProgress('Step 3/6: Running comprehensive AI analysis', 50)
       console.log(`🔄 [COMPREHENSIVE AI] Starting full AI analysis pipeline...`)
-      
+
       const aiResult = await this.withTimeout(
         this.processWithModularAI(
           extractionResult.text!,
@@ -340,7 +342,7 @@ export class DocumentProcessor {
       }
 
       console.log(`✅ [COMPREHENSIVE AI] Full analysis completed successfully`);
-      
+
       // Use the comprehensive AI result
       const aiData = aiResult.aiData!
       const metadata = aiResult.metadata
@@ -358,7 +360,7 @@ export class DocumentProcessor {
       // STEP 6/6: Save comprehensive results (100%)
       await updateProgress('Step 6/6: Saving comprehensive analysis results', 100)
       console.log(`🔄 [COMPREHENSIVE AI] Saving comprehensive results with contract details and tags...`)
-      
+
       // Debug what we're about to save
       console.log(`🔍 [COMPREHENSIVE AI] About to call updateDocumentWithFullAIData with:`, {
         documentId,
@@ -370,23 +372,24 @@ export class DocumentProcessor {
         hasContractAnalysis: !!aiData?.contractAnalysis,
         contractType: aiData?.contractAnalysis?.contractType
       });
-      
+
       // Use the new method that saves contract analysis and metadata
       await this.updateDocumentWithFullAIData(documentId, aiData, extractionResult.text!, metadata)
       await this.updateDocumentStatus(documentId, 'COMPLETED')
-      
+
       console.log(`✅ [COMPREHENSIVE AI] Document update completed. Contract analysis and tags should now be populated.`);
 
       return { success: true, aiData }
 
-    } catch (error) {
+    } catch (caughtError) {
+      const error = normalizeError(caughtError);
       console.error('Full document processing error:', error)
       // Cancel any ongoing operations when processing fails
       this.cancelDocumentOperations(documentId);
       await this.updateDocumentStatus(documentId, 'FAILED', error instanceof Error ? error.message : 'Unknown error')
-      return { 
-        success: false, 
-        error: error instanceof Error ? error.message : 'Unknown processing error' 
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown processing error'
       }
     }
   }
@@ -402,7 +405,7 @@ export class DocumentProcessor {
   }> {
     console.log(`📁 [FILE EXTRACTION] Starting file extraction for: ${filePath}`);
     console.log(`📁 [FILE EXTRACTION] MIME type: ${mimeType}`);
-    
+
     try {
       let fileBuffer: Buffer
 
@@ -413,18 +416,18 @@ export class DocumentProcessor {
         // Download from Supabase storage
         console.log(`☁️ [FILE EXTRACTION] Importing Supabase client...`);
         const { supabaseAdmin } = await import('@/lib/supabase')
-        
+
         if (!supabaseAdmin) {
           console.error(`❌ [FILE EXTRACTION] Supabase not configured`);
           throw new Error('Supabase not configured')
         }
 
         console.log(`☁️ [FILE EXTRACTION] Downloading file from Supabase with fallback: ${filePath}`);
-        
+
         // Extract organization ID from path for fallback attempts
         const pathParts = filePath.split('/')
         const orgId = pathParts[0] // First part should be organization ID
-        
+
         const { downloadFileWithFallback } = await import('@/lib/storage/path-utils')
         const result = await downloadFileWithFallback(filePath, orgId)
 
@@ -454,7 +457,7 @@ export class DocumentProcessor {
       // Use existing file processor with fallback
       console.log(`🔄 [FILE EXTRACTION] Starting file processing with fileProcessor...`);
       console.log(`🔄 [FILE EXTRACTION] Options: maxTextLength=1MB, timeout=60s`);
-      
+
       const result = await fileProcessor.processFileWithFallback(
         fileBuffer,
         mimeType,
@@ -478,9 +481,9 @@ export class DocumentProcessor {
 
       if (!result.success) {
         console.error(`❌ [FILE EXTRACTION] File processing failed:`, result.error);
-        return { 
-          success: false, 
-          error: result.error?.message || 'File processing failed' 
+        return {
+          success: false,
+          error: result.error?.message || 'File processing failed'
         }
       }
 
@@ -494,14 +497,15 @@ export class DocumentProcessor {
             filePath.split('/').pop()?.split('.')[0] || 'unknown',
             filePath.split('/').pop() || 'unknown.pdf'
           )
-          
+
           if (imageResult.success && imageResult.images) {
             extractedImages = imageResult.images
             console.log(`✅ [FILE EXTRACTION] Extracted ${extractedImages.length} images as base64 from PDF`);
           } else {
             console.warn(`⚠️ [FILE EXTRACTION] Image extraction failed: ${imageResult.error}`);
           }
-        } catch (error) {
+        } catch (caughtError) {
+      const error = normalizeError(caughtError);
           console.warn(`⚠️ [FILE EXTRACTION] Image extraction error:`, error);
           // Don't fail the whole process if image extraction fails
         }
@@ -522,10 +526,11 @@ export class DocumentProcessor {
         metadata: enhancedMetadata
       }
 
-    } catch (error) {
-      return { 
-        success: false, 
-        error: error instanceof Error ? error.message : 'File read error' 
+    } catch (caughtError) {
+      const error = normalizeError(caughtError);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'File read error'
       }
     }
   }
@@ -534,7 +539,7 @@ export class DocumentProcessor {
    * Process extracted text with modular AI services
    */
   private async processWithModularAI(
-    extractedText: string, 
+    extractedText: string,
     fileMetadata: any,
     organizationId: string,
     organizationName: string,
@@ -553,7 +558,7 @@ export class DocumentProcessor {
       organizationId,
       documentName
     });
-    
+
     try {
       // Get existing processing history to preserve it
       const existingAiData = {
@@ -565,7 +570,7 @@ export class DocumentProcessor {
         processingHistory: (document.processing as any)?.history || []
       }
       const existingHistory = existingAiData?.processingHistory || []
-      
+
       const startTime = new Date().toISOString()
 
       // Step 1: Analyze document metadata (20-30%)
@@ -573,12 +578,12 @@ export class DocumentProcessor {
       console.log(`🔍 [MODULAR AI] Starting metadata analysis for document: ${documentName}`)
       console.log(`🔍 [MODULAR AI] Extracted text length: ${extractedText.length} characters`)
       console.log(`🔍 [MODULAR AI] Organization ID: ${organizationId}`)
-      
+
       let metadataResult;
       try {
         console.log(`🔍 [MODULAR AI] Calling documentMetadataAnalyzer.analyzeMetadata with 30s timeout...`)
         const startTime = Date.now()
-        
+
         metadataResult = await this.withTimeout(
           documentMetadataAnalyzer.analyzeMetadata(
             extractedText,
@@ -589,10 +594,11 @@ export class DocumentProcessor {
           'METADATA ANALYSIS TIMEOUT after 60 seconds',
           document.id
         )
-        
+
         const duration = Date.now() - startTime
         console.log(`✅ [MODULAR AI] Metadata analysis completed successfully in ${duration}ms`)
-      } catch (error) {
+      } catch (caughtError) {
+      const error = normalizeError(caughtError);
         console.error(`❌ [MODULAR AI] METADATA ANALYSIS FAILED - This is likely why processing is stuck at 5%:`, error);
         console.error(`❌ [MODULAR AI] Error details:`, {
           errorType: typeof error,
@@ -602,7 +608,7 @@ export class DocumentProcessor {
           organizationId,
           textLength: extractedText.length
         });
-        
+
         // Use fallback metadata to keep analysis moving
         console.log(`🔄 [MODULAR AI] Creating fallback metadata...`)
         metadataResult = {
@@ -627,7 +633,7 @@ export class DocumentProcessor {
         console.error(`❌ Metadata analysis failed:`, metadataResult.error)
         throw new Error(`Metadata analysis failed: ${metadataResult.error}`)
       }
-      
+
       // CRITICAL DEBUG: Log exact metadata including tags
       console.log(`✅ Metadata analysis completed successfully`)
       console.log(`🔍 [METADATA DEBUG] Full metadata object:`, JSON.stringify(metadataResult.metadata, null, 2))
@@ -640,19 +646,19 @@ export class DocumentProcessor {
 
       // Step 2: Extract document sections (30-45%)
       onProgress?.('Extracting document sections and structure', 30)
-      
+
       let sectionsResult: { success: boolean; sections?: any[]; error?: string }
-      
+
       // Check if we can reuse existing sections
       console.log(`🔍 [MODULAR AI] Checking existing sections:`, {
         metadataAiDataSections: metadataResult.metadata?.aiData?.structure?.sections?.length || 0,
         fileMetadataType: typeof fileMetadata,
         fileMetadataSections: fileMetadata?.structure?.sections?.length || 0
       });
-      
-      const existingSections = metadataResult.metadata?.aiData?.structure?.sections || 
+
+      const existingSections = metadataResult.metadata?.aiData?.structure?.sections ||
                               (typeof fileMetadata === 'object' && fileMetadata?.structure?.sections)
-      
+
       // For full reanalysis, always regenerate sections to get fresh structure
       console.log(`🔍 [FULL PROCESSOR] Regenerating document sections for full reanalysis...`);
       sectionsResult = await this.withTimeout(
@@ -671,19 +677,19 @@ export class DocumentProcessor {
         console.error(`❌ Sections analysis failed:`, sectionsResult.error)
         throw new Error(`Section analysis failed: ${sectionsResult.error}`)
       }
-      
+
       console.log(`✅ Sections analysis completed, using ${sectionsResult.sections.length} sections`)
 
       // Step 2.5: Integrate tables and images into sections at correct positions (42%)
       onProgress?.('Integrating tables and images into document sections', 42)
       console.log(`🔄 Integrating tables and images into sections...`)
-      
+
       const enhancedSections = contentIntegrator.integrateContentIntoSections(
         sectionsResult.sections,
         fileMetadata?.tables || [],
         fileMetadata?.images || []
       )
-      
+
       // Update sections result with integrated content
       sectionsResult.sections = enhancedSections
       console.log(`✅ Content integration completed - tables and images positioned in sections`)
@@ -691,7 +697,7 @@ export class DocumentProcessor {
       // Step 3: Extract entities (45-60%)
       onProgress?.('Extracting entities and key information', 45)
       console.log(`🔍 Starting entity extraction...`)
-      
+
       const entitiesResult = await this.withTimeout(
         entityExtractor.extractEntities(
           extractedText,
@@ -707,7 +713,7 @@ export class DocumentProcessor {
         console.error(`❌ Entity extraction failed:`, entitiesResult.error)
         throw new Error(`Entity extraction failed: ${entitiesResult.error}`)
       }
-      
+
       console.log(`✅ Entity extraction completed, found ${entitiesResult.entities.length} entities`)
 
       // Convert extracted entities to proper EntityType enum values for database storage
@@ -725,7 +731,7 @@ export class DocumentProcessor {
           metadata: null
         }
       })
-      
+
       console.log(`✅ Entity conversion completed:`, {
         originalEntities: entitiesResult.entities.length,
         convertedEntities: convertedEntities.length,
@@ -745,7 +751,7 @@ export class DocumentProcessor {
       // Step 4: Analyze content for insights (60-70%)
       onProgress?.('Analyzing content for insights and recommendations', 60)
       console.log(`🔍 Starting content analysis...`)
-      
+
       const contentResult = await this.withTimeout(
         documentContentAnalyzer.analyzeContent(
           extractedText,
@@ -763,7 +769,7 @@ export class DocumentProcessor {
         console.error(`❌ [DOCUMENT PROCESSOR] Content analysis failed - AI scoring required but unavailable`)
         throw new Error(`Content analysis failed: ${contentResult.error} - LLM-based scoring is required`)
       }
-      
+
       console.log(`✅ Content analysis completed`)
 
       // Step 4.5: Use advanced scoring for better quality/readability scores (65-70%)
@@ -773,7 +779,7 @@ export class DocumentProcessor {
         qualityScore: contentResult.analysis.qualityScore,
         readabilityScore: contentResult.analysis.readabilityScore
       })
-      
+
       let scoringResult;
       try {
         console.log(`🔍 [DOCUMENT PROCESSOR] Initializing DocumentScoringService...`)
@@ -783,7 +789,7 @@ export class DocumentProcessor {
           title: documentName,
           documentType: metadataResult.metadata.documentType
         })
-        
+
         scoringResult = await this.withTimeout(
           scoringService.scoreDocument(
             {
@@ -804,7 +810,7 @@ export class DocumentProcessor {
           'Advanced scoring timeout',
           document.id
         )
-        
+
         console.log(`✅ [DOCUMENT PROCESSOR] Advanced scoring completed with scores:`, {
           overallScore: scoringResult.overallScore,
           relevance: scoringResult.criteria.relevance,
@@ -813,24 +819,24 @@ export class DocumentProcessor {
           technicalMerit: scoringResult.criteria.technicalMerit,
           riskAssessment: scoringResult.criteria.riskAssessment
         })
-        
+
         // Override content analysis scores with more accurate scoring service results
         if (scoringResult) {
           const newQualityScore = Math.round(scoringResult.overallScore)
           const newReadabilityScore = Math.round(
             (scoringResult.criteria.completeness + scoringResult.criteria.technicalMerit) / 2
           )
-          
+
           console.log(`🔄 [DOCUMENT PROCESSOR] Overriding content analysis scores:`, {
             oldQualityScore: contentResult.analysis.qualityScore,
             newQualityScore,
             oldReadabilityScore: contentResult.analysis.readabilityScore,
             newReadabilityScore
           })
-          
+
           contentResult.analysis.qualityScore = newQualityScore
           contentResult.analysis.readabilityScore = newReadabilityScore
-          
+
           console.log(`✅ [DOCUMENT PROCESSOR] Scores successfully updated:`, {
             qualityScore: contentResult.analysis.qualityScore,
             readabilityScore: contentResult.analysis.readabilityScore
@@ -838,7 +844,8 @@ export class DocumentProcessor {
         } else {
           console.warn(`⚠️ [DOCUMENT PROCESSOR] No scoring result returned - keeping original scores`)
         }
-      } catch (error) {
+      } catch (caughtError) {
+      const error = normalizeError(caughtError);
         console.error(`❌ [DOCUMENT PROCESSOR] Advanced scoring failed, using content analysis scores:`, {
           error: error.message,
           stack: error.stack,
@@ -851,7 +858,7 @@ export class DocumentProcessor {
       // Step 5: Perform security analysis (70-80%)
       onProgress?.('Performing security analysis and classification', 70)
       console.log(`🔍 Starting security analysis...`)
-      
+
       let securityResult: any;
       try {
         securityResult = await this.withTimeout(
@@ -863,7 +870,8 @@ export class DocumentProcessor {
           'Security analysis timeout',
           document.id
         )
-      } catch (error) {
+      } catch (caughtError) {
+      const error = normalizeError(caughtError);
         console.error(`❌ Security analysis failed with exception:`, error)
         throw new Error(`Security analysis failed - LLM required: ${error?.message || 'Unknown error'}`)
       }
@@ -872,7 +880,7 @@ export class DocumentProcessor {
         console.error(`❌ Security analysis failed - LLM analysis required:`, securityResult.error)
         throw new Error(`Security analysis failed - LLM required: ${securityResult.error || 'Unknown analysis error'}`)
       }
-      
+
       console.log(`✅ Security analysis completed with result:`, {
         classification: securityResult.analysis.classification,
         confidenceScore: securityResult.analysis.confidenceScore,
@@ -881,9 +889,9 @@ export class DocumentProcessor {
       });
 
       // CRITICAL: Validate that confidence score is a valid number before proceeding
-      if (typeof securityResult.analysis.confidenceScore !== 'number' || 
-          isNaN(securityResult.analysis.confidenceScore) || 
-          securityResult.analysis.confidenceScore < 0 || 
+      if (typeof securityResult.analysis.confidenceScore !== 'number' ||
+          isNaN(securityResult.analysis.confidenceScore) ||
+          securityResult.analysis.confidenceScore < 0 ||
           securityResult.analysis.confidenceScore > 100) {
         console.error(`🚨 [DOCUMENT PROCESSOR] INVALID CONFIDENCE SCORE DETECTED:`, {
           confidenceScore: securityResult.analysis.confidenceScore,
@@ -901,7 +909,7 @@ export class DocumentProcessor {
       // Step 6: Perform contract analysis (80-85%)
       onProgress?.('Performing contract analysis and risk assessment', 80)
       console.log(`🔍 Starting contract analysis...`)
-      
+
       const contractResult = await this.withTimeout(
         contractAnalyzer.analyzeContract(
           extractedText,
@@ -918,7 +926,7 @@ export class DocumentProcessor {
         console.error(`❌ Contract analysis failed - LLM analysis required:`, contractResult.error)
         throw new Error(`Contract analysis failed - LLM required: ${contractResult.error}`)
       }
-      
+
       console.log(`✅ Contract analysis completed`)
 
       // Step 7: Create comprehensive AI data (85-90%)
@@ -944,7 +952,7 @@ export class DocumentProcessor {
 
       // Ensure robust keywords extraction
       let keywords = metadataResult.metadata.keywords || []
-      
+
       // If keywords are empty or minimal (fallback scenario), extract from text
       if (keywords.length === 0 || (keywords.length <= 2 && keywords.includes('document'))) {
         console.log(`🔍 [DOCUMENT PROCESSOR] Keywords are minimal (${keywords.length}), extracting from text...`)
@@ -956,7 +964,7 @@ export class DocumentProcessor {
 
       // Ensure robust tags extraction (SAME PATTERN AS KEYWORDS)
       let tags = metadataResult.metadata.tags || []
-      
+
       // If tags are empty or minimal (fallback scenario), extract from text
       if (tags.length === 0 || (tags.length <= 1)) {
         console.log(`🔍 [DOCUMENT PROCESSOR] Tags are minimal (${tags.length}), extracting from text...`)
@@ -1084,9 +1092,10 @@ export class DocumentProcessor {
       // Return both aiData and enhanced metadata for storage
       return { success: true, aiData, metadata: enhancedMetadata }
 
-    } catch (error) {
+    } catch (caughtError) {
+      const error = normalizeError(caughtError);
       console.error('❌ [MODULAR AI] Error during modular AI processing:', error)
-      
+
       // Check if it's a reference error for extractionResult
       if (error instanceof ReferenceError && error.message.includes('extractionResult')) {
         console.error('🚨 [MODULAR AI] CRITICAL: extractionResult is not defined - this should not happen!');
@@ -1098,10 +1107,10 @@ export class DocumentProcessor {
           documentName
         });
       }
-      
-      return { 
-        success: false, 
-        error: error instanceof Error ? error.message : 'AI processing failed' 
+
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'AI processing failed'
       }
     }
   }
@@ -1112,7 +1121,7 @@ export class DocumentProcessor {
    * @deprecated Use processWithModularAI instead
    */
   private async processWithAI(
-    extractedText: string, 
+    extractedText: string,
     fileMetadata: any,
     organizationId: string,
     organizationName: string
@@ -1229,10 +1238,11 @@ export class DocumentProcessor {
 
       return { success: true, aiData }
 
-    } catch (error) {
-      return { 
-        success: false, 
-        error: error instanceof Error ? error.message : 'AI processing failed' 
+    } catch (caughtError) {
+      const error = normalizeError(caughtError);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'AI processing failed'
       }
     }
   }
@@ -1257,8 +1267,8 @@ export class DocumentProcessor {
    * Update document with AI data and related models
    */
   private async updateDocumentWithAIData(
-    documentId: string, 
-    aiData: AIProcessingData, 
+    documentId: string,
+    aiData: AIProcessingData,
     extractedText: string,
     metadata?: any
   ): Promise<void> {
@@ -1273,9 +1283,9 @@ export class DocumentProcessor {
     });
 
     // Convert simple sections to the complex DocumentContent format
-    const convertedSections = aiData.structure?.sections ? 
+    const convertedSections = aiData.structure?.sections ?
       this.convertSectionsToDocumentContent(aiData.structure.sections) : []
-    
+
     console.log(`🔍 [UPDATE DOCUMENT] Converting ${aiData.structure?.sections?.length || 0} simple sections to ${convertedSections.length} complex sections`);
 
     // Convert processing history to the expected DocumentProcessing format
@@ -1348,8 +1358,8 @@ export class DocumentProcessor {
    * Update document processing status
    */
   private async updateDocumentStatus(
-    documentId: string, 
-    status: ProcessingStatus, 
+    documentId: string,
+    status: ProcessingStatus,
     error?: string
   ): Promise<void> {
     const processingData: any = {
@@ -1371,14 +1381,14 @@ export class DocumentProcessor {
    * Add timeout wrapper to prevent operations from hanging indefinitely
    */
   private async withTimeout<T>(
-    promise: Promise<T>, 
-    timeoutMs: number, 
+    promise: Promise<T>,
+    timeoutMs: number,
     errorMessage: string,
     documentId?: string
   ): Promise<T> {
     let timeoutId: NodeJS.Timeout;
     const abortController = new AbortController();
-    
+
     // Store abort controller for this document if ID provided
     if (documentId) {
       // Cancel any existing operations for this document
@@ -1389,7 +1399,7 @@ export class DocumentProcessor {
       }
       this.activeOperations.set(documentId, abortController);
     }
-    
+
     const timeoutPromise = new Promise<never>((_, reject) => {
       timeoutId = setTimeout(() => {
         // Abort the underlying operation when timeout occurs
@@ -1397,42 +1407,43 @@ export class DocumentProcessor {
         reject(new Error(errorMessage));
       }, timeoutMs);
     });
-    
+
     try {
       // Pass abort signal to the promise if it's a function that accepts it
       const result = await Promise.race([promise, timeoutPromise]);
-      
+
       // Clear timeout when promise resolves successfully
       if (timeoutId) {
         clearTimeout(timeoutId);
       }
-      
+
       // Clean up abort controller
       if (documentId) {
         this.activeOperations.delete(documentId);
       }
-      
+
       return result;
-    } catch (error) {
+    } catch (caughtError) {
+      const error = normalizeError(caughtError);
       // Clear timeout on error as well
       if (timeoutId) {
         clearTimeout(timeoutId);
       }
-      
+
       // Clean up abort controller
       if (documentId) {
         this.activeOperations.delete(documentId);
       }
-      
+
       // Abort any ongoing operations when error occurs
       if (!abortController.signal.aborted) {
         abortController.abort();
       }
-      
+
       throw error;
     }
   }
-  
+
   /**
    * Cancel all ongoing operations for a document
    */
@@ -1446,12 +1457,13 @@ export class DocumentProcessor {
     } else {
       console.log(`⚠️ No active operations found for document ${documentId}`);
     }
-    
+
     // Also try to cancel any Inngest jobs if they exist
     try {
       // Force mark document as cancelled in database to prevent any lingering operations
       console.log(`🔄 Marking document ${documentId} as cancelled in database...`);
-    } catch (error) {
+    } catch (caughtError) {
+      const error = normalizeError(caughtError);
       console.warn(`⚠️ Failed to mark document ${documentId} as cancelled:`, error);
     }
   }
@@ -1468,7 +1480,7 @@ export class DocumentProcessor {
       // Get current document to preserve existing data from JSON fields
       const document = await prisma.document.findUnique({
         where: { id: documentId },
-        select: { 
+        select: {
           processing: true,
           content: true,
           analysis: true,
@@ -1486,7 +1498,7 @@ export class DocumentProcessor {
         vectorProperties: document?.embeddings || {},
         processingHistory: (document?.processing as any)?.history || []
       }
-      
+
       // Update progress in aiData.status
       const updatedAiData = {
         ...currentAiData,
@@ -1502,7 +1514,7 @@ export class DocumentProcessor {
 
       await prisma.document.update({
         where: { id: documentId },
-        data: { 
+        data: {
           // Split aiData into correct JSON fields
           processing: {
             status: 'PROCESSING',
@@ -1519,7 +1531,8 @@ export class DocumentProcessor {
           ...(updatedAiData.vectorProperties && { embeddings: updatedAiData.vectorProperties })
         }
       })
-    } catch (error) {
+    } catch (caughtError) {
+      const error = normalizeError(caughtError);
       console.warn(`Failed to update progress for document ${documentId}:`, error)
       // Don't throw error to avoid breaking the main processing flow
     }
@@ -1589,7 +1602,7 @@ export class DocumentProcessor {
   private extractListFromText(text: string, type: string): string[] {
     const lines = text.toLowerCase().split('\n')
     const items: string[] = []
-    
+
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i]
       if (line.includes(type)) {
@@ -1605,7 +1618,7 @@ export class DocumentProcessor {
         break
       }
     }
-    
+
     return items
   }
 
@@ -1637,18 +1650,18 @@ export class DocumentProcessor {
 
     for (const line of lines) {
       const trimmed = line.trim()
-      
+
       // Heuristic for section headers
-      if (trimmed.length > 0 && trimmed.length < 100 && 
+      if (trimmed.length > 0 && trimmed.length < 100 &&
           (/^[A-Z]/.test(trimmed) && !trimmed.endsWith('.')) ||
           trimmed.match(/^\d+\.?\s+[A-Z]/)) {
-        
+
         // Save previous section
         if (currentSection && sectionContent.length > 0) {
           currentSection.content = sectionContent.join('\n').trim()
           sections.push(currentSection)
         }
-        
+
         // Start new section
         currentSection = {
           title: trimmed,
@@ -1686,7 +1699,7 @@ export class DocumentProcessor {
     try {
       // Generate dynamic entity types for AI prompt
       const entityTypesEnum = (Object.values(EntityType) as string[]).map(t => t.toLowerCase()).join('|')
-      
+
       // Use AI service for entity extraction
       const result = await this.aiService.generateCompletion({
         model: 'openai/gpt-4o-mini', // Use OpenRouter with cost-effective model
@@ -1747,7 +1760,8 @@ Return JSON format:
           endOffset: entity.text.length
         })) || []
       }
-    } catch (error) {
+    } catch (caughtError) {
+      const error = normalizeError(caughtError);
       console.warn('AI entity extraction failed, using fallback:', error)
     }
 
@@ -1760,7 +1774,7 @@ Return JSON format:
    */
   private extractEntitiesFallback(text: string): ExtractedEntity[] {
     const entities: ExtractedEntity[] = []
-    
+
     // Date patterns
     const dateRegex = /\b\d{1,2}\/\d{1,2}\/\d{4}\b|\b\d{4}-\d{2}-\d{2}\b/g
     let match
@@ -1793,13 +1807,13 @@ Return JSON format:
     // Simple quality score based on length and structure
     const words = text.split(/\s+/).length
     const paragraphs = text.split(/\n\s*\n/).length
-    
+
     let score = 0
     if (words > 100) score += 30
     if (words > 500) score += 30
     if (paragraphs > 3) score += 20
     if (text.includes('\n')) score += 20
-    
+
     return Math.min(100, score)
   }
 
@@ -1807,11 +1821,11 @@ Return JSON format:
     // Simple readability: average sentence length
     const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 0)
     const words = text.split(/\s+/).length
-    
+
     if (sentences.length === 0) return 50
-    
+
     const avgSentenceLength = words / sentences.length
-    
+
     // Score inversely related to sentence length
     if (avgSentenceLength < 15) return 90
     if (avgSentenceLength < 20) return 70
@@ -1821,20 +1835,20 @@ Return JSON format:
 
   private generateSuggestions(text: string): string[] {
     const suggestions: string[] = []
-    
+
     if (text.length < 100) {
       suggestions.push('Document appears to be very short. Consider adding more content.')
     }
-    
+
     if (!text.includes('\n')) {
       suggestions.push('Consider breaking the text into paragraphs for better readability.')
     }
-    
+
     const words = text.split(/\s+/)
     if (words.length > 2000) {
       suggestions.push('Document is quite long. Consider adding section headings for better navigation.')
     }
-    
+
     return suggestions
   }
 
@@ -1882,9 +1896,9 @@ Return JSON format:
       const extractionResult = await this.extractTextFromFile(document.filePath, document.mimeType)
 
       if (!extractionResult.success || !extractionResult.text) {
-        return { 
-          success: false, 
-          error: extractionResult.error || 'Text extraction failed' 
+        return {
+          success: false,
+          error: extractionResult.error || 'Text extraction failed'
         }
       }
 
@@ -1895,7 +1909,8 @@ Return JSON format:
         extractedText: extractionResult.text
       }
 
-    } catch (error) {
+    } catch (caughtError) {
+      const error = normalizeError(caughtError);
       console.error(`❌ [TEXT ONLY] Error:`, error)
       return {
         success: false,
@@ -1958,9 +1973,9 @@ Return JSON format:
         console.log(`🔄 [STRUCTURE ONLY] No extracted text, extracting from file first...`)
         const textResult = await this.extractTextOnly(documentId)
         if (!textResult.success || !textResult.extractedText) {
-          return { 
-            success: false, 
-            error: 'No text available for structure parsing' 
+          return {
+            success: false,
+            error: 'No text available for structure parsing'
           }
         }
         documentText = textResult.extractedText
@@ -1975,9 +1990,9 @@ Return JSON format:
       )
 
       if (!sectionsResult.success || !sectionsResult.sections) {
-        return { 
-          success: false, 
-          error: sectionsResult.error || 'Section analysis failed' 
+        return {
+          success: false,
+          error: sectionsResult.error || 'Section analysis failed'
         }
       }
 
@@ -1988,7 +2003,7 @@ Return JSON format:
       if (document.filePath) {
         console.log(`🔄 [STRUCTURE ONLY] Extracting tables and images from file...`)
         const fileResult = await this.extractTextFromFile(document.filePath, document.mimeType)
-        
+
         if (fileResult.success && fileResult.metadata) {
           tables = fileResult.metadata.tables || []
           images = fileResult.metadata.images || []
@@ -2020,7 +2035,8 @@ Return JSON format:
         structure
       }
 
-    } catch (error) {
+    } catch (caughtError) {
+      const error = normalizeError(caughtError);
       console.error(`❌ [STRUCTURE ONLY] Error:`, error)
       return {
         success: false,
@@ -2033,8 +2049,8 @@ Return JSON format:
    * Update document with comprehensive AI data including contract analysis and metadata
    */
   private async updateDocumentWithFullAIData(
-    documentId: string, 
-    aiData: AIProcessingData, 
+    documentId: string,
+    aiData: AIProcessingData,
     extractedText: string,
     metadata?: any
   ): Promise<void> {
@@ -2059,9 +2075,9 @@ Return JSON format:
     });
 
     // Convert simple sections to the complex DocumentContent format
-    const convertedSections = aiData.structure?.sections ? 
+    const convertedSections = aiData.structure?.sections ?
       this.convertSectionsToDocumentContent(aiData.structure.sections) : []
-    
+
     // Convert processing history to the expected DocumentProcessing format
     const processingEvents = aiData.processingHistory?.map((historyItem, index) => ({
       id: `event-${Date.now()}-${index}`,
@@ -2116,26 +2132,26 @@ Return JSON format:
         data: {
           // Processing status
           processing: processingData,
-          
+
           // Core content
           extractedText,
           summary: aiData.content.summary,
-          
+
           // Document classification and metadata from AI analysis
           documentType: metadata?.documentType || 'OTHER',
           securityClassification: metadata?.securityClassification || 'PUBLIC',
           setAsideType: metadata?.setAsideType || null,
           description: metadata?.description || aiData.content.summary || null,
-          
+
           // CRITICAL: Tags and NAICS codes from metadata analysis + extracted data for UI accessibility
           tags: metadata?.tags || [],
           naicsCodes: metadata?.naicsCodes || [],
-          
+
           // Contract fields for easier UI access (in addition to analysis.contractAnalysis)
           // Note: deadline and estimatedValue fields removed - not in Prisma schema
           // Timeline stored in analysis.contractAnalysis.timeline
           // EstimatedValue stored in analysis.contractAnalysis.estimatedValue
-          
+
           // Structured content
           content: {
             extractedText: aiData.content.extractedText,
@@ -2148,17 +2164,17 @@ Return JSON format:
             tables: aiData.structure?.tables || [],
             images: aiData.structure?.images || []
           },
-          
+
           // CRITICAL: Analysis results including contract analysis
           analysis: analysisData,
-          
+
           // Entity extraction results
           entities: {
             entities: aiData.analysis?.entities || [],
             extractedAt: new Date().toISOString(),
             totalCount: aiData.analysis?.entities?.length || 0
           },
-          
+
           // Vector properties
           embeddings: aiData.vectorProperties || {}
         }

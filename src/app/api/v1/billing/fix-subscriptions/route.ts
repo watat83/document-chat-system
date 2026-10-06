@@ -1,3 +1,5 @@
+import { isPlatformAdmin } from '@/lib/security/platform-admin';
+import { getSubscriptionPeriod } from '@/lib/billing/subscription-period';
 import { auth, currentUser } from '@clerk/nextjs/server';
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
@@ -8,13 +10,13 @@ import { z } from 'zod';
 
 /**
  * Emergency subscription fix endpoint
- * 
+ *
  * This endpoint diagnoses and fixes subscription issues including:
  * - Multiple active subscriptions
- * - Orphaned Stripe subscriptions  
+ * - Orphaned Stripe subscriptions
  * - Database/Stripe sync issues
  * - Billing state inconsistencies
- * 
+ *
  * @swagger
  * /api/billing/fix-subscriptions:
  *   post:
@@ -81,7 +83,7 @@ import { z } from 'zod';
 export async function POST(request: NextRequest) {
   try {
     console.log('🔧 Starting subscription fix process...');
-    
+
     const { userId } = await auth();
     if (!userId) {
       return createErrorResponse('Unauthorized', 401, 'UNAUTHORIZED');
@@ -98,12 +100,14 @@ export async function POST(request: NextRequest) {
 
     console.log(`Mode: ${dryRun ? 'DRY RUN' : 'LIVE'}, Force: ${force}`);
 
+    if (!isPlatformAdmin(user.id)) return createErrorResponse('Platform administrator access required', 403, 'FORBIDDEN');
+
     // Get user's organization
     const dbUser = await db.user.findUnique({
       where: { clerkId: user.id },
       select: { organizationId: true }
     });
-    
+
     if (!dbUser?.organizationId) {
       return createErrorResponse('Organization not found', 404, 'ORGANIZATION_NOT_FOUND');
     }
@@ -130,7 +134,7 @@ export async function POST(request: NextRequest) {
 
     // STEP 1: DIAGNOSIS - Check for subscription issues
     console.log('📋 Running diagnosis...');
-    
+
     const diagnosis = {
       multipleActiveSubscriptions: 0,
       orphanedStripeSubscriptions: 0,
@@ -163,13 +167,13 @@ export async function POST(request: NextRequest) {
           status: 'all'
         });
         stripeSubscriptions = stripeSubsResponse.data;
-        
-        const activeStripeSubscriptions = stripeSubscriptions.filter(sub => 
+
+        const activeStripeSubscriptions = stripeSubscriptions.filter(sub =>
           ['active', 'trialing', 'past_due'].includes(sub.status)
         );
-        
+
         console.log(`📊 Found ${activeStripeSubscriptions.length} active Stripe subscriptions`);
-        
+
         // Check for orphaned Stripe subscriptions (in Stripe but not in database)
         for (const stripeSub of activeStripeSubscriptions) {
           const dbSub = activeSubscriptions.find(sub => sub.stripeSubscriptionId === stripeSub.id);
@@ -177,7 +181,7 @@ export async function POST(request: NextRequest) {
             diagnosis.orphanedStripeSubscriptions++;
           }
         }
-        
+
         // Check for database sync issues (in database but not in Stripe or status mismatch)
         for (const dbSub of activeSubscriptions) {
           if (dbSub.stripeSubscriptionId) {
@@ -225,7 +229,7 @@ export async function POST(request: NextRequest) {
 
     // STEP 3: EXECUTE FIXES
     console.log('🔧 Executing fixes...');
-    
+
     const fixes = {
       subscriptionsCanceled: 0,
       databaseUpdates: 0,
@@ -235,15 +239,15 @@ export async function POST(request: NextRequest) {
     // Fix 1: Handle multiple active subscriptions
     if (diagnosis.multipleActiveSubscriptions > 0 || force) {
       console.log('🧹 Cleaning up multiple active subscriptions...');
-      
+
       const cleanupResults = await cleanupOrganizationSubscriptions(
         organizationId,
         undefined, // Don't exclude any subscriptions
         { dryRun }
       );
-      
+
       fixes.subscriptionsCanceled = cleanupResults.successfulCancellations;
-      
+
       if (!dryRun) {
         // Ensure single active subscription
         await ensureSingleActiveSubscription(organizationId);
@@ -253,11 +257,11 @@ export async function POST(request: NextRequest) {
     // Fix 2: Handle orphaned Stripe subscriptions
     if (diagnosis.orphanedStripeSubscriptions > 0 && !dryRun) {
       console.log('🧹 Cleaning up orphaned Stripe subscriptions...');
-      
-      const activeStripeSubscriptions = stripeSubscriptions.filter(sub => 
+
+      const activeStripeSubscriptions = stripeSubscriptions.filter(sub =>
         ['active', 'trialing', 'past_due'].includes(sub.status)
       );
-      
+
       for (const stripeSub of activeStripeSubscriptions) {
         const dbSub = activeSubscriptions.find(sub => sub.stripeSubscriptionId === stripeSub.id);
         if (!dbSub) {
@@ -275,26 +279,26 @@ export async function POST(request: NextRequest) {
     // Fix 3: Sync database with Stripe
     if (diagnosis.databaseSyncIssues > 0 && !dryRun) {
       console.log('🔄 Synchronizing database with Stripe...');
-      
+
       for (const dbSub of activeSubscriptions) {
         if (dbSub.stripeSubscriptionId) {
           try {
             const stripeSub = await stripe.subscriptions.retrieve(dbSub.stripeSubscriptionId);
-            
+
             // Update database subscription with Stripe data
             await db.subscription.update({
               where: { id: dbSub.id },
               data: {
-                status: stripeSub.status === 'active' ? 'ACTIVE' : 
+                status: stripeSub.status === 'active' ? 'ACTIVE' :
                        stripeSub.status === 'trialing' ? 'TRIALING' :
                        stripeSub.status === 'past_due' ? 'PAST_DUE' : 'CANCELED',
-                currentPeriodStart: new Date(stripeSub.current_period_start * 1000),
-                currentPeriodEnd: new Date(stripeSub.current_period_end * 1000),
+                currentPeriodStart: getSubscriptionPeriod(stripeSub).start,
+                currentPeriodEnd: getSubscriptionPeriod(stripeSub).end,
                 cancelAtPeriodEnd: stripeSub.cancel_at_period_end,
                 updatedAt: new Date(),
               }
             });
-            
+
             fixes.databaseUpdates++;
             console.log(`✅ Synchronized database subscription: ${dbSub.id}`);
           } catch (error) {
@@ -307,7 +311,7 @@ export async function POST(request: NextRequest) {
     // Fix 4: Fix organization plan mismatch
     if (diagnosis.organizationPlanMismatch && !dryRun) {
       console.log('🔄 Fixing organization plan mismatch...');
-      
+
       const updatedSubscriptions = await db.subscription.findMany({
         where: {
           organizationId,
@@ -315,10 +319,10 @@ export async function POST(request: NextRequest) {
         },
         orderBy: { updatedAt: 'desc' }
       });
-      
+
       if (updatedSubscriptions.length > 0) {
         const primarySubscription = updatedSubscriptions[0];
-        
+
         await db.organization.update({
           where: { id: organizationId },
           data: {
@@ -326,7 +330,7 @@ export async function POST(request: NextRequest) {
             subscriptionStatus: primarySubscription.status,
           }
         });
-        
+
         fixes.databaseUpdates++;
         console.log(`✅ Fixed organization plan type: ${primarySubscription.planType}`);
       }

@@ -1,4 +1,4 @@
-import { UsageTrackingService } from '../../usage-tracking';
+import { randomUUID } from 'node:crypto';
 import { AIMetrics } from '../ai-service-manager';
 import { TaskType } from '../interfaces/types';
 
@@ -58,30 +58,27 @@ export class AIMetricsIntegration {
     // Using static methods from UsageTrackingService
   }
 
+  /** Analytics persist metrics without modifying the billing usage ledger. */
+  private async persistMetric(metric: AIUsageMetrics): Promise<void> {
+    const { db } = await import('@/lib/db');
+    const requestId = typeof metric.metadata?.requestId === 'string' ? metric.metadata.requestId : randomUUID();
+    const data = {
+      requestId, organizationId: metric.organizationId, userId: metric.userId,
+      provider: metric.provider, model: metric.model, operation: metric.operation,
+      latency: Math.max(0, Math.round(metric.latency)), totalTokens: metric.tokensUsed,
+      cost: metric.cost, success: metric.success,
+      metadata: JSON.parse(JSON.stringify(metric.metadata ?? {})),
+    };
+    await db.aIMetric.upsert({ where: { requestId }, create: data, update: {} });
+  }
+
   async recordAIUsage(
-    organizationId: string, 
+    organizationId: string,
     userId: string | undefined,
     metrics: AIMetrics
   ): Promise<void> {
     try {
-      // Record in usage tracking system
-      await UsageTrackingService.trackUsage({
-        organizationId,
-        usageType: 'AI_QUERY', // Using AI_QUERY usage type
-        quantity: 1,
-        resourceType: metrics.operation,
-        metadata: {
-          provider: metrics.provider,
-          model: metrics.model,
-          operation: metrics.operation,
-          taskType: metrics.metadata.taskType,
-          tokensUsed: metrics.tokenCount.total,
-          cost: metrics.cost,
-          latency: metrics.latency,
-          success: metrics.success,
-          error: metrics.error
-        }
-      });
+
 
       // Store in local metrics for analytics
       const aiMetric: AIUsageMetrics = {
@@ -100,6 +97,7 @@ export class AIMetricsIntegration {
       };
 
       this.metrics.push(aiMetric);
+      await this.persistMetric(aiMetric);
 
       // Keep only recent metrics to prevent memory leaks
       if (this.metrics.length > this.MAX_STORED_METRICS) {
@@ -134,27 +132,7 @@ export class AIMetricsIntegration {
     } = {}
   ): Promise<void> {
     try {
-      // Record in usage tracking system (billing layer)
-      await UsageTrackingService.trackUsage({
-        organizationId,
-        usageType: 'AI_QUERY', // Using AI_QUERY usage type for billing
-        quantity: 1,
-        resourceType: 'media_generation',
-        metadata: {
-          provider,
-          model,
-          operation,
-          mediaType,
-          mediaCount: metadata.mediaCount || 1,
-          quality: metadata.quality,
-          cost,
-          latency,
-          success,
-          cacheHit: metadata.cacheHit || false,
-          optimizations: metadata.optimizations,
-          error: metadata.error
-        }
-      });
+
 
       // Store in local metrics for analytics (performance layer)
       const aiMetric: AIUsageMetrics = {
@@ -181,6 +159,7 @@ export class AIMetricsIntegration {
       };
 
       this.metrics.push(aiMetric);
+      await this.persistMetric(aiMetric);
 
       // Keep only recent metrics to prevent memory leaks
       if (this.metrics.length > this.MAX_STORED_METRICS) {
@@ -218,56 +197,7 @@ export class AIMetricsIntegration {
     } = {}
   ): Promise<void> {
     try {
-      // Record in usage tracking system (billing layer)
-      // Use both AI_QUERY and DOCUMENT_PROCESSING as specified in the plan
-      await UsageTrackingService.trackUsage({
-        organizationId,
-        usageType: 'AI_QUERY', // Primary usage type for billing
-        quantity: 1,
-        resourceId: metadata.requestId,
-        resourceType: 'document_processing',
-        metadata: {
-          provider,
-          model,
-          operation,
-          extractionType,
-          documentType: metadata.documentType,
-          documentSize: metadata.documentSize,
-          engineUsed: metadata.engineUsed,
-          tokensUsed: metadata.tokensUsed || 0,
-          cost,
-          latency,
-          success,
-          error: metadata.error,
-          extractedDataLength: metadata.extractedDataLength,
-          cacheHit: metadata.cacheHit || false
-        }
-      });
 
-      // Record secondary usage tracking for document processing billing
-      await UsageTrackingService.trackUsage({
-        organizationId,
-        usageType: 'DOCUMENT_PROCESSING', // Secondary usage type for document-specific billing
-        quantity: 1,
-        resourceId: metadata.requestId,
-        resourceType: 'document',
-        metadata: {
-          provider,
-          model,
-          operation,
-          extractionType,
-          documentType: metadata.documentType,
-          documentSize: metadata.documentSize,
-          engineUsed: metadata.engineUsed,
-          tokensUsed: metadata.tokensUsed || 0,
-          cost,
-          latency,
-          success,
-          error: metadata.error,
-          extractedDataLength: metadata.extractedDataLength,
-          cacheHit: metadata.cacheHit || false
-        }
-      });
 
       // Store in local metrics for analytics (performance layer)
       const aiMetric: AIUsageMetrics = {
@@ -296,6 +226,7 @@ export class AIMetricsIntegration {
       };
 
       this.metrics.push(aiMetric);
+      await this.persistMetric(aiMetric);
 
       // Keep only recent metrics to prevent memory leaks
       if (this.metrics.length > this.MAX_STORED_METRICS) {
@@ -308,7 +239,7 @@ export class AIMetricsIntegration {
   }
 
   getProviderMetrics(
-    organizationId?: string, 
+    organizationId?: string,
     timeRange?: { start: Date; end: Date }
   ): AIProviderMetrics[] {
     let filteredMetrics = this.metrics;
@@ -318,7 +249,7 @@ export class AIMetricsIntegration {
     }
 
     if (timeRange) {
-      filteredMetrics = filteredMetrics.filter(m => 
+      filteredMetrics = filteredMetrics.filter(m =>
         m.timestamp >= timeRange.start && m.timestamp <= timeRange.end
       );
     }
@@ -372,7 +303,7 @@ export class AIMetricsIntegration {
   }
 
   getSystemHealth(): AISystemHealth {
-    const recentMetrics = this.metrics.filter(m => 
+    const recentMetrics = this.metrics.filter(m =>
       Date.now() - m.timestamp.getTime() < 60000 * 60 // Last hour
     );
 
@@ -522,7 +453,7 @@ export class AIMetricsIntegration {
       // Filter metrics by organization and time period
       const now = new Date();
       const startDate = new Date();
-      
+
       switch (period) {
         case 'day':
           startDate.setDate(now.getDate() - 1);
@@ -535,7 +466,7 @@ export class AIMetricsIntegration {
           break;
       }
 
-      const filteredMetrics = this.metrics.filter(m => 
+      const filteredMetrics = this.metrics.filter(m =>
         m.organizationId === organizationId &&
         m.timestamp >= startDate &&
         m.timestamp <= now
@@ -662,7 +593,7 @@ export class AIMetricsIntegration {
       hourly: Array<{ hour: string; count: number; cost: number; cacheHitRate: number }>;
     };
   } {
-    let filteredMetrics = this.metrics.filter(m => 
+    let filteredMetrics = this.metrics.filter(m =>
       m.operation.includes('generation') || m.operation.includes('edit') || m.mediaType
     );
 
@@ -671,7 +602,7 @@ export class AIMetricsIntegration {
     }
 
     if (timeRange) {
-      filteredMetrics = filteredMetrics.filter(m => 
+      filteredMetrics = filteredMetrics.filter(m =>
         m.timestamp >= timeRange.start && m.timestamp <= timeRange.end
       );
     }
@@ -698,8 +629,8 @@ export class AIMetricsIntegration {
       acc[type] = {
         count: typeMetrics.reduce((sum, m) => sum + (m.mediaCount || 1), 0),
         cost: typeMetrics.reduce((sum, m) => sum + m.cost, 0),
-        averageLatency: typeMetrics.length > 0 
-          ? typeMetrics.reduce((sum, m) => sum + m.latency, 0) / typeMetrics.length 
+        averageLatency: typeMetrics.length > 0
+          ? typeMetrics.reduce((sum, m) => sum + m.latency, 0) / typeMetrics.length
           : 0
       };
       return acc;
@@ -719,7 +650,7 @@ export class AIMetricsIntegration {
     // By model
     const byModel: Record<string, { count: number; cost: number; averageLatency: number }> = {};
     const modelGroups = new Map<string, { metrics: typeof filteredMetrics; totalLatency: number }>();
-    
+
     filteredMetrics.forEach(m => {
       if (!modelGroups.has(m.model)) {
         modelGroups.set(m.model, { metrics: [], totalLatency: 0 });
@@ -763,11 +694,11 @@ export class AIMetricsIntegration {
       const hour = new Date(m.timestamp);
       hour.setMinutes(0, 0, 0);
       const key = hour.toISOString();
-      
+
       if (!hourlyBuckets.has(key)) {
         hourlyBuckets.set(key, { count: 0, cost: 0, total: 0, cacheHits: 0 });
       }
-      
+
       const bucket = hourlyBuckets.get(key)!;
       bucket.count += m.mediaCount || 1;
       bucket.cost += m.cost;
@@ -833,7 +764,7 @@ export class AIMetricsIntegration {
       daily: Array<{ date: string; count: number; cost: number; averageLatency: number }>;
     };
   } {
-    let filteredMetrics = this.metrics.filter(m => 
+    let filteredMetrics = this.metrics.filter(m =>
       m.operation === 'document_processing' || m.extractionType
     );
 
@@ -842,7 +773,7 @@ export class AIMetricsIntegration {
     }
 
     if (timeRange) {
-      filteredMetrics = filteredMetrics.filter(m => 
+      filteredMetrics = filteredMetrics.filter(m =>
         m.timestamp >= timeRange.start && m.timestamp <= timeRange.end
       );
     }
@@ -871,8 +802,8 @@ export class AIMetricsIntegration {
       acc[type] = {
         count: typeMetrics.length,
         cost: typeMetrics.reduce((sum, m) => sum + m.cost, 0),
-        averageLatency: typeMetrics.length > 0 
-          ? typeMetrics.reduce((sum, m) => sum + m.latency, 0) / typeMetrics.length 
+        averageLatency: typeMetrics.length > 0
+          ? typeMetrics.reduce((sum, m) => sum + m.latency, 0) / typeMetrics.length
           : 0
       };
       return acc;
@@ -881,7 +812,7 @@ export class AIMetricsIntegration {
     // By document type
     const byDocumentType: Record<string, { count: number; cost: number; averageLatency: number }> = {};
     const documentTypeGroups = new Map<string, typeof filteredMetrics>();
-    
+
     filteredMetrics.forEach(m => {
       const docType = m.documentType || 'unknown';
       if (!documentTypeGroups.has(docType)) {
@@ -894,8 +825,8 @@ export class AIMetricsIntegration {
       byDocumentType[docType] = {
         count: metrics.length,
         cost: metrics.reduce((sum, m) => sum + m.cost, 0),
-        averageLatency: metrics.length > 0 
-          ? metrics.reduce((sum, m) => sum + m.latency, 0) / metrics.length 
+        averageLatency: metrics.length > 0
+          ? metrics.reduce((sum, m) => sum + m.latency, 0) / metrics.length
           : 0
       };
     });
@@ -903,7 +834,7 @@ export class AIMetricsIntegration {
     // By engine
     const byEngine: Record<string, { count: number; cost: number; averageLatency: number; successRate: number }> = {};
     const engineGroups = new Map<string, typeof filteredMetrics>();
-    
+
     filteredMetrics.forEach(m => {
       const engine = m.engineUsed || 'unknown';
       if (!engineGroups.has(engine)) {
@@ -917,8 +848,8 @@ export class AIMetricsIntegration {
       byEngine[engine] = {
         count: metrics.length,
         cost: metrics.reduce((sum, m) => sum + m.cost, 0),
-        averageLatency: metrics.length > 0 
-          ? metrics.reduce((sum, m) => sum + m.latency, 0) / metrics.length 
+        averageLatency: metrics.length > 0
+          ? metrics.reduce((sum, m) => sum + m.latency, 0) / metrics.length
           : 0,
         successRate: metrics.length > 0 ? successCount / metrics.length : 0
       };
@@ -926,17 +857,17 @@ export class AIMetricsIntegration {
 
     // Performance metrics
     const totalTokens = filteredMetrics.reduce((sum, m) => sum + m.tokensUsed, 0);
-    const totalExtractionSize = filteredMetrics.reduce((sum, m) => 
+    const totalExtractionSize = filteredMetrics.reduce((sum, m) =>
       sum + (m.metadata?.extractedDataLength || 0), 0
     );
 
     const engineEfficiency: Record<string, number> = {};
     engineGroups.forEach((metrics, engine) => {
-      const avgLatency = metrics.length > 0 
-        ? metrics.reduce((sum, m) => sum + m.latency, 0) / metrics.length 
+      const avgLatency = metrics.length > 0
+        ? metrics.reduce((sum, m) => sum + m.latency, 0) / metrics.length
         : 0;
-      const avgCost = metrics.length > 0 
-        ? metrics.reduce((sum, m) => sum + m.cost, 0) / metrics.length 
+      const avgCost = metrics.length > 0
+        ? metrics.reduce((sum, m) => sum + m.cost, 0) / metrics.length
         : 0;
       // Lower is better: cost per second
       engineEfficiency[engine] = avgLatency > 0 ? avgCost / (avgLatency / 1000) : 0;
@@ -1029,7 +960,7 @@ export class AIMetricsIntegration {
     }
 
     if (timeRange) {
-      filteredMetrics = filteredMetrics.filter(m => 
+      filteredMetrics = filteredMetrics.filter(m =>
         m.timestamp >= timeRange.start && m.timestamp <= timeRange.end
       );
     }
@@ -1067,7 +998,7 @@ export class AIMetricsIntegration {
 
       const isMediaRequest = metric.operation.includes('generation') || metric.operation.includes('edit') || metric.mediaType;
       const isDocumentRequest = metric.operation === 'document_processing' || metric.extractionType;
-      
+
       if (isMediaRequest) {
         stats.mediaRequests++;
         stats.mediaGenerated += metric.mediaCount || 1;
@@ -1092,12 +1023,12 @@ export class AIMetricsIntegration {
 
     const providers = Array.from(providerStats.entries()).map(([name, stats]) => {
       const totalRequests = stats.textRequests + stats.mediaRequests + stats.documentRequests;
-      
+
       let type: 'text' | 'media' | 'document' | 'hybrid' = 'text';
       const hasText = stats.textRequests > 0;
       const hasMedia = stats.mediaRequests > 0;
       const hasDocument = stats.documentRequests > 0;
-      
+
       if ((hasText && hasMedia) || (hasText && hasDocument) || (hasMedia && hasDocument) || (hasText && hasMedia && hasDocument)) {
         type = 'hybrid';
       } else if (hasMedia) {
@@ -1123,13 +1054,13 @@ export class AIMetricsIntegration {
           mediaGenerated: stats.mediaGenerated,
           documentsProcessed: stats.documentsProcessed,
           cacheHitRate: totalSpecialRequests > 0 ? stats.cacheHits / totalSpecialRequests : 0,
-          averageQuality: stats.qualities.length > 0 
+          averageQuality: stats.qualities.length > 0
             ? stats.qualities.reduce((acc, q, _, arr) => arr.length === 1 ? q : acc + ', ' + q)
             : 'auto',
-          averageDocumentSize: stats.documentSizes.length > 0 
-            ? stats.documentSizes.reduce((sum, size) => sum + size, 0) / stats.documentSizes.length 
+          averageDocumentSize: stats.documentSizes.length > 0
+            ? stats.documentSizes.reduce((sum, size) => sum + size, 0) / stats.documentSizes.length
             : 0,
-          preferredEngine: stats.engines.length > 0 
+          preferredEngine: stats.engines.length > 0
             ? stats.engines.reduce((acc, engine, _, arr) => {
                 const counts = arr.reduce((c, e) => ({ ...c, [e]: (c[e] || 0) + 1 }), {} as Record<string, number>);
                 return Object.entries(counts).sort(([,a], [,b]) => b - a)[0][0];

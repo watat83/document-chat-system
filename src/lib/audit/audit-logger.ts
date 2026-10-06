@@ -49,20 +49,23 @@ export class AuditLogger {
         data: {
           organizationId: auditContext.organizationId,
           userId: auditContext.userId,
-          userEmail: auditContext.userEmail,
           eventType: data.eventType,
           category: data.category,
           severity: data.severity,
           resourceId: data.resourceId,
-          resourceType: data.resourceType,
+          resource: data.resourceType,
           description: data.description,
-          metadata: data.metadata || {},
+          metadata: { ...data.metadata, ...(auditContext.userEmail && { userEmail: auditContext.userEmail }) },
           ipAddress: auditContext.ipAddress,
           userAgent: auditContext.userAgent,
           sessionId: auditContext.sessionId,
-          correlationId: data.correlationId || crypto.randomUUID(),
+          requestId: data.correlationId || crypto.randomUUID(),
           checksum,
-          timestamp: new Date(),
+          createdAt: new Date(),
+          source: "application",
+          action: data.eventType,
+          message: data.description,
+          tags: [],
         },
       });
     } catch (error) {
@@ -93,7 +96,7 @@ export class AuditLogger {
   async logSecurityEvent(
     eventType: AuditEventType,
     description: string,
-    severity: AuditSeverity = AuditSeverity.WARNING,
+    severity: AuditSeverity = AuditSeverity.WARN,
     metadata?: Record<string, any>
   ): Promise<void> {
     await this.log({
@@ -159,8 +162,8 @@ export class AuditLogger {
     responseTime: number,
     metadata?: Record<string, any>
   ): Promise<void> {
-    const severity = statusCode >= 400 ? AuditSeverity.WARNING : AuditSeverity.INFO;
-    const eventType = statusCode >= 400 ? AuditEventType.API_ERROR : AuditEventType.API_REQUEST;
+    const severity = statusCode >= 400 ? AuditSeverity.WARN : AuditSeverity.INFO;
+    const eventType = statusCode >= 400 ? AuditEventType.API_REQUEST_FAILED : AuditEventType.API_REQUEST_MADE;
 
     await this.log({
       eventType,
@@ -178,12 +181,14 @@ export class AuditLogger {
   }
 
   private async buildAuditContext(context?: Partial<AuditContext>): Promise<AuditContext> {
+    if (context?.organizationId) return { ...context, organizationId: context.organizationId };
     const { userId } = await auth();
     const user = userId ? await prisma.user.findFirst({ where: { clerkId: userId, deletedAt: null }, select: { id: true, organizationId: true } }) : null;
     const organizationId = user?.organizationId;
 
+    if (!organizationId) throw new Error('Audit events require a verified organization');
     return {
-      organizationId: context?.organizationId || organizationId || 'system',
+      organizationId,
       userId: context?.userId || user?.id || undefined,
       userEmail: context?.userEmail,
       ipAddress: context?.ipAddress,

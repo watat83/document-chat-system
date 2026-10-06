@@ -10,11 +10,11 @@ import { Progress } from '@/components/ui/progress';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Slider } from '@/components/ui/slider';
-import { 
-  Brain, 
-  Zap, 
-  DollarSign, 
-  Shield, 
+import {
+  Brain,
+  Zap,
+  DollarSign,
+  Shield,
   Clock,
   Activity,
   Target,
@@ -35,7 +35,7 @@ import {
 interface RoutingDecision {
   useVercel: boolean;
   provider: string;
-  reasoning: string;
+  reasoningText: string;
   confidence: number;
   estimatedCost: number;
   estimatedLatency: number;
@@ -65,7 +65,7 @@ export function IntelligentRoutingDashboard({ demoMode = true }: { demoMode?: bo
   const [latencyRequirement, setLatencyRequirement] = useState([2000]);
   const [complianceRequired, setComplianceRequired] = useState(false);
   const [costPriority, setCostPriority] = useState([0.5]);
-  
+
   const [routingDecision, setRoutingDecision] = useState<RoutingDecision | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [performanceMetrics, setPerformanceMetrics] = useState<PerformanceMetrics[]>([]);
@@ -124,10 +124,10 @@ export function IntelligentRoutingDashboard({ demoMode = true }: { demoMode?: bo
 
   const makeRoutingDecision = async () => {
     setIsAnalyzing(true);
-    
+
     // Simulate intelligent routing decision
     await new Promise(resolve => setTimeout(resolve, 800));
-    
+
     const context = {
       operation: selectedOperation,
       taskComplexity,
@@ -139,33 +139,33 @@ export function IntelligentRoutingDashboard({ demoMode = true }: { demoMode?: bo
 
     // Simulate decision logic
     let score = 0.5;
-    
+
     // Operation type scoring
     if (selectedOperation === 'stream') score += 0.3;
     if (selectedOperation === 'chat') score += 0.2;
     if (selectedOperation === 'analysis') score -= 0.2;
-    
+
     // Task complexity
     if (taskComplexity === 'low') score += 0.2;
     if (taskComplexity === 'high') score -= 0.3;
-    
+
     // Budget considerations
     if (budgetRemaining[0] > 50) score += 0.1;
     if (budgetRemaining[0] < 20) score -= 0.3;
-    
+
     // Latency requirements
     if (latencyRequirement[0] < 1000) score += 0.2;
     if (latencyRequirement[0] > 3000) score -= 0.1;
-    
+
     // Compliance
     if (complianceRequired) score -= 0.4;
-    
+
     // Cost priority
     score -= costPriority[0] * 0.3;
 
     const useVercel = score > 0.5;
     const confidence = Math.min(Math.abs(score - 0.5) * 2, 1);
-    
+
     const reasons = [];
     if (selectedOperation === 'stream') reasons.push('Streaming optimized for Vercel AI SDK');
     if (taskComplexity === 'high') reasons.push('Complex tasks favor enterprise system');
@@ -177,7 +177,7 @@ export function IntelligentRoutingDashboard({ demoMode = true }: { demoMode?: bo
     const decision: RoutingDecision = {
       useVercel,
       provider: useVercel ? 'vercel' : 'openai',
-      reasoning: reasons.length > 0 ? reasons.join(', ') : 'Balanced decision based on current parameters',
+      reasoningText: reasons.length > 0 ? reasons.join(', ') : 'Balanced decision based on current parameters',
       confidence,
       estimatedCost: useVercel ? 0.0031 : 0.0025,
       estimatedLatency: useVercel ? 850 : 1250,
@@ -213,7 +213,7 @@ export function IntelligentRoutingDashboard({ demoMode = true }: { demoMode?: bo
   const getCircuitBreakerStatus = (provider: string) => {
     const breaker = circuitBreakers.find(cb => cb.provider === provider);
     if (!breaker) return { status: 'unknown', color: 'text-gray-500' };
-    
+
     if (breaker.isOpen) return { status: 'open', color: 'text-red-500', icon: XCircle };
     if (breaker.failureCount > 0) return { status: 'degraded', color: 'text-yellow-500', icon: AlertTriangle };
     return { status: 'healthy', color: 'text-green-500', icon: CheckCircle };
@@ -232,8 +232,8 @@ export function IntelligentRoutingDashboard({ demoMode = true }: { demoMode?: bo
             Real-time AI provider routing decisions based on performance, cost, and requirements
           </p>
         </div>
-        
-        <Button 
+
+        <Button
           onClick={makeRoutingDecision}
           disabled={isAnalyzing}
           className="flex items-center gap-2"
@@ -359,7 +359,7 @@ export function IntelligentRoutingDashboard({ demoMode = true }: { demoMode?: bo
 
                     <div className="space-y-2">
                       <Label>Reasoning</Label>
-                      <p className="text-sm text-muted-foreground">{routingDecision.reasoning}</p>
+                      <p className="text-sm text-muted-foreground">{routingDecision.reasoningText}</p>
                     </div>
 
                     <div className="grid grid-cols-2 gap-4">
@@ -420,7 +420,7 @@ export function IntelligentRoutingDashboard({ demoMode = true }: { demoMode?: bo
                     </div>
                     <Badge variant="outline">{metrics.requestCount} requests</Badge>
                   </div>
-                  
+
                   <div className="grid grid-cols-4 gap-4">
                     <div className="space-y-1">
                       <Label className="text-xs">Avg Latency</Label>
@@ -454,7 +454,7 @@ export function IntelligentRoutingDashboard({ demoMode = true }: { demoMode?: bo
             {circuitBreakers.map((breaker) => {
               const status = getCircuitBreakerStatus(breaker.provider);
               const StatusIcon = status.icon || CheckCircle;
-              
+
               return (
                 <Card key={breaker.provider}>
                   <CardContent className="p-4">
@@ -464,7 +464,7 @@ export function IntelligentRoutingDashboard({ demoMode = true }: { demoMode?: bo
                         <span className="font-medium capitalize">{breaker.provider}</span>
                         {getProviderIcon(breaker.provider)}
                       </div>
-                      
+
                       <div className="flex items-center gap-2">
                         <StatusIcon className={`w-4 h-4 ${status.color}`} />
                         <Badge variant={breaker.isOpen ? "destructive" : breaker.failureCount > 0 ? "outline" : "default"}>
@@ -472,7 +472,7 @@ export function IntelligentRoutingDashboard({ demoMode = true }: { demoMode?: bo
                         </Badge>
                       </div>
                     </div>
-                    
+
                     <div className="mt-2 text-sm text-muted-foreground">
                       Failure count: {breaker.failureCount}/5
                       {breaker.lastFailure && (
@@ -481,9 +481,9 @@ export function IntelligentRoutingDashboard({ demoMode = true }: { demoMode?: bo
                         </span>
                       )}
                     </div>
-                    
-                    <Progress 
-                      value={(breaker.failureCount / 5) * 100} 
+
+                    <Progress
+                      value={(breaker.failureCount / 5) * 100}
                       className="h-1 mt-2"
                     />
                   </CardContent>
@@ -504,7 +504,7 @@ export function IntelligentRoutingDashboard({ demoMode = true }: { demoMode?: bo
                 <div className="flex justify-between">
                   <Label>Cost Priority</Label>
                   <span className="text-sm text-muted-foreground">
-                    {costPriority[0] < 0.3 ? 'Speed Focused' : 
+                    {costPriority[0] < 0.3 ? 'Speed Focused' :
                      costPriority[0] > 0.7 ? 'Cost Focused' : 'Balanced'}
                   </span>
                 </div>

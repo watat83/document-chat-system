@@ -77,11 +77,11 @@ export async function GET() {
       where: { clerkId: user.id },
       select: { organizationId: true }
     });
-    
+
     if (!dbUser) {
       return createErrorResponse('User not found in database', 404, 'USER_NOT_FOUND');
     }
-    
+
     const organizationId = dbUser.organizationId;
 
     if (!organizationId) {
@@ -91,7 +91,7 @@ export async function GET() {
     // Get organization with Stripe customer ID
     const organization = await db.organization.findUnique({
       where: { id: organizationId },
-      select: { 
+      select: {
         stripeCustomerId: true,
         name: true,
         billingEmail: true
@@ -115,22 +115,23 @@ export async function GET() {
       const invoices = await stripe.invoices.list({
         customer: organization.stripeCustomerId,
         limit: 50, // Fetch last 50 invoices
-        expand: ['data.subscription', 'data.payment_intent']
+        expand: ['data.parent.subscription_details.subscription']
       });
 
       // Transform Stripe invoice data to our format
       const transformedInvoices = invoices.data.map((invoice) => {
+        const subscription = invoice.parent?.subscription_details?.subscription;
         // Generate a description based on subscription info
         let description = 'Document Chat System Subscription';
         if (invoice.lines?.data?.[0]?.description) {
           description = invoice.lines.data[0].description;
-        } else if (invoice.subscription && typeof invoice.subscription === 'object') {
+        } else if (subscription && typeof subscription === 'object') {
           // Try to get plan info from subscription metadata or description
-          const metadata = invoice.subscription.metadata;
+          const metadata = subscription.metadata;
           if (metadata?.planType) {
             const planNames = {
               'STARTER': 'Starter',
-              'PROFESSIONAL': 'Professional', 
+              'PROFESSIONAL': 'Professional',
               'AGENCY': 'Agency',
               'ENTERPRISE': 'Enterprise'
             };
@@ -176,7 +177,7 @@ export async function GET() {
 
     } catch (stripeError: any) {
       console.error('Stripe API error:', stripeError);
-      
+
       // Handle specific Stripe errors
       if (stripeError.code === 'resource_missing') {
         return NextResponse.json({
@@ -184,7 +185,7 @@ export async function GET() {
           message: 'No billing history found. This customer may not have any invoices yet.'
         });
       }
-      
+
       return createErrorResponse(
         `Failed to fetch invoices from Stripe: ${stripeError.message}`,
         500,

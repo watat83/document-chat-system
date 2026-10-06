@@ -1,3 +1,5 @@
+import { serializeDocument } from '@/lib/documents/document-response';
+import { normalizeError } from '@/lib/errors/normalize-error';
 import { checkRateLimit, rateLimitConfigs } from '@/lib/rate-limit';
 import { guardUsage } from '@/lib/billing/usage-guard';
 import { UsageType } from '@/lib/usage-tracking';
@@ -43,7 +45,7 @@ export async function POST(request: NextRequest) {
     const folderId = formData.get('folderId') as string | null;
     const tagsParam = formData.get('tags') as string | null;
     const documentTypeParam = formData.get('documentType') as string | null;
-    
+
     // Parse tags if provided
     let tags: string[] = [];
     if (tagsParam) {
@@ -54,7 +56,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'Tags must be a JSON array of strings' }, { status: 400 });
       }
     }
-    
+
     console.log('📥 Upload request parameters:', {
       fileName: file.name,
       fileSize: file.size,
@@ -67,14 +69,14 @@ export async function POST(request: NextRequest) {
     });
 
     // Validate input
-    const inputValidation = uploadSchema.safeParse({ 
+    const inputValidation = uploadSchema.safeParse({
       organizationId,
       documentType: documentTypeParam ?? undefined
     });
     if (!inputValidation.success) {
       console.error('❌ Input validation failed:', inputValidation.error.format());
       return NextResponse.json(
-        { 
+        {
           error: 'Invalid input parameters',
           details: inputValidation.error.format()
         },
@@ -88,9 +90,9 @@ export async function POST(request: NextRequest) {
 
     // Enhanced file validation with extension fallback
     console.log(`[API DEBUG] Upload attempt - File: ${file.name}, Type: "${file.type}", Size: ${file.size} bytes`);
-    
+
     const fileValidation = validateFile(file, fileUpload.maxSize);
-    
+
     if (!fileValidation.isValid) {
       console.error(`[API DEBUG] File validation failed: ${fileValidation.error}`);
       return NextResponse.json(
@@ -102,7 +104,7 @@ export async function POST(request: NextRequest) {
     // Use the effective MIME type (corrected if necessary)
     const effectiveMimeType = getEffectiveMimeType(fileValidation);
     console.log(`[API DEBUG] Using effective MIME type: "${effectiveMimeType}" for file: ${file.name}`);
-    
+
     // Create corrected file if needed
     let processedFile = file;
     if (fileValidation.correctedMimeType) {
@@ -122,7 +124,7 @@ export async function POST(request: NextRequest) {
         isDefault: organizationId === 'default'
       });
       return NextResponse.json(
-        { 
+        {
           error: 'Access denied to organization',
           details: `User belongs to organization '${user.organizationId}' but trying to access '${organizationId}'`
         },
@@ -206,7 +208,7 @@ export async function POST(request: NextRequest) {
     // Validate and prepare document type
     const validDocumentTypes = ['PROPOSAL', 'CONTRACT', 'CERTIFICATION', 'COMPLIANCE', 'TEMPLATE', 'OTHER', 'SOLICITATION', 'AMENDMENT', 'CAPABILITY_STATEMENT', 'PAST_PERFORMANCE'];
     const validDocumentType = inputValidation.data.documentType || 'OTHER';
-    
+
     // Validate folderId if provided
     let validFolderId = folderId === 'null' || folderId === '' ? null : folderId;
     if (validFolderId) {
@@ -241,7 +243,7 @@ export async function POST(request: NextRequest) {
       tags,
       documentType: validDocumentType
     });
-    
+
     try {
       const document = await prisma.document.create({
         data: {
@@ -249,7 +251,7 @@ export async function POST(request: NextRequest) {
           organizationId,
           uploadedById: user.id,
           folderId: validFolderId, // Use validated folder ID
-          
+
           // Direct field mappings (no metadata field)
           name: file.name,
           uploadDate: new Date(),
@@ -259,7 +261,7 @@ export async function POST(request: NextRequest) {
           mimeType: effectiveMimeType,
           tags: tags || [], // Ensure tags is always an array
           documentType: validDocumentType, // Use validated document type without 'as any'
-          
+
           // Initialize processing status in JSON field
           processing: {
             status: 'PENDING',
@@ -267,7 +269,7 @@ export async function POST(request: NextRequest) {
             completedAt: null,
             error: null
           },
-          
+
           // Initialize other required JSON fields with empty objects
           content: {},
           embeddings: {},
@@ -277,16 +279,16 @@ export async function POST(request: NextRequest) {
           analysis: {}
         }
       });
-      
+
       console.log('✅ Document created successfully:', document.id);
 
       // Trigger immediate basic processing (text extraction + sections only, no AI analysis)
       console.log('🤖 Starting immediate basic processing for document:', documentId);
-      
+
       try {
         // Import document processor
         const { documentProcessor } = await import('@/lib/ai/document-processor');
-        
+
         // Process document with basic processing only (text extraction + sections)
         const processingResult = await documentProcessor.processDocumentBasic(
           documentId,
@@ -294,7 +296,7 @@ export async function POST(request: NextRequest) {
             console.log(`📊 Basic Processing [${documentId}]: ${step} - ${progress}%`);
           }
         );
-        
+
         if (processingResult.success) {
           console.log('✅ Basic processing completed successfully for document:', documentId);
         } else {
@@ -302,7 +304,7 @@ export async function POST(request: NextRequest) {
           // Update document status to failed
           await prisma.document.update({
             where: { id: documentId },
-            data: { 
+            data: {
               processing: {
                 status: 'FAILED',
                 error: processingResult.error || 'Processing failed',
@@ -316,7 +318,7 @@ export async function POST(request: NextRequest) {
         // Update document status to failed
         await prisma.document.update({
           where: { id: documentId },
-          data: { 
+          data: {
             processing: {
               status: 'FAILED',
               error: error instanceof Error ? error.message : 'Unknown error',
@@ -336,6 +338,7 @@ export async function POST(request: NextRequest) {
       }
 
       return NextResponse.json({
+        document: serializeDocument(document),
         id: document.id,
         name: document.name,
         size: document.size,
@@ -346,8 +349,9 @@ export async function POST(request: NextRequest) {
         message: 'Document uploaded and basic processing completed successfully.',
         processingStatus: 'BASIC_COMPLETED'
       });
-      
-    } catch (dbError) {
+
+    } catch (caughtDberror) {
+      const dbError = normalizeError(caughtDberror);
       if (supabaseAdmin) {
         const cleanup = await supabaseAdmin.storage.from('documents').remove([filePath]);
         if (cleanup.error) console.error('Orphan upload cleanup failed', cleanup.error);
@@ -379,7 +383,7 @@ export async function POST(request: NextRequest) {
       }
 
       return NextResponse.json(
-        { 
+        {
           error: errorMessage,
           details: errorDetails,
           code: dbError.code || 'UNKNOWN'
@@ -426,7 +430,7 @@ export async function GET(request: NextRequest) {
         isDefault: organizationId === 'default'
       });
       return NextResponse.json(
-        { 
+        {
           error: 'Access denied to organization',
           details: `User belongs to organization '${user.organizationId}' but trying to access '${organizationId}'`
         },
@@ -459,7 +463,7 @@ export async function GET(request: NextRequest) {
       documents: documents.map(doc => ({
         id: doc.id,
         name: doc.name,          // Direct field alignment
-        size: doc.size,          // Direct field alignment  
+        size: doc.size,          // Direct field alignment
         type: doc.mimeType,
         status: (doc.processing as any)?.status || 'PENDING',  // Get status from processing JSON
         uploadedAt: doc.createdAt,

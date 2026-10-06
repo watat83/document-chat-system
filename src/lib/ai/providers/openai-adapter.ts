@@ -1,7 +1,8 @@
-import { openai } from '@ai-sdk/openai';
-import { generateText, streamText, embed } from 'ai';
+import { completionUsage, metricTokens } from '../usage';
+import { createOpenAI } from '@ai-sdk/openai';
+import { generateText, streamText, embed, embedMany } from 'ai';
 import { ai } from '@/lib/config/env';
-import { 
+import {
   AIProviderAdapter,
   UnifiedCompletionRequest,
   UnifiedCompletionResponse,
@@ -39,8 +40,9 @@ export interface OpenAIConfig {
 
 export class OpenAIAdapter extends AIProviderAdapter {
   private config: OpenAIConfig;
+  private client: ReturnType<typeof createOpenAI>;
   private aiMetricsIntegration: AIMetricsIntegration;
-  
+
   // Model mapping from unified names to OpenAI model IDs
   private modelMapping: Record<string, string> = {
     'fast': ai.modelFast,
@@ -62,6 +64,7 @@ export class OpenAIAdapter extends AIProviderAdapter {
   constructor(config: OpenAIConfig) {
     super('openai');
     this.config = config;
+    this.client = createOpenAI({ apiKey: config.apiKey, organization: config.organizationId });
     this.aiMetricsIntegration = new AIMetricsIntegration();
   }
 
@@ -134,7 +137,7 @@ export class OpenAIAdapter extends AIProviderAdapter {
 
   async loadAvailableModels(): Promise<ModelInfo[]> {
     const cacheKey = `ai:openai:models`;
-    
+
     try {
       // Try to get cached models first
       const cachedModels = await cacheManager.get<ModelInfo[]>(cacheKey);
@@ -155,7 +158,7 @@ export class OpenAIAdapter extends AIProviderAdapter {
       }
 
       const data = await response.json();
-      
+
       // Transform OpenAI models to our format
       const models: ModelInfo[] = data.data
         .filter((model: any) => model.id.startsWith('gpt-'))
@@ -174,12 +177,12 @@ export class OpenAIAdapter extends AIProviderAdapter {
 
       // Cache the models for 1 hour
       await cacheManager.set(cacheKey, models, 3600);
-      
+
       return models;
-      
+
     } catch (error) {
       console.error('Failed to load OpenAI models:', error);
-      
+
       // Return static models as fallback
       return this.getAvailableModels();
     }
@@ -187,7 +190,7 @@ export class OpenAIAdapter extends AIProviderAdapter {
 
   async refreshModels(): Promise<void> {
     const cacheKey = `ai:openai:models`;
-    await cacheManager.del(cacheKey);
+    await cacheManager.delete(cacheKey);
     await this.loadAvailableModels();
   }
 
@@ -239,7 +242,7 @@ export class OpenAIAdapter extends AIProviderAdapter {
 
   private getFeaturesForModel(modelId: string): string[] {
     const baseFeatures = ['chat'];
-    
+
     if (modelId.includes('gpt-4o')) {
       baseFeatures.push('vision', 'function-calling', 'json-mode');
     } else if (modelId.includes('gpt-4')) {
@@ -247,7 +250,7 @@ export class OpenAIAdapter extends AIProviderAdapter {
     } else if (modelId.includes('gpt-3.5')) {
       baseFeatures.push('function-calling');
     }
-    
+
     return baseFeatures;
   }
 
@@ -310,7 +313,7 @@ export class OpenAIAdapter extends AIProviderAdapter {
   async estimateTokens(text: string, model?: string): Promise<TokenEstimate> {
     // Simple estimation: ~4 characters per token for GPT models
     const tokenCount = Math.ceil(text.length / 4);
-    
+
     return {
       prompt: tokenCount,
       completion: model?.includes('embedding') ? 0 : Math.ceil(tokenCount * 0.3), // Estimate 30% completion
@@ -323,7 +326,7 @@ export class OpenAIAdapter extends AIProviderAdapter {
   ): Promise<UnifiedCompletionResponse> {
     const organizationId = request.metadata?.organizationId;
     const startTime = Date.now();
-    
+
     try {
       // Security validation
       if (process.env.NODE_ENV === 'production' && request.metadata?.httpRequest) {
@@ -339,26 +342,25 @@ export class OpenAIAdapter extends AIProviderAdapter {
       }
 
       const model = this.resolveModel(request.model);
-      const openAIModel = openai(model, {
-        apiKey: this.config.apiKey,
-        organization: this.config.organizationId
-      });
+      const openAIModel = this.client.chat(model);
 
       const messages = this.formatMessages(request.messages);
-      
+
       const result = await generateText({
         model: openAIModel,
+        abortSignal: request.signal,
+        maxRetries: this.config.maxRetries,
         messages,
         temperature: request.temperature,
-        maxTokens: request.maxTokens,
+        maxOutputTokens: request.maxTokens,
         stopSequences: request.stopSequences,
         seed: request.options?.seed
       });
 
       // Calculate cost for tracking
       const modelCost = this.costPerToken[model] || { prompt: 0.002, completion: 0.002 };
-      const promptCost = (result.usage.promptTokens / 1000) * modelCost.prompt;
-      const completionCost = (result.usage.completionTokens / 1000) * modelCost.completion;
+      const promptCost = (completionUsage(result.usage).promptTokens / 1000) * modelCost.prompt;
+      const completionCost = (completionUsage(result.usage).completionTokens / 1000) * modelCost.completion;
       const totalCost = promptCost + completionCost;
 
       // Track usage after successful request (Layer 1: Billing)
@@ -373,9 +375,9 @@ export class OpenAIAdapter extends AIProviderAdapter {
             provider: 'openai',
             model: model,
             cost: totalCost,
-            promptTokens: result.usage.promptTokens,
-            completionTokens: result.usage.completionTokens,
-            totalTokens: result.usage.totalTokens
+            promptTokens: completionUsage(result.usage).promptTokens,
+            completionTokens: completionUsage(result.usage).completionTokens,
+            totalTokens: completionUsage(result.usage).totalTokens
           }
         });
 
@@ -388,7 +390,7 @@ export class OpenAIAdapter extends AIProviderAdapter {
             model: model,
             operation: 'completion',
             latency: Date.now() - startTime,
-            tokenCount: result.usage,
+            tokenCount: metricTokens(completionUsage(result.usage)),
             cost: totalCost,
             success: true,
             metadata: {
@@ -405,9 +407,9 @@ export class OpenAIAdapter extends AIProviderAdapter {
         content: result.text,
         model: model,
         usage: {
-          promptTokens: result.usage.promptTokens,
-          completionTokens: result.usage.completionTokens,
-          totalTokens: result.usage.totalTokens
+          promptTokens: completionUsage(result.usage).promptTokens,
+          completionTokens: completionUsage(result.usage).completionTokens,
+          totalTokens: completionUsage(result.usage).totalTokens
         },
         metadata: {
           provider: this.name,
@@ -450,7 +452,7 @@ export class OpenAIAdapter extends AIProviderAdapter {
   ): Promise<UnifiedEmbeddingResponse> {
     const organizationId = request.metadata?.organizationId;
     const startTime = Date.now();
-    
+
     try {
       // Security validation
       if (process.env.NODE_ENV === 'production' && request.metadata?.httpRequest) {
@@ -466,16 +468,14 @@ export class OpenAIAdapter extends AIProviderAdapter {
       }
 
       const model = this.resolveModel(request.model);
-      const openAIModel = openai.embedding(model, {
-        apiKey: this.config.apiKey,
-        organization: this.config.organizationId
-      });
+      const openAIModel = this.client.embedding(model);
 
-      const result = await embed({
-        model: openAIModel,
-        value: request.text,
-        ...(request.dimensions && { dimensions: request.dimensions })
-      });
+      const providerOptions = request.dimensions ? { openai: { dimensions: request.dimensions } } : undefined;
+      const result = Array.isArray(request.text)
+        ? await embedMany({ model: openAIModel, values: request.text, providerOptions })
+        : await embed({ model: openAIModel, value: request.text, providerOptions });
+      const embedding = 'embeddings' in result ? result.embeddings : result.embedding;
+      const dimensions = 'embeddings' in result ? result.embeddings[0]?.length ?? 0 : result.embedding.length;
 
       // Calculate cost for tracking
       const modelCost = this.costPerToken[model] || { prompt: 0.00002, completion: 0 };
@@ -494,7 +494,7 @@ export class OpenAIAdapter extends AIProviderAdapter {
             model: model,
             cost: totalCost,
             totalTokens: result.usage.tokens,
-            dimensions: result.embedding.length
+            dimensions: dimensions
           }
         });
 
@@ -514,21 +514,21 @@ export class OpenAIAdapter extends AIProviderAdapter {
               taskType: 'embedding',
               organizationId,
               userId: request.metadata?.userId,
-              dimensions: result.embedding.length
+              dimensions: dimensions
             }
           }
         );
       }
 
       return {
-        embedding: result.embedding,
+        embedding,
         model: model,
         usage: {
           totalTokens: result.usage.tokens
         },
         metadata: {
           provider: this.name,
-          dimensions: result.embedding.length,
+          dimensions: dimensions,
           cost: totalCost
         }
       };
@@ -566,7 +566,7 @@ export class OpenAIAdapter extends AIProviderAdapter {
   ): Promise<AsyncIterable<UnifiedStreamChunk>> {
     const organizationId = request.metadata?.organizationId;
     const startTime = Date.now();
-    
+
     try {
       // Security validation
       if (process.env.NODE_ENV === 'production' && request.metadata?.httpRequest) {
@@ -582,18 +582,17 @@ export class OpenAIAdapter extends AIProviderAdapter {
       }
 
       const model = this.resolveModel(request.model);
-      const openAIModel = openai(model, {
-        apiKey: this.config.apiKey,
-        organization: this.config.organizationId
-      });
+      const openAIModel = this.client.chat(model);
 
       const messages = this.formatMessages(request.messages);
 
       const result = await streamText({
         model: openAIModel,
+        abortSignal: request.signal,
+        maxRetries: this.config.maxRetries,
         messages,
         temperature: request.temperature,
-        maxTokens: request.maxTokens,
+        maxOutputTokens: request.maxTokens,
         stopSequences: request.stopSequences,
         seed: request.options?.seed
       });
@@ -605,7 +604,7 @@ export class OpenAIAdapter extends AIProviderAdapter {
         const estimatedTokens = await this.estimateTokensForCompletion(request);
         const modelCost = this.costPerToken[model] || { prompt: 0.002, completion: 0.002 };
         const estimatedCost = (estimatedTokens.total / 1000) * ((modelCost.prompt + modelCost.completion) / 2);
-        
+
         // Track with estimated values (Layer 1: Billing)
         await UsageTrackingService.trackUsage({
           organizationId,
@@ -678,15 +677,16 @@ export class OpenAIAdapter extends AIProviderAdapter {
 
   async checkHealth(): Promise<boolean> {
     try {
-      const openAIModel = openai('gpt-3.5-turbo', {
-        apiKey: this.config.apiKey,
-        organization: this.config.organizationId
-      });
+      const openAIModel = this.client.chat('gpt-3.5-turbo');
 
       await generateText({
         model: openAIModel,
-        messages: [{ role: 'user', content: 'Hello' }],
-        maxTokens: 5
+        messages: [{
+          role: 'user',
+
+          content: 'Hello'
+        }],
+        maxOutputTokens: 5
       });
 
       this.updateHealth(true);
@@ -704,13 +704,13 @@ export class OpenAIAdapter extends AIProviderAdapter {
     if (this.modelMapping[unifiedModel]) {
       return this.modelMapping[unifiedModel];
     }
-    
+
     // If it's already a valid OpenAI model, use it
     const validOpenAIModels = ['gpt-4o', 'gpt-4o-mini', 'gpt-3.5-turbo', 'text-embedding-3-small', 'text-embedding-3-large'];
     if (validOpenAIModels.includes(unifiedModel)) {
       return unifiedModel;
     }
-    
+
     // If it's an Anthropic model that fell back to OpenAI, map to equivalent
     if (unifiedModel.includes('claude')) {
       if (unifiedModel.includes('sonnet') || unifiedModel.includes('opus')) {
@@ -719,7 +719,7 @@ export class OpenAIAdapter extends AIProviderAdapter {
         return 'gpt-4o-mini'; // Fast model
       }
     }
-    
+
     // Default fallback for any unknown model
     return 'gpt-4o-mini';
   }
@@ -737,7 +737,7 @@ export class OpenAIAdapter extends AIProviderAdapter {
     const allText = request.messages.map(m => m.content).join(' ');
     const promptTokens = Math.ceil(allText.length / 4);
     const completionTokens = Math.ceil((request.maxTokens || 1000) * 0.7); // Estimate 70% of max
-    
+
     return {
       prompt: promptTokens,
       completion: completionTokens,
@@ -750,7 +750,7 @@ export class OpenAIAdapter extends AIProviderAdapter {
   ): Promise<TokenEstimate> {
     const text = Array.isArray(request.text) ? request.text.join(' ') : request.text;
     const tokens = Math.ceil(text.length / 4);
-    
+
     return {
       prompt: tokens,
       completion: 0,
@@ -761,7 +761,7 @@ export class OpenAIAdapter extends AIProviderAdapter {
   private async *transformStream(
     stream: AsyncIterable<string>,
     model: string
-  ): AsyncIterator<UnifiedStreamChunk> {
+  ): AsyncGenerator<UnifiedStreamChunk> {
     for await (const chunk of stream) {
       yield {
         content: chunk,
@@ -778,44 +778,44 @@ export class OpenAIAdapter extends AIProviderAdapter {
     if (error?.status === 401) {
       return new AuthenticationError('Invalid OpenAI API key', 'openai');
     }
-    
+
     // Handle rate limiting
     if (error?.status === 429) {
       return new RateLimitError('openai', error.headers?.['retry-after']);
     }
-    
+
     // Handle validation errors
     if (error?.status === 400) {
       return new ValidationError(`OpenAI API validation error: ${error.message || error.body?.message}`);
     }
-    
+
     // Handle quota/billing issues specifically
-    if (error?.status === 402 || 
+    if (error?.status === 402 ||
         error.message?.includes('quota') ||
         error.message?.includes('billing') ||
         error.message?.includes('insufficient funds') ||
         error.message?.includes('credits')) {
       return new QuotaExceededError('openai', 'usage quota or billing');
     }
-    
+
     // Handle network/connection errors
-    if (error?.name === 'APIConnectionError' || 
-        error.code === 'ECONNREFUSED' || 
-        error.code === 'ETIMEDOUT' || 
+    if (error?.name === 'APIConnectionError' ||
+        error.code === 'ECONNREFUSED' ||
+        error.code === 'ETIMEDOUT' ||
         error.code === 'ENOTFOUND') {
       return new NetworkError(`OpenAI API connection error: ${error.message}`, 'openai');
     }
-    
+
     // Handle service unavailable
     if (error?.status >= 500) {
       return new ProviderUnavailableError('openai', `Service error: ${error.status}`);
     }
-    
+
     // Handle configuration errors
     if (error?.status === 403) {
       return new ProviderConfigurationError('Access forbidden - check API key permissions', 'openai');
     }
-    
+
     // Generic error fallback
     return new NetworkError(`OpenAI API error: ${error.message || 'Unknown error'}`);
   }

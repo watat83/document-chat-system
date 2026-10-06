@@ -8,37 +8,37 @@ import { AIServiceManager } from '@/lib/ai/ai-service-manager';
 const generateRequestSchema = z.object({
   type: z.enum(['proposal', 'strategy', 'analysis', 'summary', 'custom'])
     .describe("Type of government contracting content to generate. 'proposal' creates compelling bid responses, 'strategy' develops competitive approaches, 'analysis' provides data-driven insights, 'summary' condenses complex information, 'custom' follows specific user instructions."),
-  
+
   prompt: z.string().min(1)
     .describe("Detailed user prompt describing the specific content to generate. Should provide clear context about the government opportunity, requirements, and desired outcomes. The AI will use this as the primary instruction for content creation."),
-  
+
   organizationId: z.string().min(1)
     .describe("Unique identifier for the organization requesting content generation. Used for access control, usage tracking, cost attribution, and applying organization-specific AI preferences and budget limits."),
-  
+
   documents: z.array(z.string()).optional()
     .describe("Array of document IDs to include as context for content generation. These documents (solicitations, amendments, past performance examples) will be analyzed and referenced to create more accurate and relevant content."),
-  
+
   requirements: z.object({
     length: z.enum(['short', 'medium', 'long']).optional()
       .describe("Desired content length: 'short' (200-400 words), 'medium' (400-800 words), 'long' (800-1500 words). Affects response depth, detail level, and processing time."),
-    
+
     tone: z.enum(['professional', 'casual', 'technical']).optional()
       .describe("Writing tone for the generated content: 'professional' uses formal business language, 'casual' is conversational but business-appropriate, 'technical' includes detailed regulatory and industry terminology."),
-    
+
     format: z.enum(['paragraph', 'bullets', 'outline', 'report']).optional()
       .describe("Content structure format: 'paragraph' creates flowing text, 'bullets' uses lists and points, 'outline' creates hierarchical structure, 'report' formats as formal business document with sections."),
-    
+
     includeData: z.boolean().optional()
       .describe("Whether to include relevant statistics, market data, historical information, and quantitative support in the generated content. Enhances credibility for government proposals."),
-    
+
     includeCitations: z.boolean().optional()
       .describe("Whether to include proper references to federal regulations (FAR, CFR), industry standards, and government publications. Essential for compliance and credibility in government contracting."),
   }).optional()
     .describe("Content generation requirements that control output format, style, length, and inclusion of data/citations. All fields are optional with intelligent defaults based on content type."),
-  
+
   provider: z.enum(['vercel', 'traditional']).optional()
     .describe("AI provider preference: 'vercel' uses Vercel AI SDK for enhanced streaming and modern features, 'traditional' uses the established multi-provider system. Used for A/B testing and performance optimization."),
-  
+
   streaming: z.boolean().optional().default(true)
     .describe("Enable real-time streaming of generated content. When true, content is delivered incrementally as it's generated, providing immediate feedback and allowing user interaction (pause/resume). Improves user experience for longer content.")
 });
@@ -144,19 +144,19 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { 
-      type, 
-      prompt, 
-      organizationId, 
-      documents, 
-      requirements, 
+    const {
+      type,
+      prompt,
+      organizationId,
+      documents,
+      requirements,
       provider = 'vercel',
-      streaming 
+      streaming
     } = validation.data;
 
     // Build system prompt
     const systemPrompt = buildSystemPrompt(type, requirements);
-    
+
     // Build user prompt with context
     const userPrompt = await buildUserPrompt(type, prompt, documents, organizationId);
 
@@ -167,12 +167,12 @@ export async function POST(request: NextRequest) {
       // Use Vercel AI SDK for streaming response
       const { textStream } = await streamText({
         model: myProvider.languageModel('chat-model'),
-        system: systemPrompt,
+        instructions: systemPrompt,
         prompt: userPrompt,
         maxTokens,
         temperature: type === 'analysis' ? 0.3 : 0.7,
         experimental_transform: {
-          transformTextDelta: ({ textDelta }) => {
+          transformTextDelta: ({ text: textDelta }) => {
             // Add streaming metadata for client-side metrics
             return textDelta;
           }
@@ -190,7 +190,7 @@ export async function POST(request: NextRequest) {
     } else {
       // Use traditional AI service for non-streaming or traditional provider
       const aiService = new AIServiceManager();
-      
+
       const result = await aiService.generateCompletion({
         model: 'gpt-4',
         messages: [
@@ -219,7 +219,7 @@ export async function POST(request: NextRequest) {
 }
 
 function buildSystemPrompt(
-  type: string, 
+  type: string,
   requirements?: any
 ): string {
   const basePrompt = `You are an expert government contracting advisor and content strategist. Generate high-quality, professional content that helps contractors succeed in government markets.
@@ -314,7 +314,7 @@ async function buildUserPrompt(
 function getMaxTokensForLength(length: string): number {
   const limits = {
     short: 600,    // ~400 words
-    medium: 1200,  // ~800 words  
+    medium: 1200,  // ~800 words
     long: 2000     // ~1500 words
   };
   return limits[length as keyof typeof limits] || 1200;

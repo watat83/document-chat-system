@@ -44,7 +44,7 @@ export interface DecisionMatrix {
 
 export interface IntelligentRoutingDecision extends RoutingDecision {
   useVercel: boolean;
-  reasoning: string;
+  reasoningText: string;
   confidence: number;
   fallbackChain: AIServiceProvider[];
   estimatedCost: number;
@@ -60,7 +60,7 @@ export class AIFeatureFlagManager {
     // For now, using global configuration with enhanced flags
     const config = AIConfiguration.getInstance();
     const vercelConfig = config.getVercelConfig();
-    
+
     return {
       useVercelForStreaming: vercelConfig.enabled && vercelConfig.useFor.includes('streaming'),
       useVercelForChat: vercelConfig.enabled && vercelConfig.useFor.includes('chat'),
@@ -92,11 +92,11 @@ export class HybridAIRouter extends AIRequestRouter {
   private vercelAdapter?: VercelAIAdapter;
   private decisionMatrix: DecisionMatrix;
   private performanceHistory: Map<AIServiceProvider, PerformanceMetrics>;
-  private circuitBreakers: Map<AIServiceProvider, { 
-    isOpen: boolean; 
-    failureCount: number; 
-    lastFailure: Date; 
-    nextRetry: Date; 
+  private circuitBreakers: Map<AIServiceProvider, {
+    isOpen: boolean;
+    failureCount: number;
+    lastFailure: Date;
+    nextRetry: Date;
   }>;
   private readonly CIRCUIT_BREAKER_THRESHOLD = 5;
   private readonly CIRCUIT_BREAKER_TIMEOUT = 60000; // 1 minute
@@ -170,7 +170,7 @@ export class HybridAIRouter extends AIRequestRouter {
 
       // Get feature flags for this organization
       const flags = await this.featureFlagManager.getFlags();
-      
+
       // Create routing context
       const context: RoutingContext = {
         organizationId: request.organizationId || 'default',
@@ -185,7 +185,7 @@ export class HybridAIRouter extends AIRequestRouter {
 
       // Make intelligent routing decision
       const intelligentDecision = await this.makeIntelligentRoutingDecision(request, context, flags);
-      
+
       if (intelligentDecision.useVercel && this.vercelAdapter) {
         return {
           selectedProvider: 'vercel-enhanced',
@@ -194,7 +194,7 @@ export class HybridAIRouter extends AIRequestRouter {
           estimatedCost: intelligentDecision.estimatedCost,
           estimatedLatency: intelligentDecision.estimatedLatency,
           qualityScore: 0.9,
-          rationale: intelligentDecision.reasoning,
+          rationale: intelligentDecision.reasoningText,
           fallbackChain: intelligentDecision.fallbackChain.map(p => p),
           metadata: {
             system: 'vercel-enhanced',
@@ -204,7 +204,7 @@ export class HybridAIRouter extends AIRequestRouter {
             decisionTime: Date.now() - startTime
           },
           useVercel: intelligentDecision.useVercel,
-          reasoning: intelligentDecision.reasoning,
+          reasoningText: intelligentDecision.reasoningText,
           confidence: intelligentDecision.confidence,
           circuitBreakerStatus: this.getCircuitBreakerStatus()
         };
@@ -223,20 +223,20 @@ export class HybridAIRouter extends AIRequestRouter {
             decisionTime: Date.now() - startTime
           },
           useVercel: false,
-          reasoning: intelligentDecision.reasoning,
+          reasoningText: intelligentDecision.reasoningText,
           confidence: intelligentDecision.confidence,
           circuitBreakerStatus: this.getCircuitBreakerStatus()
         };
       }
     } catch (error) {
       console.error('Error in intelligent routing:', error);
-      
+
       // Emergency fallback to existing system
       const fallbackDecision = await super.route(request);
       return {
         ...fallbackDecision,
         useVercel: false,
-        reasoning: 'Emergency fallback due to routing error',
+        reasoningText: 'Emergency fallback due to routing error',
         confidence: 0.1,
         fallbackChain: ['openai', 'anthropic'],
         circuitBreakerStatus: this.getCircuitBreakerStatus(),
@@ -253,7 +253,7 @@ export class HybridAIRouter extends AIRequestRouter {
     const messageCount = request.messages?.length || 0;
     const hasSystemPrompt = request.messages?.some(m => m.role === 'system') || false;
     const hasTools = (request as any).tools?.length > 0 || false;
-    
+
     if (hasTools || messageCount > 10 || request.taskType === 'complex_analysis') {
       return 'high';
     } else if (messageCount > 3 || hasSystemPrompt || request.taskType === 'document_analysis') {
@@ -270,17 +270,17 @@ export class HybridAIRouter extends AIRequestRouter {
   ): Promise<IntelligentRoutingDecision> {
     // 1. Check feature flags for explicit routing preferences
     const flagScore = this.evaluateFeatureFlags(request, flags);
-    
+
     // 2. Calculate decision matrix score
     const matrixScore = this.calculateMatrixScore(request, context);
-    
+
     // 3. Consider performance history
     const performanceScore = this.calculatePerformanceScore();
-    
+
     // 4. Apply cost optimization if enabled
-    const costScore = flags.aiCostOptimization ? 
+    const costScore = flags.aiCostOptimization ?
       this.calculateCostScore(context) : 0.5;
-    
+
     // 5. Combine scores with weights
     const finalScore = (
       flagScore * 0.4 +
@@ -291,10 +291,10 @@ export class HybridAIRouter extends AIRequestRouter {
 
     const useVercel = finalScore > 0.5;
     const primaryProvider = useVercel ? 'vercel' : this.selectEnterpriseProvider(flags);
-    
+
     // 6. Build fallback chain
     const fallbackChain = this.buildIntelligentFallbackChain(primaryProvider, flags);
-    
+
     // 7. Estimate cost and latency
     const estimatedCost = this.estimateIntelligentCost(primaryProvider, request);
     const estimatedLatency = this.estimateIntelligentLatency(primaryProvider, request);
@@ -310,7 +310,7 @@ export class HybridAIRouter extends AIRequestRouter {
       fallbackChain: fallbackChain.map(p => p),
       metadata: {},
       useVercel,
-      reasoning: this.buildIntelligentReasoning(flagScore, matrixScore, performanceScore, costScore, finalScore),
+      reasoningText: this.buildIntelligentReasoning(flagScore, matrixScore, performanceScore, costScore, finalScore),
       confidence: Math.min(Math.abs(finalScore - 0.5) * 2, 1)
     };
   }
@@ -339,15 +339,15 @@ export class HybridAIRouter extends AIRequestRouter {
   private calculateMatrixScore(request: AIRequest, context: RoutingContext): number {
     const operationScore = this.decisionMatrix.operationType[request.operation] || 0.5;
     const complexityScore = this.decisionMatrix.taskComplexity[context.taskComplexity] || 0.5;
-    
-    const costSensitivity = context.budgetRemaining && context.budgetRemaining < 10 ? 'high' : 
+
+    const costSensitivity = context.budgetRemaining && context.budgetRemaining < 10 ? 'high' :
                            context.budgetRemaining && context.budgetRemaining < 50 ? 'medium' : 'low';
     const costScore = this.decisionMatrix.costSensitivity[costSensitivity];
-    
+
     const performanceReq = context.latencyRequirement && context.latencyRequirement < 1000 ? 'high' :
                           context.latencyRequirement && context.latencyRequirement < 3000 ? 'medium' : 'low';
     const performanceScore = this.decisionMatrix.performanceRequirement[performanceReq];
-    
+
     const complianceLevel = context.complianceRequired ? 'strict' : 'none';
     const complianceScore = this.decisionMatrix.complianceLevel[complianceLevel];
 
@@ -387,14 +387,14 @@ export class HybridAIRouter extends AIRequestRouter {
 
   private selectEnterpriseProvider(flags: AIFeatureFlags): AIServiceProvider {
     const provider = flags.defaultAiProvider as AIServiceProvider;
-    
+
     // Check if provider is available (circuit breaker open?)
     const circuitBreaker = this.circuitBreakers.get(provider);
     if (circuitBreaker?.isOpen && Date.now() < circuitBreaker.nextRetry.getTime()) {
       // Provider is down, select alternative
       const alternatives: AIServiceProvider[] = ['openai', 'anthropic', 'google', 'azure']
         .filter(p => p !== provider && !this.isCircuitBreakerOpen(p));
-      
+
       return alternatives[0] || 'openai'; // Fallback to OpenAI
     }
 
@@ -403,11 +403,11 @@ export class HybridAIRouter extends AIRequestRouter {
 
   private buildIntelligentFallbackChain(primaryProvider: AIServiceProvider, flags: AIFeatureFlags): AIServiceProvider[] {
     const chain: AIServiceProvider[] = [primaryProvider];
-    
+
     if (flags.aiProviderFallback) {
       const alternatives: AIServiceProvider[] = ['openai', 'anthropic', 'google', 'azure', 'vercel']
         .filter(p => p !== primaryProvider && !this.isCircuitBreakerOpen(p));
-      
+
       // Add up to 2 fallback providers
       chain.push(...alternatives.slice(0, 2));
     }
@@ -448,23 +448,23 @@ export class HybridAIRouter extends AIRequestRouter {
   }
 
   private buildIntelligentReasoning(
-    flagScore: number, 
-    matrixScore: number, 
-    performanceScore: number, 
-    costScore: number, 
+    flagScore: number,
+    matrixScore: number,
+    performanceScore: number,
+    costScore: number,
     finalScore: number
   ): string {
     const reasons: string[] = [];
 
     if (flagScore > 0.7) reasons.push('Feature flags favor Vercel AI SDK');
     if (flagScore < 0.3) reasons.push('Feature flags favor enterprise system');
-    
+
     if (matrixScore > 0.6) reasons.push('Operation type optimized for Vercel');
     if (matrixScore < 0.4) reasons.push('Task complexity favors enterprise system');
-    
+
     if (performanceScore > 0.6) reasons.push('Performance metrics favor Vercel');
     if (performanceScore < 0.4) reasons.push('Performance metrics favor enterprise');
-    
+
     if (costScore > 0.6) reasons.push('Budget allows for premium features');
     if (costScore < 0.4) reasons.push('Cost optimization required');
 
@@ -485,7 +485,7 @@ export class HybridAIRouter extends AIRequestRouter {
   private isCircuitBreakerOpen(provider: AIServiceProvider): boolean {
     const breaker = this.circuitBreakers.get(provider);
     if (!breaker) return false;
-    
+
     // Check if circuit breaker should be reset
     if (breaker.isOpen && Date.now() >= breaker.nextRetry.getTime()) {
       breaker.isOpen = false;
@@ -493,7 +493,7 @@ export class HybridAIRouter extends AIRequestRouter {
       console.info(`Circuit breaker reset for provider: ${provider}`);
       return false;
     }
-    
+
     return breaker.isOpen;
   }
 
@@ -503,58 +503,58 @@ export class HybridAIRouter extends AIRequestRouter {
     if (request.operation === 'stream' && flags.useVercelForStreaming) {
       return true;
     }
-    
+
     if (request.taskType === 'chat' && flags.useVercelForChat) {
       return true;
     }
-    
+
     if ((request as any).prototype === true && flags.useVercelForNewFeatures) {
       return true;
     }
-    
+
     // Don't use Vercel for:
     if ((request as any).requiresCompliance) {
       return false;
     }
-    
+
     if ((request as any).complexCostOptimization) {
       return false;
     }
-    
+
     if ((request as any).organizationPolicies?.length > 0) {
       return false;
     }
-    
+
     if (request.taskType === 'embedding') {
       return false; // Use our system for embeddings
     }
-    
+
     if (request.taskType === 'document_analysis' || request.taskType === 'complex_analysis') {
       return false; // Use our system for complex tasks requiring sophisticated routing
     }
-    
+
     return false;
   }
 
   private getVercelRationale(request: AIRequest): string {
     const reasons: string[] = [];
-    
+
     if (request.operation === 'stream') {
       reasons.push('Optimized for streaming performance');
     }
-    
+
     if (request.taskType === 'chat') {
       reasons.push('Enhanced chat experience with Vercel AI SDK');
     }
-    
+
     if ((request as any).prototype === true) {
       reasons.push('Rapid prototyping mode enabled');
     }
-    
+
     if (reasons.length === 0) {
       reasons.push('Default Vercel AI SDK routing');
     }
-    
+
     return reasons.join(', ');
   }
 
@@ -562,20 +562,20 @@ export class HybridAIRouter extends AIRequestRouter {
     // Rough cost estimation for Vercel AI SDK requests
     const baseTokens = this.estimateTokens(request);
     const modelMultiplier = this.getModelCostMultiplier(request.model || 'gpt-4o');
-    
+
     return (baseTokens / 1000) * modelMultiplier;
   }
 
   private estimateTokens(request: AIRequest): number {
     // Estimate tokens from messages or text content
     let totalText = '';
-    
+
     if (request.messages) {
       totalText = request.messages.map(m => m.content).join(' ');
     } else if ((request as any).text) {
       totalText = (request as any).text;
     }
-    
+
     // Rough token estimation: 1 token ≈ 4 characters
     return Math.ceil(totalText.length / 4);
   }
@@ -592,14 +592,14 @@ export class HybridAIRouter extends AIRequestRouter {
       'gemini-1.5-pro': 0.0035,
       'gemini-1.5-flash': 0.00035
     };
-    
+
     return costs[model] || 0.02; // Default fallback
   }
 
   private buildFallbackChain(request: AIRequest): string[] {
     // Build fallback chain starting with our existing system
     const fallbacks = ['existing-system'];
-    
+
     // Add specific provider fallbacks based on task type
     switch (request.taskType) {
       case 'chat':
@@ -614,7 +614,7 @@ export class HybridAIRouter extends AIRequestRouter {
       default:
         fallbacks.push('openai', 'anthropic', 'google');
     }
-    
+
     return fallbacks;
   }
 
@@ -666,7 +666,7 @@ export class HybridAIRouter extends AIRequestRouter {
     if (breaker) {
       breaker.failureCount++;
       breaker.lastFailure = new Date();
-      
+
       if (breaker.failureCount >= this.CIRCUIT_BREAKER_THRESHOLD) {
         breaker.isOpen = true;
         breaker.nextRetry = new Date(Date.now() + this.CIRCUIT_BREAKER_TIMEOUT);
@@ -754,7 +754,7 @@ export class HybridAIRouter extends AIRequestRouter {
   ): Promise<IntelligentRoutingDecision> {
     // Temporarily adjust decision matrix for cost optimization
     const originalMatrix = { ...this.decisionMatrix };
-    
+
     // Adjust cost sensitivity based on priority
     this.decisionMatrix.costSensitivity = {
       'low': 0.8 - (costPriority * 0.3),
@@ -771,7 +771,7 @@ export class HybridAIRouter extends AIRequestRouter {
 
       const flags = await this.featureFlagManager.getFlags();
       const decision = await this.makeIntelligentRoutingDecision(request, routingContext, flags);
-      
+
       return decision;
     } finally {
       // Restore original matrix

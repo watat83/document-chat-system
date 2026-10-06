@@ -1,7 +1,7 @@
 'use client';
 
 import type { AIChatPluginConfig } from '@platejs/ai/react';
-import type { UseChatOptions } from 'ai/react';
+import type { UseChatOptions } from '@ai-sdk/react';
 
 import { streamInsertChunk, withAIBatch } from '@platejs/ai';
 import { AIChatPlugin, AIPlugin, useChatChunk } from '@platejs/ai/react';

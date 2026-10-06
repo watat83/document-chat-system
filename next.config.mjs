@@ -1,5 +1,8 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Check every application entry point and its complete imported dependency graph.
+  // Standalone examples and unit tests have separate validation environments.
+  typescript: { tsconfigPath: 'tsconfig.build.json' },
   typedRoutes: true,
   experimental: {
     optimizeCss: true, // Enable CSS optimization to reduce preload warnings

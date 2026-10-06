@@ -1,3 +1,4 @@
+import { getSubscriptionPeriod } from '@/lib/billing/subscription-period';
 import { auth, currentUser } from '@clerk/nextjs/server';
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
@@ -116,7 +117,7 @@ async function fetchSubscriptionData(organizationId: string) {
 
   if (allActiveSubscriptions.length > 1) {
     console.warn(`Multiple active subscriptions found (${allActiveSubscriptions.length}), cleaning up in background...`);
-    
+
     // Clean up duplicates in background using SubscriptionManager
     SubscriptionManager.cleanupExistingSubscriptions(
       organizationId,
@@ -135,7 +136,7 @@ async function fetchSubscriptionData(organizationId: string) {
 
   if (organization && organization.planType !== subscription.planType) {
     console.log(`Fixing organization plan type mismatch: ${organization.planType} -> ${subscription.planType}`);
-    
+
     // Update organization plan type to match active subscription (background operation)
     db.organization.update({
       where: { id: organizationId },
@@ -409,11 +410,11 @@ export async function POST(request: NextRequest) {
       where: { clerkId: user.id },
       select: { organizationId: true }
     });
-    
+
     if (!dbUser) {
       return createErrorResponse('User not found in database', 404, 'USER_NOT_FOUND');
     }
-    
+
     const organizationId = dbUser.organizationId;
 
     if (!organizationId) {
@@ -432,7 +433,7 @@ export async function POST(request: NextRequest) {
 
     // **CRITICAL FIX**: Check for existing active subscriptions BEFORE creating new ones
     console.log('🔍 Checking for existing active subscriptions...');
-    
+
     const existingActiveSubscriptions = await db.subscription.findMany({
       where: {
         organizationId,
@@ -449,7 +450,7 @@ export async function POST(request: NextRequest) {
     console.log(`Found ${existingActiveSubscriptions.length} existing active subscriptions`);
 
     // Check if user already has the requested plan
-    const existingPlan = existingActiveSubscriptions.find(sub => 
+    const existingPlan = existingActiveSubscriptions.find(sub =>
       sub.planType === validatedData.planType && !sub.cancelAtPeriodEnd
     );
 
@@ -489,30 +490,30 @@ export async function POST(request: NextRequest) {
           userId: user.id,
         },
       });
-      
+
       customerId = customer.id;
       stripeCustomer = customer;
-      
+
       // Update organization with customer ID
       await db.organization.update({
         where: { id: organizationId },
         data: { stripeCustomerId: customerId }
       });
-      
+
       console.log('New Stripe customer created:', customerId);
     }
 
     // **ENHANCEMENT**: Clean up any existing Stripe subscriptions before creating new one
     if (customerId) {
       console.log('🧹 Cleaning up existing Stripe subscriptions...');
-      
+
       const existingStripeSubscriptions = await stripe.subscriptions.list({
         customer: customerId,
         status: 'all',
         limit: 100
       });
 
-      const activeStripeSubscriptions = existingStripeSubscriptions.data.filter(sub => 
+      const activeStripeSubscriptions = existingStripeSubscriptions.data.filter(sub =>
         ['active', 'trialing', 'past_due'].includes(sub.status)
       );
 
@@ -569,7 +570,6 @@ export async function POST(request: NextRequest) {
 
     const checkoutSession = await stripe.checkout.sessions.create({
       customer: customerId,
-      payment_method_types: ['card'],
       line_items: [
         {
           price: planDetails.priceId,
@@ -635,7 +635,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       checkoutUrl: checkoutSession.url,
       sessionId: checkoutSession.id,
-      message: existingActiveSubscriptions.length > 0 
+      message: existingActiveSubscriptions.length > 0
         ? `Cleaned up ${existingActiveSubscriptions.length} existing subscription(s) before creating new one.`
         : 'Subscription creation initiated.'
     });
@@ -656,14 +656,14 @@ const updateSubscriptionSchema = z.object({
 
 /**
  * Billing subscription management schemas for Stripe integration.
- * 
+ *
  * Features:
  * - Multi-plan support (STARTER, PROFESSIONAL, AGENCY, ENTERPRISE)
  * - Plan change flow with automatic cleanup
  * - Subscription cancellation scheduling
  * - Usage data preservation during transitions
  * - Comprehensive error handling and validation
- * 
+ *
  * Used for:
  * - Subscription creation and checkout
  * - Plan upgrades and downgrades
@@ -733,7 +733,7 @@ export async function PATCH(request: NextRequest) {
 
     const body = await request.json();
     console.log('Request body:', body);
-    
+
     const validatedData = updateSubscriptionSchema.parse(body);
     console.log('Validated data:', validatedData);
 
@@ -742,11 +742,11 @@ export async function PATCH(request: NextRequest) {
       where: { clerkId: user.id },
       select: { organizationId: true }
     });
-    
+
     if (!dbUser) {
       return createErrorResponse('User not found in database', 404, 'USER_NOT_FOUND');
     }
-    
+
     const organizationId = dbUser.organizationId;
 
     if (!organizationId) {
@@ -755,7 +755,7 @@ export async function PATCH(request: NextRequest) {
 
     // **ENHANCED**: Use SubscriptionManager for reliable subscription retrieval
     console.log('🔍 Getting current subscription for update...');
-    
+
     const subscription = await SubscriptionManager.getCurrentSubscription(organizationId);
 
     if (!subscription) {
@@ -777,7 +777,7 @@ export async function PATCH(request: NextRequest) {
 
     if (allActiveSubscriptions.length > 1) {
       console.warn(`Multiple active subscriptions found during PATCH (${allActiveSubscriptions.length}), cleaning up in background...`);
-      
+
       // Clean up duplicates in background
       SubscriptionManager.cleanupExistingSubscriptions(
         organizationId,
@@ -788,9 +788,9 @@ export async function PATCH(request: NextRequest) {
       });
     }
 
-    console.log('Found subscription:', { 
-      id: subscription.id, 
-      planType: subscription.planType, 
+    console.log('Found subscription:', {
+      id: subscription.id,
+      planType: subscription.planType,
       status: subscription.status,
       stripeSubscriptionId: subscription.stripeSubscriptionId
     });
@@ -807,24 +807,24 @@ export async function PATCH(request: NextRequest) {
 
     // Update Stripe subscription
     const updateData: any = {};
-    
+
     if (validatedData.cancelAtPeriodEnd !== undefined) {
       updateData.cancel_at_period_end = validatedData.cancelAtPeriodEnd;
-      
+
       // For trial cancellations, ensure we're preserving the trial period
       if (validatedData.cancelAtPeriodEnd === true) {
         console.log(`🔄 Canceling subscription at period end (preserving trial/billing period)`);
-        
+
         // Check if this is a trial subscription
         try {
           const stripeSubscription = await stripe.subscriptions.retrieve(subscription.stripeSubscriptionId);
-          const isInTrial = stripeSubscription.status === 'trialing' || 
+          const isInTrial = stripeSubscription.status === 'trialing' ||
                            (stripeSubscription.trial_end && stripeSubscription.trial_end * 1000 > Date.now());
-          
+
           if (isInTrial) {
             console.log(`📅 This is a trial subscription - will cancel at trial end: ${new Date(stripeSubscription.trial_end! * 1000).toISOString()}`);
           } else {
-            console.log(`📅 This is a paid subscription - will cancel at period end: ${new Date(stripeSubscription.current_period_end * 1000).toISOString()}`);
+            console.log(`📅 This is a paid subscription - will cancel at period end: ${getSubscriptionPeriod(stripeSubscription).end.toISOString()}`);
           }
         } catch (error) {
           console.warn('⚠️ Could not check trial status from Stripe:', error);
@@ -846,18 +846,18 @@ export async function PATCH(request: NextRequest) {
       // Get the new plan details
       const plans = await getSubscriptionPlans();
       const newPlanDetails = plans[validatedData.planType as SubscriptionPlan];
-      
+
       if (!newPlanDetails) {
         console.error('Invalid plan type:', validatedData.planType);
         return createErrorResponse(`Invalid plan type: ${validatedData.planType}`, 400, 'INVALID_PLAN_TYPE');
       }
-      
+
       console.log('Plan change requested:', {
         oldPlan: subscription.planType,
         newPlan: validatedData.planType,
         newPlanDetails: newPlanDetails
       });
-      
+
       // Check if new plan has a price ID
       if (!newPlanDetails.priceId) {
         return createErrorResponse('Price not configured for this plan. Please contact support.', 400, 'PRICE_NOT_CONFIGURED');
@@ -877,7 +877,7 @@ export async function PATCH(request: NextRequest) {
       // This prevents duplicate subscriptions and ensures clean transitions
       // NEW: Usage data is preserved during this process
       console.log('🧹 Cleaning up existing subscriptions before plan change with usage preservation...');
-      
+
       // Step 1: Cancel all database subscriptions for this organization
       const allActiveSubscriptions = await db.subscription.findMany({
         where: {
@@ -896,7 +896,7 @@ export async function PATCH(request: NextRequest) {
         status: 'all'
       });
 
-      const activeStripeSubscriptions = allStripeSubscriptions.data.filter(sub => 
+      const activeStripeSubscriptions = allStripeSubscriptions.data.filter(sub =>
         ['active', 'trialing', 'past_due'].includes(sub.status)
       );
 
@@ -917,7 +917,7 @@ export async function PATCH(request: NextRequest) {
       for (const existingSub of allActiveSubscriptions) {
         try {
           console.log(`🗑️ Canceling database subscription: ${existingSub.id} (${existingSub.planType})`);
-          
+
           // Update in database
           await db.subscription.update({
             where: { id: existingSub.id },
@@ -928,7 +928,7 @@ export async function PATCH(request: NextRequest) {
               updatedAt: new Date(),
             }
           });
-          
+
           console.log(`✅ Successfully canceled in database: ${existingSub.id}`);
         } catch (cancelError: any) {
           console.warn(`⚠️ Failed to cancel database subscription ${existingSub.id}:`, cancelError.message);
@@ -941,8 +941,7 @@ export async function PATCH(request: NextRequest) {
       try {
         const checkoutSession = await stripe.checkout.sessions.create({
           customer: organization.stripeCustomerId,
-          payment_method_types: ['card'],
-          line_items: [
+              line_items: [
             {
               price: newPlanDetails.priceId,
               quantity: 1,
@@ -1024,9 +1023,9 @@ export async function PATCH(request: NextRequest) {
           subscriptionId: subscription.stripeSubscriptionId,
           updateData
         });
-        
+
         await stripe.subscriptions.update(subscription.stripeSubscriptionId, updateData);
-        
+
         console.log('✅ Stripe subscription updated successfully');
       } catch (stripeError: any) {
         console.error('Stripe subscription update error:', stripeError);
@@ -1044,8 +1043,8 @@ export async function PATCH(request: NextRequest) {
       where: { id: subscription.id },
       data: {
         ...(validatedData.planType && { planType: validatedData.planType }),
-        ...(validatedData.cancelAtPeriodEnd !== undefined && { 
-          cancelAtPeriodEnd: validatedData.cancelAtPeriodEnd 
+        ...(validatedData.cancelAtPeriodEnd !== undefined && {
+          cancelAtPeriodEnd: validatedData.cancelAtPeriodEnd
         }),
         updatedAt: new Date(),
       }

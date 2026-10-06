@@ -2,7 +2,7 @@ import { inngest } from "../client";
 import { DocumentScoringService } from "@/lib/ai/document-scoring";
 import { fileProcessor } from "@/lib/file-processing";
 import { prisma } from "@/lib/db";
-import { z } from "zod";
+import { z } from 'zod';
 
 /**
  * Inngest function to score a single document
@@ -25,7 +25,7 @@ export const scoreDocument = inngest.createFunction(
       // Step 1: Fetch document from database
       const document = await step.run("fetch-document", async () => {
         const doc = await prisma.document.findUnique({
-          where: { 
+          where: {
             id: documentId,
             organizationId: organizationId,
           },
@@ -43,7 +43,7 @@ export const scoreDocument = inngest.createFunction(
 
       // Step 2: Extract content from document
       const extractedContent = await step.run("extract-content", async () => {
-        
+
         // Use existing extracted text if available, otherwise return empty content
         if (document.extractedText) {
           return {
@@ -58,14 +58,14 @@ export const scoreDocument = inngest.createFunction(
             }
           };
         }
-        
+
         throw new Error('No extracted text available for document scoring');
       });
 
       // Step 3: Score the document
       const scoringResult = await step.run("score-document", async () => {
         const scoringService = new DocumentScoringService();
-        
+
         const result = await scoringService.scoreDocument({
           content: extractedContent.text,
           metadata: {
@@ -92,11 +92,11 @@ export const scoreDocument = inngest.createFunction(
           where: { id: documentId },
           select: { processing: true, analysis: true, content: true }
         });
-        
+
         const currentProcessing = (currentDoc?.processing as any) || {};
         const currentAnalysis = (currentDoc?.analysis as any) || {};
         const currentContent = (currentDoc?.content as any) || {};
-        
+
         await prisma.document.update({
           where: { id: documentId },
           data: {
@@ -122,7 +122,7 @@ export const scoreDocument = inngest.createFunction(
                 }
               ]
             },
-            
+
             // Update analysis data
             analysis: {
               ...currentAnalysis,
@@ -137,7 +137,7 @@ export const scoreDocument = inngest.createFunction(
                 scoredAt: new Date().toISOString()
               }
             },
-            
+
             // Update content if needed
             content: {
               ...currentContent,

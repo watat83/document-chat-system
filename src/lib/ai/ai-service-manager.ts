@@ -1,3 +1,4 @@
+import { metricTokens } from './usage';
 import {
   UnifiedCompletionRequest,
   UnifiedCompletionResponse,
@@ -58,7 +59,8 @@ export interface AIMetrics {
   success: boolean;
   error?: string;
   metadata: {
-    taskType: string;
+    taskType: import('./interfaces').TaskType;
+    [key: string]: any;
     userId?: string;
     organizationId?: string;
   };
@@ -76,6 +78,7 @@ export class AIServiceManager implements IAIService {
   private middlewareManager: MiddlewareManager;
   private vercelAdapter?: VercelAIAdapter;
   private startTime = Date.now();
+  private readonly ready: Promise<void>;
 
   constructor(private config: AIServiceConfig = {
     enableFallback: true,
@@ -87,7 +90,7 @@ export class AIServiceManager implements IAIService {
     this.aiConfig = AIConfiguration.getInstance();
     this.registry = new AIProviderRegistry();
     this.router = new AIRequestRouter(this.registry);
-    this.circuitBreaker = new CircuitBreakerManager(this.aiConfig.getCircuitBreakerConfig());
+    this.circuitBreaker = new CircuitBreakerManager({ ...this.aiConfig.getCircuitBreakerConfig(), expectedErrorRate: 0.1 });
     this.fallbackStrategy = new AIFallbackStrategy(
       this.registry,
       this.router,
@@ -98,9 +101,9 @@ export class AIServiceManager implements IAIService {
     this.middlewareManager = new MiddlewareManager();
     this.initializeMiddleware();
     this.initializeVercelAI();
-    
+
     // Initialize providers asynchronously (don't await in constructor)
-    this.initializeDefaultProviders().catch(error => {
+    this.ready = this.initializeDefaultProviders().catch(error => {
       console.error('Failed to initialize default providers:', error);
     });
   }
@@ -120,12 +123,12 @@ export class AIServiceManager implements IAIService {
    * Use this method when you need to ensure all providers are ready before proceeding
    */
   async initialize(): Promise<void> {
-    await this.initializeDefaultProviders();
+    await this.ready;
   }
 
   registerProvider(
-    name: string, 
-    adapter: AIProviderAdapter, 
+    name: string,
+    adapter: AIProviderAdapter,
     config?: ProviderConfig
   ): void {
     this.registry.register(name, adapter, config);
@@ -149,7 +152,6 @@ export class AIServiceManager implements IAIService {
           siteUrl: aiEnvConfig.openrouterSiteUrl,
           enableSmartRouting: aiEnvConfig.openrouterSmartRouting,
           costOptimization: aiEnvConfig.openrouterCostOptimization,
-          fallbackStrategy: aiEnvConfig.openrouterFallbackStrategy,
           maxRetries: 3,
           timeout: 30000
         });
@@ -161,8 +163,6 @@ export class AIServiceManager implements IAIService {
           priority: 10, // HIGHEST PRIORITY - Default provider with 100+ models
           maxConcurrentRequests: 100, // Higher capacity due to multi-provider routing
           healthCheckInterval: 120000, // 2 minutes
-          circuitBreakerThreshold: 10, // Higher threshold due to fallback capability
-          capabilities: openrouterAdapter.getCapabilities()
         });
 
         console.log('✅ Initialized SmartOpenRouter provider (100+ models including Anthropic)');
@@ -227,7 +227,6 @@ export class AIServiceManager implements IAIService {
           priority: 7, // Medium priority - Specialized provider for media generation
           maxConcurrentRequests: 30, // Based on ImageRouter rate limits
           healthCheckInterval: 180000, // 3 minutes - longer for media generation
-          circuitBreakerThreshold: 3, // Lower threshold due to longer operations
           costMultiplier: 2.0 // Media generation is typically more expensive
         });
 
@@ -239,108 +238,12 @@ export class AIServiceManager implements IAIService {
       console.warn('⚠️  ImageRouter API key not found - ImageRouter provider not initialized');
     }
 
-    // Initialize Demo provider (always available as final fallback)
-    try {
-      const demoAdapter = new DemoAdapter({
-        organizationId: 'demo',
-        simulateLatency: true,
-        minLatency: 500,
-        maxLatency: 1500,
-        errorRate: 0 // No errors in demo mode
-      });
-
+    if (process.env.NODE_ENV !== 'production' && process.env.AI_ENABLE_DEMO === 'true') {
+      const demoAdapter = new DemoAdapter({ organizationId: 'demo', simulateLatency: true, minLatency: 500, maxLatency: 1500, errorRate: 0 });
       await demoAdapter.initialize();
-
-      this.registry.register('demo', demoAdapter, {
-        enabled: true,
-        priority: 0, // Lowest priority - final fallback
-        maxConcurrentRequests: 1000, // High capacity since it's just demo
-        healthCheckInterval: 0, // No health checks needed
-        circuitBreakerThreshold: 0, // Never break - always available
-        capabilities: demoAdapter.getCapabilities()
-      });
-
-      console.log('✅ Initialized Demo provider (always available fallback)');
-    } catch (error) {
-      console.error('❌ Failed to initialize Demo provider:', error);
+      this.registry.register('demo', demoAdapter, { enabled: true, priority: 0, healthCheckInterval: 0 });
     }
 
-    // Keep mock provider as fallback for development and testing
-    const mockProvider = {
-      name: 'mock-demo',
-      async initialize() {},
-      async generateCompletion(request: any) {
-        return {
-          content: `Mock response to: ${request.messages[request.messages.length - 1]?.content}`,
-          model: request.model,
-          usage: { promptTokens: 10, completionTokens: 20, totalTokens: 30 },
-          metadata: { provider: 'mock-demo', system: 'demo' }
-        };
-      },
-      async generateEmbedding(request: any) {
-        return {
-          embedding: new Array(1536).fill(0).map(() => Math.random()),
-          usage: { totalTokens: 5 },
-          metadata: { provider: 'mock-demo' }
-        };
-      },
-      async *streamCompletion(request: any) {
-        const content = `Mock streaming response to: ${request.messages[request.messages.length - 1]?.content}`;
-        const words = content.split(' ');
-        for (const word of words) {
-          yield {
-            content: word + ' ',
-            metadata: { provider: 'mock-demo', chunk: true }
-          };
-          await new Promise(resolve => setTimeout(resolve, 100));
-        }
-      },
-      getCapabilities() {
-        return {
-          maxTokens: 4000,
-          supportsFunctionCalling: false,
-          supportsJsonMode: false,
-          supportsStreaming: true,
-          supportsVision: false,
-          models: {
-            completion: ['mock-model'],
-            embedding: ['mock-embedding']
-          }
-        };
-      },
-      getAvailableModels() {
-        return [{
-          name: 'mock-model',
-          provider: 'mock-demo',
-          maxTokens: 4000,
-          costPer1KTokens: { prompt: 0, completion: 0 },
-          averageLatency: 1000,
-          qualityScore: 50
-        }];
-      },
-      async estimateCost() {
-        return {
-          estimatedCost: 0,
-          breakdown: { totalTokens: 30, pricePerToken: 0 }
-        };
-      },
-      async estimateTokens(text: string) {
-        const tokens = Math.ceil(text.length / 4);
-        return { prompt: tokens, completion: tokens * 0.3, total: tokens * 1.3 };
-      },
-      async checkHealth() {
-        return true;
-      }
-    };
-
-    // Register the mock provider with lower priority
-    this.registry.register('mock-demo', mockProvider as any, {
-      enabled: true,
-      priority: 1, // Lower priority than real providers
-      maxConcurrentRequests: 10
-    });
-
-    console.log('✅ Initialized mock demo provider for testing');
   }
 
   /**
@@ -358,12 +261,7 @@ export class AIServiceManager implements IAIService {
           costLimits: vercelConfig.costLimits
         });
 
-        // Register as enhanced provider with high priority
-        this.registry.register('vercel-enhanced', this.vercelAdapter, {
-          priority: 'high',
-          capabilities: this.vercelAdapter.getCapabilities()
-        });
-
+        // This wrapper uses the router itself, so registering it would cause recursive routing.
         console.log('Vercel AI SDK integration initialized successfully');
       } catch (error) {
         console.warn('Failed to initialize Vercel AI SDK:', error);
@@ -378,22 +276,38 @@ export class AIServiceManager implements IAIService {
     return this.vercelAdapter || null;
   }
 
-  // Enhanced interface methods
+  // Enhanced interface methods use the same execution path as the unified API.
   async complete(request: CompletionRequest): Promise<CompletionResponse> {
-    return this.generateCompletionWithMiddleware(request as any);
+    const started = Date.now();
+    const response = await this.generateCompletion({ ...request, messages: request.messages.map(message => { if (message.role === 'tool') throw new Error('Tool result messages are not supported by this unified adapter'); return { role: message.role, content: message.content }; }), model: request.model ?? 'balanced', metadata: { ...request.metadata, provider: request.provider } });
+    return {
+      ...response, role: 'assistant', provider: response.metadata.provider,
+      latency: Date.now() - started, cost: response.metadata.cost ?? 0,
+      id: response.metadata.generationId ?? crypto.randomUUID(), created: new Date(),
+    };
   }
 
-  async stream(request: StreamRequest): AsyncIterator<StreamChunk> {
-    return this.streamCompletionWithMiddleware(request as any);
+  async *stream(request: StreamRequest): AsyncGenerator<StreamChunk> {
+    for await (const chunk of this.streamCompletion({ ...request, messages: request.messages.map(message => { if (message.role === 'tool') throw new Error('Tool result messages are not supported by this unified adapter'); return { role: message.role, content: message.content }; }), model: request.model ?? 'balanced', metadata: { ...request.metadata, provider: request.provider } })) {
+      yield { content: chunk.content, role: 'assistant', metadata: chunk.metadata };
+    }
   }
 
-  async embed(request: EmbeddingRequest): Promise<any> {
-    return this.generateEmbeddingWithMiddleware(request as any);
+  async embed(request: EmbeddingRequest): Promise<EmbeddingResponse> {
+    const response = await this.generateEmbedding({ ...request, model: request.model ?? 'embedding-small', metadata: { ...request.metadata, provider: request.provider } });
+    const vector = response.embedding as number[];
+    return { embedding: vector, model: response.model, provider: response.metadata.provider, dimensions: response.metadata.dimensions, usage: response.usage, cost: response.metadata.cost ?? 0, metadata: response.metadata };
   }
 
-  async batchEmbed(request: any): Promise<any> {
-    // Implement batch embedding logic
-    throw new Error('Batch embedding not yet implemented');
+  async batchEmbed(request: import('./interfaces/service-contracts').BatchEmbeddingRequest): Promise<import('./interfaces/service-contracts').BatchEmbeddingResponse> {
+    const responses = [];
+    for (const text of request.texts) responses.push(await this.embed({ ...request, text }));
+    return {
+      embeddings: responses.map(response => response.embedding), model: responses[0]?.model ?? request.model ?? 'embedding-small',
+      provider: responses[0]?.provider ?? request.provider ?? 'unknown', dimensions: responses[0]?.dimensions ?? request.dimensions ?? 0,
+      usage: { totalTokens: responses.reduce((sum, response) => sum + response.usage.totalTokens, 0) },
+      cost: responses.reduce((sum, response) => sum + response.cost, 0),
+    };
   }
 
   getProviders(): any[] {
@@ -416,7 +330,7 @@ export class AIServiceManager implements IAIService {
   async healthCheck(): Promise<HealthStatus> {
     const providers = this.getAvailableProviders();
     const providerHealth: Record<string, any> = {};
-    
+
     for (const provider of providers) {
       const status = this.getProviderStatus(provider);
       providerHealth[provider] = {
@@ -464,8 +378,9 @@ export class AIServiceManager implements IAIService {
   private async generateCompletionWithMiddleware(
     request: UnifiedCompletionRequest
   ): Promise<UnifiedCompletionResponse> {
+    await this.ready;
     const startTime = Date.now();
-    
+
     // Create request context
     const context: RequestContext = {
       request,
@@ -487,13 +402,13 @@ export class AIServiceManager implements IAIService {
     try {
       if (this.config.enableFallback) {
         const result = await this.fallbackStrategy.executeCompletionWithFallback(request);
-        
+
         this.recordMetrics({
           provider: result.successfulProvider,
           model: request.model,
           operation: 'completion',
           latency: result.totalLatency,
-          tokenCount: result.result.usage,
+          tokenCount: metricTokens(result.result.usage),
           cost: 0, // Will be calculated by cost estimation
           success: true,
           metadata: {
@@ -512,13 +427,13 @@ export class AIServiceManager implements IAIService {
         });
 
         const result = await routing.adapter.generateCompletion(request);
-        
+
         this.recordMetrics({
           provider: routing.selectedProvider,
           model: request.model,
           operation: 'completion',
           latency: Date.now() - startTime,
-          tokenCount: result.usage,
+          tokenCount: metricTokens(result.usage),
           cost: routing.estimatedCost,
           success: true,
           metadata: {
@@ -550,12 +465,13 @@ export class AIServiceManager implements IAIService {
   async generateEmbedding(
     request: UnifiedEmbeddingRequest
   ): Promise<UnifiedEmbeddingResponse> {
+    await this.ready;
     const startTime = Date.now();
-    
+
     try {
       if (this.config.enableFallback) {
         const result = await this.fallbackStrategy.executeEmbeddingWithFallback(request);
-        
+
         this.recordMetrics({
           provider: result.successfulProvider,
           model: request.model,
@@ -579,7 +495,7 @@ export class AIServiceManager implements IAIService {
         });
 
         const result = await routing.adapter.generateEmbedding(request);
-        
+
         this.recordMetrics({
           provider: routing.selectedProvider,
           model: request.model,
@@ -616,7 +532,8 @@ export class AIServiceManager implements IAIService {
 
   async *streamCompletion(
     request: UnifiedStreamRequest
-  ): AsyncIterator<UnifiedStreamChunk> {
+  ): AsyncGenerator<UnifiedStreamChunk> {
+    await this.ready;
     if (this.config.enableFallback) {
       yield* this.fallbackStrategy.executeStreamWithFallback(request);
     } else {
@@ -627,7 +544,7 @@ export class AIServiceManager implements IAIService {
         messages: request.messages
       });
 
-      yield* routing.adapter.streamCompletion(request);
+      yield* await routing.adapter.streamCompletion(request);
     }
   }
 
@@ -643,7 +560,7 @@ export class AIServiceManager implements IAIService {
     return this.fallbackStrategy.getSystemStatus();
   }
 
-  getMetrics(): AIMetrics[] {
+  getRequestMetrics(): AIMetrics[] {
     return [...this.metrics];
   }
 
@@ -741,7 +658,7 @@ export class AIServiceManager implements IAIService {
     // Register built-in middleware
     this.middlewareManager.register(new LoggingMiddleware());
     this.middlewareManager.register(new MonitoringMiddleware());
-    
+
     // Add cost control if configured
     try {
       this.middlewareManager.register(new CostControlMiddleware({
@@ -777,7 +694,7 @@ export class AIServiceManager implements IAIService {
     if (metrics.length === 0) return 0;
     // Calculate based on last minute of data
     const oneMinuteAgo = Date.now() - 60000;
-    const recentMetrics = metrics.filter(m => 
+    const recentMetrics = metrics.filter(m =>
       Date.now() - m.latency < 60000
     );
     return recentMetrics.length / 60;
@@ -786,7 +703,7 @@ export class AIServiceManager implements IAIService {
   private calculateTPS(metrics: AIMetrics[]): number {
     if (metrics.length === 0) return 0;
     const oneMinuteAgo = Date.now() - 60000;
-    const recentMetrics = metrics.filter(m => 
+    const recentMetrics = metrics.filter(m =>
       Date.now() - m.latency < 60000
     );
     const totalTokens = recentMetrics.reduce((sum, m) => sum + m.tokenCount.total, 0);
@@ -828,13 +745,13 @@ export class AIServiceManager implements IAIService {
   }
 
   // OpenRouter-specific methods
-  
+
   /**
    * Get OpenRouter adapter instance for direct access to enhanced features
    */
   getOpenRouterAdapter(): SmartOpenRouterAdapter | null {
     const provider = this.registry.getProvider('openrouter');
-    return provider?.adapter instanceof SmartOpenRouterAdapter ? provider.adapter : null;
+    return provider instanceof SmartOpenRouterAdapter ? provider : null;
   }
 
   /**
@@ -845,12 +762,12 @@ export class AIServiceManager implements IAIService {
     if (!adapter) {
       return { status: 'unavailable', reason: 'OpenRouter adapter not initialized' };
     }
-    
+
     try {
       return await adapter.getHealthMetrics();
     } catch (error) {
-      return { 
-        status: 'error', 
+      return {
+        status: 'error',
         reason: 'Failed to fetch OpenRouter health metrics',
         error: error instanceof Error ? error.message : 'Unknown error'
       };
@@ -863,21 +780,21 @@ export class AIServiceManager implements IAIService {
   async getOpenRouterCostInsights(organizationId: string): Promise<any> {
     const adapter = this.getOpenRouterAdapter();
     if (!adapter) {
-      return { 
-        potentialSavings: 0, 
-        recommendedProviders: [], 
+      return {
+        potentialSavings: 0,
+        recommendedProviders: [],
         inefficientRoutes: [],
         error: 'OpenRouter adapter not available'
       };
     }
-    
+
     try {
       return await adapter.getCostOptimizationInsights(organizationId);
     } catch (error) {
       console.error('Failed to get OpenRouter cost insights:', error);
-      return { 
-        potentialSavings: 0, 
-        recommendedProviders: [], 
+      return {
+        potentialSavings: 0,
+        recommendedProviders: [],
         inefficientRoutes: [],
         error: error instanceof Error ? error.message : 'Unknown error'
       };
@@ -890,19 +807,19 @@ export class AIServiceManager implements IAIService {
   async getOpenRouterProviderComparison(organizationId: string): Promise<any> {
     const adapter = this.getOpenRouterAdapter();
     if (!adapter) {
-      return { 
-        providers: [], 
+      return {
+        providers: [],
         recommendations: [],
         error: 'OpenRouter adapter not available'
       };
     }
-    
+
     try {
       return await adapter.getProviderPerformanceComparison(organizationId);
     } catch (error) {
       console.error('Failed to get OpenRouter provider comparison:', error);
-      return { 
-        providers: [], 
+      return {
+        providers: [],
         recommendations: [],
         error: error instanceof Error ? error.message : 'Unknown error'
       };
@@ -918,7 +835,7 @@ export class AIServiceManager implements IAIService {
       console.warn('OpenRouter adapter not available for configuration');
       return false;
     }
-    
+
     try {
       // Update the adapter configuration
       // Note: This would require extending the adapter with a configuration update method
@@ -963,13 +880,13 @@ export class AIServiceManager implements IAIService {
   }
 
   // ImageRouter-specific methods
-  
+
   /**
    * Get ImageRouter adapter instance for direct access to media generation features
    */
   getImageRouterAdapter(): ImageRouterAdapter | null {
     const provider = this.registry.getProvider('imagerouter');
-    return provider?.adapter instanceof ImageRouterAdapter ? provider.adapter : null;
+    return provider instanceof ImageRouterAdapter ? provider : null;
   }
 
   /**
@@ -984,9 +901,9 @@ export class AIServiceManager implements IAIService {
     const organizationId = request.metadata?.organizationId;
 
     // Optimize the request before processing
-    const availableModels = await adapter.loadImageRouterModels();
+    const availableModels = await adapter.loadNativeModels();
     const optimizationResult = await imageRouterOptimizer.optimizeRequest(request, availableModels);
-    
+
     // Check cache first
     const cachedResult = await imageRouterCache.get(optimizationResult.optimizedRequest);
     if (cachedResult) {
@@ -996,7 +913,7 @@ export class AIServiceManager implements IAIService {
         mediaType: request.type,
         organizationId: request.metadata?.organizationId
       });
-      
+
       await imageRouterMetrics.recordSuccess({
         requestId: `cache_hit_${Date.now()}`,
         model: cachedResult.response.model,
@@ -1020,7 +937,7 @@ export class AIServiceManager implements IAIService {
         true, // success
         {
           mediaCount: cachedResult.response.results.length,
-          quality: optimizationResult.optimizedRequest.quality || 'auto',
+          quality: 'quality' in optimizationResult.optimizedRequest ? optimizationResult.optimizedRequest.quality || 'auto' : 'auto',
           cacheHit: true,
           optimizations: optimizationResult.optimizations,
           taskType: 'media_generation'
@@ -1049,7 +966,7 @@ export class AIServiceManager implements IAIService {
     });
 
     const startTime = Date.now();
-    
+
     try {
       // Generate media with optimized request
       const response = await adapter.generateMedia(optimizationResult.optimizedRequest);
@@ -1067,7 +984,7 @@ export class AIServiceManager implements IAIService {
       });
 
       // Cache the response
-      await imageRouterCache.cacheResponse(
+      await imageRouterCache.set(
         optimizationResult.optimizedRequest,
         response,
         0.8 // Quality score
@@ -1086,7 +1003,7 @@ export class AIServiceManager implements IAIService {
         true, // success
         {
           mediaCount: response.results.length,
-          quality: optimizationResult.optimizedRequest.quality || 'auto',
+          quality: 'quality' in optimizationResult.optimizedRequest ? optimizationResult.optimizedRequest.quality || 'auto' : 'auto',
           cacheHit: false,
           optimizations: optimizationResult.optimizations,
           taskType: 'media_generation'
@@ -1107,7 +1024,7 @@ export class AIServiceManager implements IAIService {
     } catch (error) {
       const latency = Date.now() - startTime;
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      
+
       // Record error
       await imageRouterMetrics.recordError({
         requestId,
@@ -1132,7 +1049,7 @@ export class AIServiceManager implements IAIService {
         false, // success = false
         {
           mediaCount: 0,
-          quality: optimizationResult.optimizedRequest.quality || 'auto',
+          quality: 'quality' in optimizationResult.optimizedRequest ? optimizationResult.optimizedRequest.quality || 'auto' : 'auto',
           cacheHit: false,
           optimizations: optimizationResult.optimizations,
           error: errorMessage,
@@ -1167,7 +1084,7 @@ export class AIServiceManager implements IAIService {
   async getImageRouterMetrics(): Promise<any> {
     const adapter = this.getImageRouterAdapter();
     if (!adapter) {
-      return { 
+      return {
         error: 'ImageRouter adapter not available',
         metrics: null
       };
@@ -1373,11 +1290,11 @@ export class AIServiceManager implements IAIService {
     }
 
     const startTime = Date.now();
-    
+
     try {
       const isHealthy = await adapter.checkHealth();
       const latency = Date.now() - startTime;
-      
+
       if (isHealthy) {
         const capabilities = await adapter.getMediaCapabilities();
         return {

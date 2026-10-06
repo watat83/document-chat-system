@@ -11,7 +11,7 @@ import { encrypt, decrypt, encryptSettings, decryptSettings, maskApiKey } from '
 import { z } from 'zod';
 
 // Setting categories
-export const SETTING_CATEGORIES = {
+const SETTING_CATEGORIES = {
   API_KEYS: 'API_KEYS',
   FILE_STORAGE: 'FILE_STORAGE',
   VECTOR_SEARCH: 'VECTOR_SEARCH',

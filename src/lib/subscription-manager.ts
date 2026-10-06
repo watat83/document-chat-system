@@ -1,3 +1,4 @@
+import { getSubscriptionPeriod } from '@/lib/billing/subscription-period';
 import { db } from '@/lib/db';
 import { stripe } from '@/lib/stripe-server';
 import { getSubscriptionPlans, type SubscriptionPlan } from '@/lib/stripe';
@@ -26,7 +27,7 @@ export class SubscriptionManager {
     requestedPlanType: string
   ): Promise<SubscriptionValidationResult> {
     console.log(`🔍 Validating subscription creation for org: ${organizationId}, plan: ${requestedPlanType}`);
-    
+
     // Get all active subscriptions from database
     const activeSubscriptions = await db.subscription.findMany({
       where: {
@@ -44,7 +45,7 @@ export class SubscriptionManager {
     console.log(`Found ${activeSubscriptions.length} active subscriptions in database`);
 
     // Check if user already has the requested plan
-    const existingPlan = activeSubscriptions.find(sub => 
+    const existingPlan = activeSubscriptions.find(sub =>
       sub.planType === requestedPlanType && !sub.cancelAtPeriodEnd
     );
 
@@ -62,7 +63,7 @@ export class SubscriptionManager {
       hasActiveSubscription: activeSubscriptions.length > 0,
       activeSubscriptions,
       canCreateNewSubscription: true,
-      message: activeSubscriptions.length > 0 
+      message: activeSubscriptions.length > 0
         ? `Will replace ${activeSubscriptions.length} existing subscription(s)`
         : 'Can create new subscription'
     };
@@ -77,7 +78,7 @@ export class SubscriptionManager {
     excludeSubscriptionId?: string
   ): Promise<SubscriptionCleanupResult> {
     console.log(`🧹 Starting subscription cleanup for org: ${organizationId}`);
-    
+
     const errors: string[] = [];
     let cleanedCount = 0;
 
@@ -109,7 +110,7 @@ export class SubscriptionManager {
             updatedAt: new Date(),
           }
         });
-        
+
         cleanedCount++;
         console.log(`✅ Canceled database subscription: ${dbSub.id} (${dbSub.planType})`);
       } catch (error) {
@@ -128,7 +129,7 @@ export class SubscriptionManager {
           limit: 100
         });
 
-        const activeStripeSubscriptions = stripeSubscriptions.data.filter(sub => 
+        const activeStripeSubscriptions = stripeSubscriptions.data.filter(sub =>
           ['active', 'trialing', 'past_due'].includes(sub.status) &&
           (!excludeSubscriptionId || sub.id !== excludeSubscriptionId)
         );
@@ -178,7 +179,7 @@ export class SubscriptionManager {
       if (!organization) {
         throw new Error(`Organization not found for customer: ${stripeSubscription.customer}`);
       }
-      
+
       organizationId = organization.id;
     }
 
@@ -198,8 +199,8 @@ export class SubscriptionManager {
         stripeCustomerId: stripeSubscription.customer as string,
         planType,
         status: this.mapStripeStatusToDb(stripeSubscription.status),
-        currentPeriodStart: new Date(stripeSubscription.current_period_start * 1000),
-        currentPeriodEnd: new Date(stripeSubscription.current_period_end * 1000),
+        currentPeriodStart: getSubscriptionPeriod(stripeSubscription).start,
+        currentPeriodEnd: getSubscriptionPeriod(stripeSubscription).end,
         cancelAtPeriodEnd: stripeSubscription.cancel_at_period_end,
         trialStart: stripeSubscription.trial_start ? new Date(stripeSubscription.trial_start * 1000) : null,
         trialEnd: stripeSubscription.trial_end ? new Date(stripeSubscription.trial_end * 1000) : null,
@@ -214,8 +215,8 @@ export class SubscriptionManager {
       update: {
         planType,
         status: this.mapStripeStatusToDb(stripeSubscription.status),
-        currentPeriodStart: new Date(stripeSubscription.current_period_start * 1000),
-        currentPeriodEnd: new Date(stripeSubscription.current_period_end * 1000),
+        currentPeriodStart: getSubscriptionPeriod(stripeSubscription).start,
+        currentPeriodEnd: getSubscriptionPeriod(stripeSubscription).end,
         cancelAtPeriodEnd: stripeSubscription.cancel_at_period_end,
         trialStart: stripeSubscription.trial_start ? new Date(stripeSubscription.trial_start * 1000) : null,
         trialEnd: stripeSubscription.trial_end ? new Date(stripeSubscription.trial_end * 1000) : null,
@@ -241,7 +242,7 @@ export class SubscriptionManager {
 
     // ENHANCED: Check if this is a new subscription (plan change) and preserve usage data
     const wasNewSubscription = !syncedSubscription.id || Date.now() - syncedSubscription.createdAt.getTime() < 10000; // New if created within last 10 seconds
-    
+
     if (wasNewSubscription) {
       try {
         // Check for recently canceled subscriptions (within last 24 hours) that might have usage data
@@ -265,13 +266,13 @@ export class SubscriptionManager {
         if (recentCanceledSubscriptions.length > 0) {
           const mostRecentCanceled = recentCanceledSubscriptions[0];
           console.log(`🔄 Found recently canceled subscription ${mostRecentCanceled.id}, migrating usage data...`);
-          
+
           await UsageTrackingService.migrateUsageForPlanSwitch(
             organizationId,
             mostRecentCanceled.id,
             syncedSubscription.id
           );
-          
+
           console.log(`✅ Usage data migrated from ${mostRecentCanceled.id} to ${syncedSubscription.id}`);
         }
       } catch (usageError) {
@@ -281,7 +282,7 @@ export class SubscriptionManager {
     }
 
     console.log(`✅ Subscription synced: ${stripeSubscription.id} -> ${syncedSubscription.id}`);
-    
+
     return syncedSubscription;
   }
 
@@ -304,7 +305,7 @@ export class SubscriptionManager {
 
     // Prioritize subscriptions that are not scheduled for cancellation
     const trulyActiveSubscriptions = subscriptions.filter(s => !s.cancelAtPeriodEnd);
-    
+
     return trulyActiveSubscriptions.length > 0 ? trulyActiveSubscriptions[0] : subscriptions[0] || null;
   }
 
@@ -316,7 +317,7 @@ export class SubscriptionManager {
     if (subscription.metadata?.planType) {
       return subscription.metadata.planType;
     }
-    
+
     // Map price ID to plan type
     const priceId = subscription.items.data[0]?.price.id;
     if (priceId) {
@@ -325,12 +326,12 @@ export class SubscriptionManager {
         'price_1Rh465QEGVp7c1lxXTDm7WaT': 'PROFESSIONAL',
         'price_1Rh466QEGVp7c1lxpqhF84Tb': 'AGENCY',
       };
-      
+
       if (priceIdToPlan[priceId]) {
         return priceIdToPlan[priceId];
       }
     }
-    
+
     // Default fallback
     return 'STARTER';
   }
@@ -362,7 +363,7 @@ export class SubscriptionManager {
     errors: string[];
   }> {
     console.log(`🔄 Force syncing all subscriptions for organization: ${organizationId}`);
-    
+
     const organization = await db.organization.findUnique({
       where: { id: organizationId }
     });
@@ -387,7 +388,7 @@ export class SubscriptionManager {
           syncedCount++;
 
           // Track the most recent active subscription
-          if (['ACTIVE', 'TRIALING', 'PAST_DUE'].includes(syncedSub.status) && 
+          if (['ACTIVE', 'TRIALING', 'PAST_DUE'].includes(syncedSub.status) &&
               !stripeSub.cancel_at_period_end) {
             if (!activeSubscription || stripeSub.created > (activeSubscription as any).created) {
               activeSubscription = syncedSub;

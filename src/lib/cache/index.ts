@@ -51,15 +51,15 @@ class CacheManager {
 
   async get<T>(key: string, options: CacheOptions = {}): Promise<T | null> {
     const cacheKey = this.generateKey(key, options.prefix);
-    
+
     try {
       const cached = await cacheService.get(cacheKey);
-      
+
       if (cached) {
         const parsed = JSON.parse(cached);
         return parsed as T;
       }
-      
+
       return null;
     } catch (error) {
       console.error('Cache GET error:', error);
@@ -67,10 +67,11 @@ class CacheManager {
     }
   }
 
-  async set<T>(key: string, value: T, options: CacheOptions = {}): Promise<boolean> {
+  async set<T>(key: string, value: T, settings: CacheOptions | number = {}): Promise<boolean> {
+    const options = typeof settings === 'number' ? { ttl: settings } : settings;
     const cacheKey = this.generateKey(key, options.prefix);
-    const ttl = options.ttl || this.defaultTTL;
-    
+    const ttl = options.ttl ?? this.defaultTTL;
+
     try {
       const serialized = JSON.stringify(value);
       return await cacheService.set(cacheKey, serialized, ttl);
@@ -86,35 +87,35 @@ class CacheManager {
     options: CacheOptions = {}
   ): Promise<CacheResult<T>> {
     const cacheKey = this.generateKey(key, options.prefix);
-    
+
     // Try to get from cache first
     const cached = await this.get<T>(key, options);
-    
+
     if (cached !== null) {
       // Cache hit - track usage
       if (options.userId && !options.skipBilling) {
         await usageTracker.trackCacheHit(options.userId, key, options.organizationId);
       }
-      
+
       return {
         data: cached,
         cached: true,
         key: cacheKey,
       };
     }
-    
+
     // Cache miss - fetch data
     try {
       const data = await fetcher();
-      
+
       // Store in cache
       await this.set(key, data, options);
-      
+
       // Track usage
       if (options.userId && !options.skipBilling) {
         await usageTracker.trackCacheMiss(options.userId, key, options.organizationId);
       }
-      
+
       return {
         data,
         cached: false,
@@ -140,14 +141,14 @@ class CacheManager {
     // This would require a more sophisticated implementation
     // For now, we'll implement a basic pattern-based invalidation
     let invalidated = 0;
-    
+
     for (const tag of tags) {
       const pattern = this.generateKey(`*:${tag}:*`);
       // Note: This is a simplified implementation
       // In production, you'd want to use Redis SCAN with patterns
       invalidated++;
     }
-    
+
     return invalidated;
   }
 

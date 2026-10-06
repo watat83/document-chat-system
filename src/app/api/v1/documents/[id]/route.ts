@@ -1,3 +1,7 @@
+import type { Prisma } from '@prisma/client';
+import { DocumentUpdateSchema } from '@/lib/documents/update-schema';
+import { serializeDocument } from '@/lib/documents/document-response';
+import { normalizeError } from '@/lib/errors/normalize-error';
 import { defaultEmbeddingService } from '@/lib/ai/services/embedding-service';
 import { defaultVectorSearchCache } from '@/lib/ai/services/vector-search-cache';
 import { canAccessDocument } from '@/lib/security/access-policy';
@@ -5,14 +9,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { prisma } from '@/lib/prisma';
 import { supabaseAdmin } from '@/lib/supabase';
-import { 
-  UnifiedUpdateSchema, 
-  AddPermissionSchema, 
-  CreateShareSchema, 
-  UpdateStatusSchema, 
-  AddEntitiesSchema 
+import {
+  UnifiedUpdateSchema,
+  AddPermissionSchema,
+  CreateShareSchema,
+  UpdateStatusSchema,
+  AddEntitiesSchema
 } from '@/lib/validation/document-sections';
-import { randomBytes } from 'crypto';
+import { randomBytes, randomUUID } from 'crypto';
 import { normalizeFilePath } from '@/lib/storage/path-utils';
 import { crudAuditLogger } from '@/lib/audit/crud-audit-logger';
 import { getClientIP } from '@/lib/audit/middleware';
@@ -145,117 +149,7 @@ export async function GET(
       entitiesCount: ((document.entities as any)?.entities || []).length
     })
 
-    // Transform the document to match the current frontend format (NO metadata field)
-    // Use actual database fields and proper type derivation
-    const getFileTypeFromMimeType = (mimeType: string, fileName: string) => {
-      if (!mimeType && fileName) {
-        const ext = fileName.split('.').pop()?.toLowerCase();
-        return ext || 'unknown';
-      }
-      return mimeType?.split('/')[0] || 'unknown';
-    };
-
-    // Parse JSON fields safely
-    const content = (document.content as any) || { sections: [], tables: [], images: [] }
-    const entities = (document.entities as any) || { entities: [] }
-    const sharing = (document.sharing as any) || { permissions: [], share: null, shareViews: [], comments: [] }
-    const processing = (document.processing as any) || { currentStatus: 'COMPLETED', progress: 100, events: [] }
-    const analysis = (document.analysis as any) || { contract: null, compliance: null }
-    const embeddings = (document.embeddings as any) || { vectors: [] }
-
-    const formattedDocument = {
-      // Core document fields
-      id: document.id,
-      name: document.name,
-      folderId: document.folderId,
-      size: document.size || 0,
-      mimeType: document.mimeType || 'application/octet-stream',
-      organizationId: document.organizationId,
-      uploadedById: document.uploadedById,
-      description: document.description,
-      documentType: document.documentType,
-      securityClassification: document.securityClassification,
-      workflowStatus: document.workflowStatus,
-      tags: document.tags || [],
-      isEditable: document.isEditable,
-      
-      // Extracted content
-      extractedText: document.extractedText,
-      summary: document.summary,
-      
-      // Computed/derived fields
-      type: getFileTypeFromMimeType(document.mimeType, document.name),
-      filePath: `/api/v1/documents/${document.id}/download`,
-      uploadDate: document.uploadDate?.toISOString() || document.createdAt.toISOString(),
-      lastModified: document.lastModified.toISOString(),
-      updatedBy: document.uploadedBy ? 
-        `${document.uploadedBy.firstName || ''} ${document.uploadedBy.lastName || ''}`.trim() || document.uploadedBy.email : 
-        'Unknown',
-      
-      // Processing status from JSON field
-      status: processing.currentStatus,
-      progress: processing.progress,
-      processedAt: processing.events?.find((e: any) => e.eventType === 'COMPLETED')?.timestamp,
-      processingError: processing.events?.find((e: any) => e.success === false)?.error,
-      
-      // JSON field data (consolidated structure)
-      content: content,
-      entities: entities,
-      sharing: sharing,
-      processing: processing,
-      analysis: analysis,
-      embeddings: embeddings,
-      
-      // Relations
-      uploadedBy: document.uploadedBy,
-      folder: document.folder,
-      opportunity: document.opportunity,
-      
-      // Legacy compatibility (construct from JSON fields)
-      aiData: {
-        status: {
-          status: processing.currentStatus,
-          progress: processing.progress,
-          startedAt: document.createdAt.toISOString(),
-          completedAt: processing.events?.find((e: any) => e.eventType === 'COMPLETED')?.timestamp,
-          retryCount: processing.events?.filter((e: any) => e.success === false)?.length || 0
-        },
-        content: {
-          extractedText: document.extractedText || '',
-          summary: document.summary || '',
-          keywords: [],
-          keyPoints: [],
-          actionItems: [],
-          questions: []
-        },
-        structure: {
-          sections: content.sections || [],
-          tables: content.tables || [],
-          images: content.images || [],
-          ocrResults: []
-        },
-        analysis: {
-          qualityScore: analysis.contract?.qualityScore || 0,
-          readabilityScore: analysis.compliance?.score || 0,
-          complexityMetrics: { readabilityScore: analysis.compliance?.score || 0 },
-          entities: entities.entities || [],
-          confidence: 0.8,
-          suggestions: analysis.compliance?.recommendations || []
-        },
-        processedAt: processing.events?.find((e: any) => e.eventType === 'COMPLETED')?.timestamp || new Date().toISOString(),
-        modelVersion: 'consolidated-v2.0',
-        processingHistory: processing.events || []
-      },
-      
-      // Security analysis
-      securityAnalysis: {
-        classification: document.securityClassification,
-        piiDetected: false,
-        piiTypes: [],
-        complianceStatus: analysis.compliance?.status || 'compliant',
-        redactionNeeded: false
-      }
-    };
+    const formattedDocument = serializeDocument(document);
 
     console.log('📤 Sending consolidated document structure:', {
       id: formattedDocument.id,
@@ -273,12 +167,12 @@ export async function GET(
         'READ',
         document.id,
         document.name,
-        document.type || 'unknown',
+        formattedDocument.type || 'unknown',
         null,
-        { 
-          documentId: document.id, 
+        {
+          documentId: document.id,
           status: ((document.processing as any)?.currentStatus || 'PENDING'),
-          folderId: document.folderId 
+          folderId: document.folderId
         },
         {
           endpoint: `/api/v1/documents/${documentId}`,
@@ -297,7 +191,8 @@ export async function GET(
 
     return NextResponse.json(formattedDocument);
 
-  } catch (error) {
+  } catch (caughtError) {
+    const error = normalizeError(caughtError);
     console.error('Error fetching document:', error);
     return NextResponse.json(
       { error: 'Failed to fetch document' },
@@ -368,405 +263,8 @@ export async function GET(
  *       500:
  *         description: Internal server error
  */
-export async function PUT(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const { userId } = await auth()
-    
-    if (!userId) {
-      return NextResponse.json(
-        { success: false, error: 'Unauthorized' },
-        { status: 401 }
-      )
-    }
-
-    const { id: documentId } = await params
-    const body = await request.json()
-    const { name, folderId, tags, documentType, contractAnalysis, description, entities } = body
-
-    console.log('🚨🚨🚨 API RECEIVED DATA:')
-    console.log('  - documentId:', documentId)
-    console.log('  - tags:', tags, 'type:', typeof tags, 'isArray:', Array.isArray(tags))
-    console.log('  - entities:', entities, 'type:', typeof entities, 'isArray:', Array.isArray(entities))
-    console.log('  - contractAnalysis:', contractAnalysis)
-    console.log('  - body_keys:', Object.keys(body))
-    console.log('  - FULL BODY:', JSON.stringify(body, null, 2))
-
-    // Get user info
-    const user = await prisma.user.findUnique({
-      where: { clerkId: userId },
-      select: { id: true, organizationId: true, role: true }
-    })
-
-    if (!user) {
-      return NextResponse.json(
-        { success: false, error: 'User not found' },
-        { status: 404 }
-      )
-    }
-
-    // Get existing document to verify access
-    const existingDocument = await prisma.document.findUnique({
-      where: { id: documentId },
-      select: { 
-        id: true, 
-        organizationId: true,
-        uploadedById: true, sharing: true, deletedAt: true,
-        folderId: true,
-        name: true,
-        mimeType: true,
-        size: true,
-        extractedText: true,
-        summary: true,
-        createdAt: true,
-        updatedAt: true
-      }
-    })
-
-    if (!existingDocument) {
-      return NextResponse.json(
-        { success: false, error: 'Document not found' },
-        { status: 404 }
-      )
-    }
-
-    // Verify user has access to the document's organization
-    if (!canAccessDocument(user, existingDocument, 'WRITE')) {
-      return NextResponse.json(
-        { success: false, error: 'Access denied' },
-        { status: 403 }
-      )
-    }
-
-    // If moving to a different folder, verify the target folder exists and user has access
-    if (folderId !== undefined && folderId !== existingDocument.folderId) {
-      if (folderId !== null) {
-        const targetFolder = await prisma.folder.findUnique({
-          where: { id: folderId },
-          select: { id: true, organizationId: true }
-        })
-
-        if (!targetFolder) {
-          return NextResponse.json(
-            { success: false, error: 'Target folder not found' },
-            { status: 404 }
-          )
-        }
-
-        if (targetFolder.organizationId !== user.organizationId) {
-          return NextResponse.json(
-            { success: false, error: 'Access denied to target folder' },
-            { status: 403 }
-          )
-        }
-      }
-    }
-
-    // Build the update data object
-    const updateData = {
-      ...(name && { name: name }),
-      ...(folderId !== undefined && { folderId }),
-      ...(tags !== undefined && { tags: tags }),
-      ...(documentType && { documentType: documentType }),
-      ...(description && { description: description }),
-      updatedAt: new Date()
-    }
-
-    console.log('🚨 FINAL UPDATE DATA BEING SENT TO DATABASE:', JSON.stringify(updateData, null, 2))
-    
-    // Update the document
-    const updatedDocument = await prisma.document.update({
-      where: { id: documentId },
-      data: updateData
-    })
-
-    console.log('🚨 DATABASE UPDATE RESULT:')
-    console.log('  - updatedDocument.tags:', updatedDocument.tags)
-    
-    // Handle contract analysis update separately
-    if (contractAnalysis) {
-      // Update analysis JSON field with contract data
-      const existingDocument = await prisma.document.findUnique({
-        where: { id: documentId },
-        select: { analysis: true }
-      })
-      
-      const currentAnalysis = (existingDocument?.analysis as any) || {}
-      const updatedAnalysis = {
-        ...currentAnalysis,
-        contract: {
-          id: currentAnalysis.contract?.id || `contract_${documentId}`,
-          contractType: contractAnalysis.contractType || 'OTHER',
-          estimatedValue: contractAnalysis.estimatedValue || null,
-          timeline: contractAnalysis.timeline || null,
-          requirements: contractAnalysis.requirements || [],
-          risks: contractAnalysis.risks || [],
-          opportunities: contractAnalysis.opportunities || [],
-          keyTerms: contractAnalysis.keyTerms || [],
-          deadlines: contractAnalysis.deadlines || [],
-          parties: contractAnalysis.parties || [],
-          createdAt: currentAnalysis.contract?.createdAt || new Date().toISOString(),
-          updatedAt: new Date().toISOString()
-        }
-      }
-      
-      await prisma.document.update({
-        where: { id: documentId },
-        data: { analysis: updatedAnalysis }
-      })
-    }
-
-    // Handle entities update separately
-    if (entities !== undefined && Array.isArray(entities)) {
-      console.log('🔄 UPDATING ENTITIES:', entities)
-      
-      // Note: Entities are now stored in the document's entities JSON field
-      // No separate entity model operations needed
-      
-      // Prepare entities data for JSON field storage
-      if (entities.length > 0) {
-        const entityData = entities.map((entity, index) => {
-          const entityType = entity.type.toUpperCase() as 'PERSON' | 'ORGANIZATION' | 'LOCATION' | 'DATE' | 'MONEY' | 'MISC'
-          return {
-            documentId: documentId,
-            text: entity.value || entity.text || 'Unknown',
-            type: ['PERSON', 'ORGANIZATION', 'LOCATION', 'DATE', 'MONEY', 'MISC'].includes(entityType) ? entityType : 'MISC',
-            confidence: 1.0, // User-edited entities have full confidence
-            startOffset: index * 10, // Arbitrary offsets for user-created entities
-            endOffset: (index * 10) + (entity.value || entity.text || 'Unknown').length,
-            context: `User-defined entity #${index + 1}`
-          }
-        })
-        
-        // Update the document's entities JSON field instead of creating separate records
-        await prisma.document.update({
-          where: { id: documentId },
-          data: {
-            entities: { entities: entityData }
-          }
-        })
-        
-        console.log('✅ ENTITIES UPDATED:', entityData.length, 'entities stored in JSON field')
-      }
-    }
-
-    // Fetch the complete updated document with all relations
-    const completeDocument = await prisma.document.findUnique({
-      where: { id: documentId },
-      include: {
-        folder: {
-          select: {
-            id: true,
-            name: true
-          }
-        },
-        uploadedBy: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            email: true
-          }
-        },
-        // contractAnalysis moved to analysis JSON field
-        // All deprecated models moved to JSON fields:
-        // complianceCheck -> analysis.compliance
-        // extractedEntities -> entities.entities
-        // documentChunks -> content.chunks (deprecated)
-        // sections -> content.sections
-        // tables -> content.tables  
-        // images -> content.images
-      }
-    })
-
-    if (!completeDocument) {
-      throw new Error('Document not found after update')
-    }
-
-    // Transform the document to match the current frontend format (same as GET)
-    const getFileTypeFromMimeType = (mimeType: string, fileName: string) => {
-      if (!mimeType && fileName) {
-        const ext = fileName.split('.').pop()?.toLowerCase()
-        return ext || 'unknown'
-      }
-      return mimeType?.split('/')[0] || 'unknown'
-    }
-
-    const transformedDocument = {
-      // Direct Prisma field mappings
-      id: completeDocument.id,
-      name: completeDocument.name,
-      folderId: completeDocument.folderId,
-      size: completeDocument.size || 0,
-      mimeType: completeDocument.mimeType || 'application/octet-stream',
-      organizationId: completeDocument.organizationId,
-      uploadedById: completeDocument.uploadedById,
-      status: ((completeDocument.processing as any)?.currentStatus || 'PENDING'),
-      description: completeDocument.description,
-      documentType: completeDocument.documentType,
-      workflowStatus: completeDocument.workflowStatus,
-      processedAt: ((completeDocument.processing as any)?.events?.find((e: any) => e.eventType === 'COMPLETED')?.timestamp),
-      processingError: ((completeDocument.processing as any)?.events?.find((e: any) => e.success === false)?.error),
-      securityClassification: completeDocument.securityClassification,
-      tags: completeDocument.tags || [],
-      // Computed/derived fields
-      type: getFileTypeFromMimeType(completeDocument.mimeType, completeDocument.name),
-      filePath: `/api/v1/documents/${completeDocument.id}/download`,
-      uploadDate: completeDocument.createdAt.toISOString(),
-      lastModified: completeDocument.updatedAt.toISOString(),
-      updatedBy: completeDocument.uploadedBy ? 
-        `${completeDocument.uploadedBy.firstName || ''} ${completeDocument.uploadedBy.lastName || ''}`.trim() || completeDocument.uploadedBy.email : 
-        'Unknown',
-      isEditable: false,
-      
-      // AI Data (single source of truth - NO metadata field)
-      aiData: {
-        status: {
-          status: ((completeDocument.processing as any)?.currentStatus || 'PENDING'),
-          progress: ((completeDocument.processing as any)?.currentStatus === 'COMPLETED' ? 100 : (completeDocument.processing as any)?.currentStatus === 'PROCESSING' ? 50 : 0),
-          startedAt: completeDocument.createdAt.toISOString(),
-          completedAt: ((completeDocument.processing as any)?.events?.find((e: any) => e.eventType === 'COMPLETED')?.timestamp),
-          retryCount: 0
-        },
-        content: {
-          extractedText: completeDocument.extractedText || '',
-          summary: completeDocument.summary || '',
-          keywords: (completeDocument.content as any)?.keywords || (completeDocument.aiData as any)?.content?.keywords || [],
-          keyPoints: (completeDocument.aiData as any)?.content?.keyPoints || [],
-          actionItems: (completeDocument.aiData as any)?.content?.actionItems || [],
-          questions: (completeDocument.aiData as any)?.content?.questions || []
-        },
-        structure: {
-          sections: ((completeDocument.content as any)?.sections || []).map((section: any) => ({
-            title: section.title,
-            content: section.content,
-            pageNumber: section.pageNumber || 0
-          })),
-          tables: ((completeDocument.content as any)?.tables || []).map((table: any) => ({
-            headers: table.headers,
-            rows: table.rows as string[][],
-            pageNumber: table.pageNumber || 0
-          })),
-          images: ((completeDocument.content as any)?.images || []).map((image: any) => ({
-            id: image.id,
-            description: image.description,
-            altText: image.altText,
-            imageType: image.imageType,
-            pageNumber: image.pageNumber || 0,
-            imageOrder: image.imageOrder || 0,
-            filePath: image.filePath,
-            mimeType: image.mimeType,
-            width: image.width,
-            height: image.height,
-            extractedText: image.extractedText,
-            extractedData: image.extractedData,
-            boundingBox: image.boundingBox,
-            fileSize: image.fileSize,
-            quality: image.quality,
-            isOcrProcessed: image.isOcrProcessed
-          })),
-          ocrResults: []
-        },
-        analysis: {
-          qualityScore: (completeDocument.aiData as any)?.analysis?.qualityScore || 0,
-          readabilityScore: (completeDocument.aiData as any)?.analysis?.readabilityScore || 0,
-          complexityMetrics: { readabilityScore: (completeDocument.aiData as any)?.analysis?.readabilityScore || 0 },
-          entities: ((completeDocument.entities as any)?.entities || []).map((entity: any) => ({
-            text: entity.text,
-            type: entity.type.toLowerCase() as 'person' | 'organization' | 'location' | 'date' | 'money' | 'misc',
-            confidence: entity.confidence,
-            startOffset: entity.startOffset,
-            endOffset: entity.endOffset
-          })),
-          confidence: 0.8,
-          suggestions: (completeDocument.aiData as any)?.analysis?.suggestions || (completeDocument.analysis as any)?.compliance?.recommendations || []
-        },
-        
-        // Security Analysis (from stored AI data)
-        security: (completeDocument.aiData as any)?.security || {
-          classification: completeDocument.securityClassification || 'PUBLIC',
-          sensitiveDataDetected: false,
-          sensitiveDataTypes: [],
-          securityRisks: [],
-          complianceIssues: [],
-          recommendations: [],
-          confidenceScore: 0
-        },
-        
-        // Contract Analysis (moved into aiData)
-        contractAnalysis: (completeDocument.analysis as any)?.contract ? {
-          contractType: (completeDocument.analysis as any).contract.contractType,
-          estimatedValue: (completeDocument.analysis as any).contract.estimatedValue,
-          timeline: (completeDocument.analysis as any).contract.timeline,
-          requirements: (completeDocument.analysis as any).contract.requirements,
-          risks: (completeDocument.analysis as any).contract.risks,
-          opportunities: (completeDocument.analysis as any).contract.opportunities,
-          deadlines: (completeDocument.analysis as any).contract.deadlines || []
-        } : undefined,
-        
-        // Compliance Check (moved to analysis JSON field)
-        complianceCheck: (completeDocument.analysis as any)?.compliance ? {
-          status: (completeDocument.analysis as any).compliance.status.toLowerCase() as 'compliant' | 'non-compliant' | 'partial',
-          issues: (completeDocument.analysis as any).compliance.issues,
-          recommendations: (completeDocument.analysis as any).compliance.recommendations,
-          lastCheckedAt: (completeDocument.analysis as any).compliance.lastCheckedAt
-        } : undefined,
-        
-        // Vector Properties (moved into aiData where it belongs)
-        vectorProperties: {
-          chunks: [],
-          embeddings: ((completeDocument.embeddings as any)?.vectors || []).map((vector: any) => ({
-            chunkId: vector.id,
-            vector: vector.vector || [],
-            model: vector.model || 'text-embedding-ada-002',
-            dimensions: vector.dimensions || 1536,
-            generatedAt: vector.generatedAt || completeDocument.createdAt.toISOString()
-          })),
-          lastIndexedAt: completeDocument.processedAt?.toISOString(),
-          indexVersion: 'v1.0'
-        },
-        
-        processedAt: completeDocument.processedAt?.toISOString() || completeDocument.updatedAt.toISOString(),
-        modelVersion: 'database-v1',
-        processingHistory: [{
-          timestamp: completeDocument.createdAt.toISOString(),
-          event: 'Document Updated',
-          success: true
-        }]
-      },
-      
-      // Security Analysis (separate from aiData as per types definition)
-      securityAnalysis: {
-        classification: (completeDocument.aiData as any)?.security?.classification || completeDocument.securityClassification || 'PUBLIC',
-        piiDetected: (completeDocument.aiData as any)?.security?.sensitiveDataDetected || false,
-        piiTypes: (completeDocument.aiData as any)?.security?.sensitiveDataTypes || [],
-        complianceStatus: (completeDocument.analysis as any)?.compliance?.status?.toLowerCase() || 'unknown',
-        redactionNeeded: (completeDocument.aiData as any)?.security?.recommendations?.some((r: string) => r.toLowerCase().includes('redact')) || false
-      }
-    }
-
-    return NextResponse.json({
-      success: true,
-      document: transformedDocument
-    })
-
-  } catch (error) {
-    console.error('❌ PUT error:', error)
-    console.error('❌ PUT error details:', {
-      name: error?.name,
-      message: error?.message,
-      code: error?.code,
-      stack: error?.stack?.split('\n').slice(0, 5).join('\n') // First 5 lines of stack
-    })
-    
-    const errorMessage = error?.message || 'Failed to update document'
-    return NextResponse.json(
-      { success: false, error: errorMessage },
-      { status: 500 }
-    )
-  }
+export async function PUT(request: NextRequest, context: { params: Promise<{ id: string }> }) {
+  return PATCH(request, context);
 }
 
 /**
@@ -1006,7 +504,7 @@ export async function PATCH(
 ) {
   try {
     const { userId } = await auth()
-    
+
     if (!userId) {
       return NextResponse.json(
         { success: false, error: 'Unauthorized' },
@@ -1019,7 +517,7 @@ export async function PATCH(
     const url = new URL(request.url)
     const section = url.searchParams.get('section')
     const action = url.searchParams.get('action')
-    
+
     console.log('🔧 PATCH /api/v1/documents/[id] - Unified update:', {
       documentId,
       section,
@@ -1089,159 +587,65 @@ export async function PATCH(
       })
     }
 
-    // Legacy field updates (when no section specified)
-    console.log('🔧 PATCH - Legacy field update mode')
-    
-    // Build the update data object - only include fields that are provided
-    const updateData: any = {}
-    
-    // Only update fields that are explicitly provided
-    if (body.name !== undefined) updateData.name = body.name
-    if (body.tags !== undefined) updateData.tags = body.tags
-    if (body.documentType !== undefined) updateData.documentType = body.documentType
-    if (body.description !== undefined) updateData.description = body.description
-    if (body.content !== undefined) {
-      console.log('🔧 PATCH - Updating content field:', body.content)
-      updateData.content = body.content
+    const parsed = DocumentUpdateSchema.safeParse(body);
+    if (!parsed.success) {
+      return NextResponse.json({ success: false, error: 'Invalid document update', details: parsed.error.flatten() }, { status: 400 });
     }
-    if (body.entities !== undefined) {
-      // Handle entities - they'll be updated in the entities table separately
+    const updates = parsed.data;
+    if (updates.folderId !== undefined && updates.folderId !== null) {
+      const folder = await prisma.folder.findFirst({ where: { id: updates.folderId, organizationId: user.organizationId } });
+      if (!folder) return NextResponse.json({ success: false, error: 'Target folder not found' }, { status: 404 });
     }
-    
-    // Always update the timestamp
-    updateData.updatedAt = new Date()
-    
-    console.log('🔧 PATCH update data:', updateData)
-    
-    // Update the document with only the provided fields
-    const updatedDocument = await prisma.document.update({
-      where: { id: documentId },
-      data: updateData
-    })
-    
-    // Handle contract analysis update separately if provided
-    if (body.contractAnalysis) {
-      // Update analysis JSON field with contract data
-      const existingDocument = await prisma.document.findUnique({
-        where: { id: documentId },
-        select: { analysis: true }
-      })
-      
-      const currentAnalysis = (existingDocument?.analysis as any) || {}
-      const updatedAnalysis = {
-        ...currentAnalysis,
-        contract: {
-          id: currentAnalysis.contract?.id || `contract_${documentId}`,
-          contractType: body.contractAnalysis.contractType || 'OTHER',
-          estimatedValue: body.contractAnalysis.estimatedValue || null,
-          timeline: body.contractAnalysis.timeline || null,
-          requirements: body.contractAnalysis.requirements || [],
-          risks: body.contractAnalysis.risks || [],
-          opportunities: body.contractAnalysis.opportunities || [],
-          keyTerms: body.contractAnalysis.keyTerms || [],
-          deadlines: body.contractAnalysis.deadlines || [],
-          parties: body.contractAnalysis.parties || [],
-          createdAt: currentAnalysis.contract?.createdAt || new Date().toISOString(),
-          updatedAt: new Date().toISOString()
-        }
+    const updateData: Prisma.DocumentUpdateInput = {
+      ...(updates.name !== undefined && { name: updates.name }),
+      ...(updates.tags !== undefined && { tags: updates.tags }),
+      ...(updates.documentType !== undefined && { documentType: updates.documentType }),
+      ...(updates.description !== undefined && { description: updates.description }),
+      ...(updates.folderId !== undefined && { folder: updates.folderId === null ? { disconnect: true } : { connect: { id: updates.folderId } } }),
+      updatedAt: new Date(),
+      lastModified: new Date(),
+    };
+    const currentContent = jsonObject(existingDocument.content);
+    const currentAnalysis = jsonObject(existingDocument.analysis);
+    if (updates.content) updateData.content = jsonInput({ ...currentContent, ...updates.content });
+    if (updates.analysis || updates.contractAnalysis) {
+      updateData.analysis = jsonInput({
+        ...currentAnalysis, ...updates.analysis,
+        ...(updates.contractAnalysis && { contract: { ...jsonObject(currentAnalysis.contract), ...updates.contractAnalysis } }),
+      });
+    }
+    if (updates.entities !== undefined) {
+      const supplied = Array.isArray(updates.entities) ? updates.entities : updates.entities.entities;
+      const previous = jsonObject(existingDocument.entities);
+      const previousEntities = Array.isArray(previous.entities) ? previous.entities : [];
+      updateData.entities = jsonInput({
+        ...previous,
+        entities: supplied.map((entity, index) => ({
+          ...jsonObject(previousEntities.find((previous: any) => previous.id === entity.id)), ...entity,
+          id: entity.id || jsonObject(previousEntities.find((previous: any) => previous.id === entity.id)).id || randomUUID(),
+          text: entity.text ?? entity.value ?? '',
+          confidence: entity.confidence ?? 1,
+          startOffset: entity.startOffset ?? 0,
+          endOffset: entity.endOffset ?? 0,
+          context: entity.context ?? null,
+          metadata: entity.metadata ?? null,
+        })),
+        totalCount: supplied.length,
+      });
+    }
+    // Compatibility input is mapped to existing columns, never to the removed aiData column.
+    if (updates.aiData) {
+      const legacyContent = jsonObject(updates.aiData.content);
+      const legacyStructure = jsonObject(updates.aiData.structure);
+      if (typeof legacyContent.extractedText === 'string') updateData.extractedText = legacyContent.extractedText;
+      if (typeof legacyContent.summary === 'string') updateData.summary = legacyContent.summary;
+      if (Array.isArray(legacyStructure.sections) && updates.source !== 'processing') {
+        updateData.content = jsonInput({ ...currentContent, sections: legacyStructure.sections });
       }
-      
-      await prisma.document.update({
-        where: { id: documentId },
-        data: { analysis: updatedAnalysis }
-      })
+      const legacyAnalysis = jsonObject(updates.aiData.analysis);
+      if (Object.keys(legacyAnalysis).length) updateData.analysis = jsonInput({ ...currentAnalysis, ...legacyAnalysis, ...updates.analysis });
     }
-
-    // Handle aiData updates (for sections and other AI analysis data)
-    if (body.aiData) {
-      console.log('🔄 PATCH UPDATING AI DATA:', body.aiData)
-      console.log('📋 Update source:', body.source)
-      
-      // Only update sections table if this is NOT just a processing history update
-      // When source is 'processing', we're only updating processingHistory, not sections
-      const shouldUpdateSections = body.source !== 'processing' && 
-                                  body.aiData.structure?.sections && 
-                                  Array.isArray(body.aiData.structure.sections)
-      
-      if (shouldUpdateSections) {
-        console.log('📝 PATCH UPDATING SECTIONS:', body.aiData.structure.sections)
-        
-        // Note: Sections are now stored in the document's content JSON field
-        // No separate section model operations needed
-        
-        // Update sections in JSON field
-        if (body.aiData.structure.sections.length > 0) {
-          const sectionsData = body.aiData.structure.sections.map((section: any, index: number) => ({
-            title: section.title || `Section ${index + 1}`,
-            content: section.content || '',
-            pageNumber: section.pageNumber || 1,
-            sectionOrder: index
-          }))
-          
-          // Update the document's content JSON field with sections
-          await prisma.document.update({
-            where: { id: documentId },
-            data: {
-              content: {
-                ...((await prisma.document.findUnique({ where: { id: documentId }, select: { content: true } }))?.content as any || {}),
-                sections: sectionsData
-              }
-            }
-          })
-          
-          console.log('✅ PATCH SECTIONS UPDATED:', sectionsData.length, 'sections stored in JSON field')
-        }
-      }
-      
-      // Update the aiData JSON field on the document
-      try {
-        console.log('🔄 PATCH UPDATING DOCUMENT WITH AI DATA:', JSON.stringify(body.aiData, null, 2))
-        await prisma.document.update({
-          where: { id: documentId },
-          data: {
-            aiData: body.aiData,
-            updatedAt: new Date()
-          }
-        })
-        console.log('✅ PATCH AI DATA UPDATED')
-      } catch (aiDataError) {
-        console.error('❌ PATCH AI DATA UPDATE ERROR:', aiDataError)
-        throw aiDataError
-      }
-    }
-
-    // Handle entities update separately if provided
-    if (body.entities !== undefined && Array.isArray(body.entities)) {
-      console.log('🔄 PATCH UPDATING ENTITIES:', body.entities)
-      
-      // Note: Entities are now stored in the document's entities JSON field
-      // No separate entity model operations needed
-      
-      // Update entities in JSON field
-      if (body.entities.length > 0) {
-        const entityData = body.entities.map((entity: any, index: number) => {
-          const entityType = entity.type.toUpperCase() as 'PERSON' | 'ORGANIZATION' | 'LOCATION' | 'DATE' | 'MONEY' | 'MISC'
-          return {
-            text: entity.value || entity.text || 'Unknown',
-            type: ['PERSON', 'ORGANIZATION', 'LOCATION', 'DATE', 'MONEY', 'MISC'].includes(entityType) ? entityType : 'MISC',
-            confidence: 1.0,
-            startOffset: index * 10,
-            endOffset: (index * 10) + (entity.value || entity.text || 'Unknown').length,
-            context: `User-defined entity #${index + 1}`
-          }
-        })
-        
-        // Update the document's entities JSON field
-        await prisma.document.update({
-          where: { id: documentId },
-          data: {
-            entities: { entities: entityData }
-          }
-        })
-        
-        console.log('✅ PATCH ENTITIES UPDATED:', entityData.length, 'entities stored in JSON field')
-      }
-    }
+    await prisma.document.update({ where: { id: documentId }, data: updateData });
 
     // Fetch the complete updated document to return (same as GET endpoint)
     const completeDocument = await prisma.document.findUnique({
@@ -1254,7 +658,7 @@ export async function PATCH(
         // extractedEntities -> entities.entities
         // documentChunks -> content.chunks (deprecated)
         // sections -> content.sections
-        // tables -> content.tables  
+        // tables -> content.tables
         // images -> content.images
       }
     })
@@ -1263,157 +667,7 @@ export async function PATCH(
       throw new Error('Document not found after update')
     }
 
-    // Use the same transformation as GET endpoint
-    const getFileTypeFromMimeType = (mimeType: string, fileName: string) => {
-      if (!mimeType && fileName) {
-        const ext = fileName.split('.').pop()?.toLowerCase()
-        return ext || 'unknown'
-      }
-      return mimeType?.split('/')[0] || 'unknown'
-    }
-
-    const transformedDocument = {
-      id: completeDocument.id,
-      name: completeDocument.name,
-      folderId: completeDocument.folderId,
-      size: completeDocument.size || 0,
-      mimeType: completeDocument.mimeType || 'application/octet-stream',
-      organizationId: completeDocument.organizationId,
-      uploadedById: completeDocument.uploadedById,
-      status: ((completeDocument.processing as any)?.currentStatus || 'PENDING'),
-      description: completeDocument.description,
-      documentType: completeDocument.documentType,
-      workflowStatus: completeDocument.workflowStatus,
-      processedAt: ((completeDocument.processing as any)?.events?.find((e: any) => e.eventType === 'COMPLETED')?.timestamp),
-      processingError: ((completeDocument.processing as any)?.events?.find((e: any) => e.success === false)?.error),
-      securityClassification: completeDocument.securityClassification,
-      tags: completeDocument.tags || [],
-
-      type: getFileTypeFromMimeType(completeDocument.mimeType, completeDocument.name),
-      filePath: `/api/v1/documents/${completeDocument.id}/download`,
-      uploadDate: completeDocument.createdAt.toISOString(),
-      lastModified: completeDocument.updatedAt.toISOString(),
-      updatedBy: completeDocument.uploadedBy ? 
-        `${completeDocument.uploadedBy.firstName || ''} ${completeDocument.uploadedBy.lastName || ''}`.trim() || completeDocument.uploadedBy.email : 
-        'Unknown',
-      isEditable: false,
-      
-      aiData: {
-        status: {
-          status: ((completeDocument.processing as any)?.currentStatus || 'PENDING'),
-          progress: ((completeDocument.processing as any)?.currentStatus === 'COMPLETED' ? 100 : (completeDocument.processing as any)?.currentStatus === 'PROCESSING' ? 50 : 0),
-          startedAt: completeDocument.createdAt.toISOString(),
-          completedAt: ((completeDocument.processing as any)?.events?.find((e: any) => e.eventType === 'COMPLETED')?.timestamp),
-          retryCount: 0
-        },
-        content: {
-          extractedText: completeDocument.extractedText || '',
-          summary: completeDocument.summary || '',
-          keywords: (completeDocument.content as any)?.keywords || (completeDocument.aiData as any)?.content?.keywords || [],
-          keyPoints: (completeDocument.aiData as any)?.content?.keyPoints || [],
-          actionItems: (completeDocument.aiData as any)?.content?.actionItems || [],
-          questions: (completeDocument.aiData as any)?.content?.questions || []
-        },
-        structure: {
-          sections: ((completeDocument.content as any)?.sections || []).map((section: any) => ({
-            title: section.title,
-            content: section.content,
-            pageNumber: section.pageNumber || 0
-          })),
-          tables: ((completeDocument.content as any)?.tables || []).map((table: any) => ({
-            headers: table.headers,
-            rows: table.rows as string[][],
-            pageNumber: table.pageNumber || 0
-          })),
-          images: ((completeDocument.content as any)?.images || []).map((image: any) => ({
-            id: image.id,
-            description: image.description,
-            altText: image.altText,
-            imageType: image.imageType,
-            pageNumber: image.pageNumber || 0,
-            imageOrder: image.imageOrder || 0,
-            filePath: image.filePath,
-            mimeType: image.mimeType,
-            width: image.width,
-            height: image.height,
-            extractedText: image.extractedText,
-            extractedData: image.extractedData,
-            boundingBox: image.boundingBox,
-            fileSize: image.fileSize,
-            quality: image.quality,
-            isOcrProcessed: image.isOcrProcessed
-          })),
-          ocrResults: []
-        },
-        analysis: {
-          qualityScore: (completeDocument.aiData as any)?.analysis?.qualityScore || 0,
-          readabilityScore: (completeDocument.aiData as any)?.analysis?.readabilityScore || 0,
-          complexityMetrics: { readabilityScore: (completeDocument.aiData as any)?.analysis?.readabilityScore || 0 },
-          entities: ((completeDocument.entities as any)?.entities || []).map((entity: any) => ({
-            text: entity.text,
-            type: entity.type.toLowerCase() as 'person' | 'organization' | 'location' | 'date' | 'money' | 'misc',
-            confidence: entity.confidence,
-            startOffset: entity.startOffset,
-            endOffset: entity.endOffset
-          })),
-          confidence: 0.8,
-          suggestions: (completeDocument.aiData as any)?.analysis?.suggestions || (completeDocument.analysis as any)?.compliance?.recommendations || []
-        },
-        // Security Analysis (from stored AI data)
-        security: (completeDocument.aiData as any)?.security || {
-          classification: completeDocument.securityClassification || 'PUBLIC',
-          sensitiveDataDetected: false,
-          sensitiveDataTypes: [],
-          securityRisks: [],
-          complianceIssues: [],
-          recommendations: [],
-          confidenceScore: 0
-        },
-        contractAnalysis: (completeDocument.analysis as any)?.contract ? {
-          contractType: (completeDocument.analysis as any).contract.contractType,
-          estimatedValue: (completeDocument.analysis as any).contract.estimatedValue,
-          timeline: (completeDocument.analysis as any).contract.timeline,
-          requirements: (completeDocument.analysis as any).contract.requirements,
-          risks: (completeDocument.analysis as any).contract.risks,
-          opportunities: (completeDocument.analysis as any).contract.opportunities,
-          deadlines: (completeDocument.analysis as any).contract.deadlines || []
-        } : undefined,
-        complianceCheck: completeDocument.complianceCheck ? {
-          status: completeDocument.complianceCheck.status.toLowerCase() as 'compliant' | 'non-compliant' | 'partial',
-          issues: completeDocument.complianceCheck.issues,
-          recommendations: completeDocument.complianceCheck.recommendations,
-          lastCheckedAt: completeDocument.complianceCheck.lastCheckedAt.toISOString()
-        } : undefined,
-        vectorProperties: {
-          chunks: [],
-          embeddings: ((completeDocument.embeddings as any)?.vectors || []).map((vector: any) => ({
-            chunkId: vector.id,
-            vector: vector.vector || [],
-            model: vector.model || 'text-embedding-ada-002',
-            dimensions: vector.dimensions || 1536,
-            generatedAt: vector.generatedAt || completeDocument.createdAt.toISOString()
-          })),
-          lastIndexedAt: completeDocument.processedAt?.toISOString(),
-          indexVersion: 'v1.0'
-        },
-        processedAt: completeDocument.processedAt?.toISOString() || completeDocument.updatedAt.toISOString(),
-        modelVersion: 'database-v1',
-        processingHistory: [{
-          timestamp: completeDocument.createdAt.toISOString(),
-          event: 'Document Updated via PATCH',
-          success: true
-        }]
-      },
-      
-      // Security Analysis (separate from aiData as per types definition)
-      securityAnalysis: {
-        classification: (completeDocument.aiData as any)?.security?.classification || completeDocument.securityClassification || 'PUBLIC',
-        piiDetected: (completeDocument.aiData as any)?.security?.sensitiveDataDetected || false,
-        piiTypes: (completeDocument.aiData as any)?.security?.sensitiveDataTypes || [],
-        complianceStatus: (completeDocument.analysis as any)?.compliance?.status?.toLowerCase() || 'unknown',
-        redactionNeeded: (completeDocument.aiData as any)?.security?.recommendations?.some((r: string) => r.toLowerCase().includes('redact')) || false
-      }
-    }
+    const transformedDocument = serializeDocument(completeDocument);
 
     console.log('✅ PATCH completed successfully:', {
       documentId,
@@ -1455,15 +709,15 @@ export async function PATCH(
       document: transformedDocument
     })
 
-  } catch (error) {
+  } catch (caughtError) {
+    const error = normalizeError(caughtError);
     console.error('❌ PATCH error:', error)
     console.error('❌ PATCH error details:', {
       name: error?.name,
       message: error?.message,
-      code: error?.code,
       stack: error?.stack?.split('\n').slice(0, 5).join('\n') // First 5 lines of stack
     })
-    
+
     const errorMessage = error?.message || 'Failed to update document'
     return NextResponse.json(
       { success: false, error: errorMessage },
@@ -1561,12 +815,13 @@ async function handleSectionUpdate({
       }
     })
 
-  } catch (error) {
+  } catch (caughtError) {
+    const error = normalizeError(caughtError);
     console.error(`❌ Section update error (${section}):`, error)
     return NextResponse.json(
-      { 
-        success: false, 
-        error: `Failed to update ${section}: ${error instanceof Error ? error.message : 'Unknown error'}` 
+      {
+        success: false,
+        error: `Failed to update ${section}: ${error instanceof Error ? error.message : 'Unknown error'}`
       },
       { status: 500 }
     )
@@ -1575,9 +830,9 @@ async function handleSectionUpdate({
 
 // Permission checking function
 async function checkSectionPermission(
-  section: string, 
-  action: string | null, 
-  user: { id: string; organizationId: string }, 
+  section: string,
+  action: string | null,
+  user: { id: string; organizationId: string },
   document: any
 ): Promise<{ allowed: boolean; error?: string }> {
   const permission = section === 'sharing' ? 'SHARE' : 'WRITE';
@@ -1614,7 +869,7 @@ async function updateEntitiesSection(documentId: string, body: any, action: stri
 
   await prisma.document.update({
     where: { id: documentId },
-    data: { 
+    data: {
       entities: updatedEntities,
       updatedAt: new Date()
     }
@@ -1629,11 +884,11 @@ async function updateSharingSection(documentId: string, body: any, action: strin
     select: { sharing: true }
   })
 
-  const currentSharing = (existingDocument?.sharing as any) || { 
-    permissions: [], 
-    share: null, 
-    shareViews: [], 
-    comments: [] 
+  const currentSharing = (existingDocument?.sharing as any) || {
+    permissions: [],
+    share: null,
+    shareViews: [],
+    comments: []
   }
 
   switch (action) {
@@ -1642,7 +897,7 @@ async function updateSharingSection(documentId: string, body: any, action: strin
       if (!permissionData || !['READ', 'WRITE', 'DELETE', 'SHARE'].includes(permissionData.permission)) throw new Error('Valid permission data required');
       const recipient = await prisma.user.findFirst({ where: { id: permissionData.userId, organizationId: user.organizationId, deletedAt: null } });
       if (!recipient) throw new Error('Recipient must belong to this organization');
-      
+
       const newPermission = {
         id: `perm_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
         userId: permissionData.userId,
@@ -1651,7 +906,7 @@ async function updateSharingSection(documentId: string, body: any, action: strin
         grantedAt: new Date().toISOString(),
         expiresAt: permissionData.expiresAt || null
       }
-      
+
       currentSharing.permissions.push(newPermission)
       break
 
@@ -1671,7 +926,7 @@ async function updateSharingSection(documentId: string, body: any, action: strin
 
   await prisma.document.update({
     where: { id: documentId },
-    data: { 
+    data: {
       sharing: currentSharing,
       updatedAt: new Date()
     }
@@ -1686,10 +941,10 @@ async function updateProcessingSection(documentId: string, body: any, action: st
     select: { processing: true }
   })
 
-  const currentProcessing = (existingDocument?.processing as any) || { 
-    currentStatus: 'PENDING', 
-    progress: 0, 
-    events: [] 
+  const currentProcessing = (existingDocument?.processing as any) || {
+    currentStatus: 'PENDING',
+    progress: 0,
+    events: []
   }
 
   switch (action) {
@@ -1707,7 +962,7 @@ async function updateProcessingSection(documentId: string, body: any, action: st
     case 'add_event':
       const eventData = body.data?.event || body.event
       if (!eventData) throw new Error('Event data required')
-      
+
       const newEvent = {
         id: `evt_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
         ...eventData,
@@ -1723,7 +978,7 @@ async function updateProcessingSection(documentId: string, body: any, action: st
 
   await prisma.document.update({
     where: { id: documentId },
-    data: { 
+    data: {
       processing: currentProcessing,
       updatedAt: new Date()
     }
@@ -1738,10 +993,10 @@ async function updateContentSection(documentId: string, body: any, action: strin
     select: { content: true }
   })
 
-  const currentContent = (existingDocument?.content as any) || { 
-    sections: [], 
-    tables: [], 
-    images: [] 
+  const currentContent = (existingDocument?.content as any) || {
+    sections: [],
+    tables: [],
+    images: []
   }
 
   if (action === 'add') {
@@ -1756,7 +1011,7 @@ async function updateContentSection(documentId: string, body: any, action: strin
 
   await prisma.document.update({
     where: { id: documentId },
-    data: { 
+    data: {
       content: currentContent,
       updatedAt: new Date()
     }
@@ -1771,9 +1026,9 @@ async function updateAnalysisSection(documentId: string, body: any, action: stri
     select: { analysis: true }
   })
 
-  const currentAnalysis = (existingDocument?.analysis as any) || { 
-    contract: null, 
-    compliance: null 
+  const currentAnalysis = (existingDocument?.analysis as any) || {
+    contract: null,
+    compliance: null
   }
 
   // Replace or merge analysis data
@@ -1781,7 +1036,7 @@ async function updateAnalysisSection(documentId: string, body: any, action: stri
 
   await prisma.document.update({
     where: { id: documentId },
-    data: { 
+    data: {
       analysis: currentAnalysis,
       updatedAt: new Date()
     }
@@ -1807,7 +1062,7 @@ async function updateEmbeddingsSection(documentId: string, body: any, action: st
 
   await prisma.document.update({
     where: { id: documentId },
-    data: { 
+    data: {
       embeddings: currentEmbeddings,
       updatedAt: new Date()
     }
@@ -1827,7 +1082,7 @@ async function updateRevisionsSection(documentId: string, body: any, action: str
   if (action === 'add') {
     const revisionData = body.data?.revision || body.revision
     if (!revisionData) throw new Error('Revision data required')
-    
+
     const newRevision = {
       id: `rev_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
       version: (currentRevisions.revisions?.length || 0) + 1,
@@ -1841,7 +1096,7 @@ async function updateRevisionsSection(documentId: string, body: any, action: str
 
   await prisma.document.update({
     where: { id: documentId },
-    data: { 
+    data: {
       revisions: currentRevisions,
       updatedAt: new Date()
     }
@@ -1862,72 +1117,7 @@ async function fetchCompleteDocument(documentId: string) {
 
   if (!document) throw new Error('Document not found after update')
 
-  // Parse JSON fields safely
-  const content = (document.content as any) || { sections: [], tables: [], images: [] }
-  const entities = (document.entities as any) || { entities: [] }
-  const sharing = (document.sharing as any) || { permissions: [], share: null, shareViews: [], comments: [] }
-  const processing = (document.processing as any) || { currentStatus: 'COMPLETED', progress: 100, events: [] }
-  const analysis = (document.analysis as any) || { contract: null, compliance: null }
-  const embeddings = (document.embeddings as any) || { vectors: [] }
-  const revisions = (document.revisions as any) || { revisions: [] }
-
-  const getFileTypeFromMimeType = (mimeType: string, fileName: string) => {
-    if (!mimeType && fileName) {
-      const ext = fileName.split('.').pop()?.toLowerCase()
-      return ext || 'unknown'
-    }
-    return mimeType?.split('/')[0] || 'unknown'
-  }
-
-  return {
-    // Core document fields
-    id: document.id,
-    name: document.name,
-    folderId: document.folderId,
-    size: document.size || 0,
-    mimeType: document.mimeType || 'application/octet-stream',
-    organizationId: document.organizationId,
-    uploadedById: document.uploadedById,
-    description: document.description,
-    documentType: document.documentType,
-    securityClassification: document.securityClassification,
-    workflowStatus: document.workflowStatus,
-    tags: document.tags || [],
-    isEditable: document.isEditable,
-
-    // Extracted content
-    extractedText: document.extractedText,
-    summary: document.summary,
-    
-    // Computed/derived fields
-    type: getFileTypeFromMimeType(document.mimeType, document.name),
-    filePath: `/api/v1/documents/${document.id}/download`,
-    uploadDate: document.uploadDate?.toISOString() || document.createdAt.toISOString(),
-    lastModified: document.lastModified.toISOString(),
-    updatedBy: document.uploadedBy ? 
-      `${document.uploadedBy.firstName || ''} ${document.uploadedBy.lastName || ''}`.trim() || document.uploadedBy.email : 
-      'Unknown',
-    
-    // Processing status from JSON field
-    status: processing.currentStatus,
-    progress: processing.progress,
-    processedAt: processing.events?.find((e: any) => e.eventType === 'COMPLETED')?.timestamp,
-    processingError: processing.events?.find((e: any) => e.success === false)?.error,
-    
-    // JSON field data (consolidated structure)
-    content: content,
-    entities: entities,
-    sharing: sharing,
-    processing: processing,
-    analysis: analysis,
-    embeddings: embeddings,
-    revisions: revisions,
-    
-    // Relations
-    uploadedBy: document.uploadedBy,
-    folder: document.folder,
-    opportunity: document.opportunity
-  }
+  return serializeDocument(document);
 }
 
 /**
@@ -2025,7 +1215,8 @@ export async function DELETE(
     defaultVectorSearchCache.clear();
     try {
       await defaultEmbeddingService.deleteDocumentEmbeddings(documentId, document.organizationId);
-    } catch (error) {
+    } catch (caughtError) {
+    const error = normalizeError(caughtError);
       // Keep the tombstone so all retrieval paths reject stale vector content. Retryable cleanup.
       console.error('Document vector cleanup failed', error);
       return NextResponse.json({ error: 'Document access revoked; cleanup failed. Please retry deletion.' }, { status: 503 });
@@ -2038,24 +1229,24 @@ export async function DELETE(
     let storageDeleted = false;
     if (supabaseAdmin && document.filePath) {
       const pathsToTry: string[] = [document.filePath];
-      
+
       // Generate alternative paths to try
       const normalizedPath = normalizeFilePath(document.filePath, document.organizationId);
       if (normalizedPath !== document.filePath) {
         pathsToTry.push(normalizedPath);
       }
-      
+
       // If it's new format, try old formats
       if (document.filePath.includes('/docs/') || document.filePath.includes('/images/')) {
         const pathParts = document.filePath.split('/');
         if (pathParts.length >= 2) {
           const orgId = pathParts[0];
           const subPath = pathParts.slice(1).join('/');
-          
+
           // Try with documents/ prefix (migration issue)
           pathsToTry.push(`documents/${orgId}/${subPath}`);
           pathsToTry.push(`documents/${document.filePath}`);
-          
+
           // Try without docs/ subfolder (old format)
           if (document.filePath.includes('/docs/')) {
             const fileName = pathParts.slice(2).join('/');
@@ -2064,15 +1255,15 @@ export async function DELETE(
           }
         }
       }
-      
+
       console.log(`🔄 Attempting storage deletion at ${pathsToTry.length} possible paths:`, pathsToTry);
-      
+
       for (const pathToTry of pathsToTry) {
         try {
           const { error: deleteError } = await supabaseAdmin.storage
             .from('documents')
             .remove([pathToTry]);
-            
+
           if (!deleteError) {
             storageDeleted = true;
             console.log(`✅ Successfully deleted file from storage: ${pathToTry}`);
@@ -2080,11 +1271,12 @@ export async function DELETE(
           } else {
             console.log(`ℹ️  Path ${pathToTry} - ${deleteError.message}`);
           }
-        } catch (error) {
+        } catch (caughtError) {
+    const error = normalizeError(caughtError);
           console.log(`ℹ️  Path ${pathToTry} failed:`, error?.message);
         }
       }
-      
+
       if (!storageDeleted) {
         console.warn(`⚠️  Could not delete file from storage at any path. File may not exist or paths may be incorrect.`);
         // Continue with database deletion even if storage fails
@@ -2132,23 +1324,30 @@ export async function DELETE(
       }
     });
 
-  } catch (error) {
+  } catch (caughtError) {
+    const error = normalizeError(caughtError);
     console.error(`❌ Document deletion error:`, error);
-    
+
     // Check if it's a Prisma "record not found" error
-    if (error?.code === 'P2025') {
+    if ('code' in error && error.code === 'P2025') {
       return NextResponse.json(
         { error: 'Document not found' },
         { status: 404 }
       );
     }
-    
+
     return NextResponse.json(
-      { 
+      {
         error: 'Failed to delete document',
         details: error instanceof Error ? error.message : 'Unknown error'
       },
       { status: 500 }
     );
   }
+}
+function jsonObject(value: unknown): Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+function jsonInput(value: Record<string, unknown>): Prisma.InputJsonObject {
+  return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonObject;
 }

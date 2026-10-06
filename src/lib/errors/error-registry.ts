@@ -6,7 +6,7 @@ import { app } from '@/lib/config/env'
 
 /**
  * Unified Error Registry
- * 
+ *
  * Central hub for all error reporting, analytics, and correlation across
  * API, AI services, UI components, and system-level errors.
  */
@@ -113,16 +113,16 @@ class GlobalErrorRegistry {
    */
   reportError(error: EnhancedError, context: ErrorContext): ErrorReport {
     const config = getReportingConfig()
-    
+
     // Generate unique error ID if not provided
     const errorId = error.errorId || this.generateErrorId()
-    
+
     // Create fingerprint for error deduplication
     const fingerprint = this.generateFingerprint(error, context)
-    
+
     // Generate tags for categorization
     const tags = this.generateTags(error, context)
-    
+
     // Create error report
     const report: ErrorReport = {
       id: errorId,
@@ -146,15 +146,15 @@ class GlobalErrorRegistry {
 
     // Add to history
     this.addToHistory(report)
-    
+
     // Update correlations
     this.updateCorrelations(report)
-    
+
     // Add to batch for external reporting
     if (config.enableErrorTracking || config.enableMetrics || config.enableAnalytics) {
       this.addToBatch(report)
     }
-    
+
     // Immediate console logging in development
     if (config.enableErrorTracking && app.nodeEnv === 'development') {
       this.logErrorToConsole(report)
@@ -173,7 +173,7 @@ class GlobalErrorRegistry {
     }
 
     this.breadcrumbs.push(entry)
-    
+
     // Maintain breadcrumb limit
     if (this.breadcrumbs.length > this.maxBreadcrumbs) {
       this.breadcrumbs = this.breadcrumbs.slice(-this.maxBreadcrumbs)
@@ -185,7 +185,7 @@ class GlobalErrorRegistry {
    */
   getAnalytics(timeRange?: { start: Date; end: Date }): ErrorAnalytics {
     const errors = timeRange
-      ? this.errorHistory.filter(report => 
+      ? this.errorHistory.filter(report =>
           report.timestamp >= timeRange.start && report.timestamp <= timeRange.end
         )
       : this.errorHistory
@@ -288,32 +288,32 @@ class GlobalErrorRegistry {
     let filtered = [...this.errorHistory]
 
     if (criteria.severity) {
-      filtered = filtered.filter(report => 
+      filtered = filtered.filter(report =>
         criteria.severity!.includes(report.error.severity || ErrorSeverity.MEDIUM)
       )
     }
 
     if (criteria.category) {
-      filtered = filtered.filter(report => 
+      filtered = filtered.filter(report =>
         criteria.category!.includes(report.error.category || ErrorCategory.UNKNOWN)
       )
     }
 
     if (criteria.source) {
-      filtered = filtered.filter(report => 
+      filtered = filtered.filter(report =>
         criteria.source!.includes(report.context.source)
       )
     }
 
     if (criteria.feature) {
-      filtered = filtered.filter(report => 
+      filtered = filtered.filter(report =>
         report.context.feature === criteria.feature
       )
     }
 
     if (criteria.timeRange) {
-      filtered = filtered.filter(report => 
-        report.timestamp >= criteria.timeRange!.start && 
+      filtered = filtered.filter(report =>
+        report.timestamp >= criteria.timeRange!.start &&
         report.timestamp <= criteria.timeRange!.end
       )
     }
@@ -363,26 +363,26 @@ class GlobalErrorRegistry {
       // Include first few lines of stack trace for better grouping
       error.stack?.split('\n').slice(0, 3).join('\n') || '',
     ]
-    
+
     return btoa(components.join('|')).substr(0, 16)
   }
 
   private generateTags(error: EnhancedError, context: ErrorContext): string[] {
     const tags: string[] = []
-    
+
     if (error.category) tags.push(`category:${error.category}`)
     if (error.severity) tags.push(`severity:${error.severity}`)
     if (context.source) tags.push(`source:${context.source}`)
     if (context.feature) tags.push(`feature:${context.feature}`)
     if (error.retryable) tags.push('retryable')
     if (app.nodeEnv) tags.push(`env:${app.nodeEnv}`)
-    
+
     return tags
   }
 
   private addToHistory(report: ErrorReport): void {
     this.errorHistory.push(report)
-    
+
     // Maintain history size limit
     if (this.errorHistory.length > this.maxHistorySize) {
       this.errorHistory = this.errorHistory.slice(-this.maxHistorySize)
@@ -393,12 +393,12 @@ class GlobalErrorRegistry {
     const config = getErrorConfig().patterns
     const correlationWindow = config.correlationWindow
     const now = Date.now()
-    
+
     // Find errors within correlation window
-    const recentErrors = this.errorHistory.filter(r => 
+    const recentErrors = this.errorHistory.filter(r =>
       (now - r.timestamp.getTime()) < correlationWindow
     )
-    
+
     if (recentErrors.length >= config.burstThreshold) {
       // Create correlation patterns
       const patterns = [
@@ -406,12 +406,12 @@ class GlobalErrorRegistry {
         `${report.context.feature}_errors`,
         `${report.error.severity}_burst`,
       ].filter(Boolean)
-      
+
       patterns.forEach(pattern => {
-        const relatedErrors = recentErrors.filter(r => 
+        const relatedErrors = recentErrors.filter(r =>
           this.isErrorRelated(r, report, pattern)
         )
-        
+
         if (relatedErrors.length >= 2) {
           this.correlationMap.set(pattern, relatedErrors)
         }
@@ -423,11 +423,11 @@ class GlobalErrorRegistry {
     if (pattern.includes('_burst')) {
       return error1.error.severity === error2.error.severity
     }
-    
+
     if (pattern.includes('_errors')) {
       return error1.context.feature === error2.context.feature
     }
-    
+
     return (
       error1.error.category === error2.error.category &&
       error1.context.source === error2.context.source
@@ -436,7 +436,7 @@ class GlobalErrorRegistry {
 
   private getCorrelationSeverity(errors: ErrorReport[]): ErrorSeverity {
     const severities = errors.map(e => e.error.severity || ErrorSeverity.MEDIUM)
-    
+
     if (severities.includes(ErrorSeverity.CRITICAL)) return ErrorSeverity.CRITICAL
     if (severities.includes(ErrorSeverity.HIGH)) return ErrorSeverity.HIGH
     if (severities.includes(ErrorSeverity.MEDIUM)) return ErrorSeverity.MEDIUM
@@ -445,7 +445,7 @@ class GlobalErrorRegistry {
 
   private addToBatch(report: ErrorReport): void {
     this.errorBatches.push(report)
-    
+
     const config = getReportingConfig()
     if (this.errorBatches.length >= config.batchSize) {
       this.flushBatch()
@@ -454,7 +454,7 @@ class GlobalErrorRegistry {
 
   private setupFlushTimer(): void {
     const config = getReportingConfig()
-    
+
     this.flushTimer = setInterval(() => {
       if (this.errorBatches.length > 0) {
         this.flushBatch()
@@ -462,12 +462,12 @@ class GlobalErrorRegistry {
     }, config.flushInterval)
   }
 
-  private async flushBatch(): void {
+  private async flushBatch(): Promise<void> {
     if (this.errorBatches.length === 0) return
-    
+
     const batch = [...this.errorBatches]
     this.errorBatches = []
-    
+
     try {
       await this.sendToExternalServices(batch)
     } catch (error) {
@@ -481,17 +481,17 @@ class GlobalErrorRegistry {
 
   private async sendToExternalServices(reports: ErrorReport[]): Promise<void> {
     const config = getReportingConfig()
-    
+
     // Send to error tracking service (Sentry, etc.)
     if (config.enableErrorTracking) {
       await this.sendToErrorTracking(reports)
     }
-    
+
     // Send to analytics service
     if (config.enableAnalytics) {
       await this.sendToAnalytics(reports)
     }
-    
+
     // Send to metrics service
     if (config.enableMetrics) {
       await this.sendToMetrics(reports)
@@ -527,7 +527,7 @@ class GlobalErrorRegistry {
       tags: report.tags,
       customProperties: report.context.metadata || {},
     }))
-    
+
     if (app.nodeEnv === 'development') {
       console.log('Would send metrics:', metrics.length, 'metrics')
     }
@@ -545,19 +545,19 @@ class GlobalErrorRegistry {
       'Feature': report.context.feature,
       'Timestamp': report.timestamp.toISOString(),
     })
-    
+
     if (report.context.metadata) {
       console.log('Context Metadata:', report.context.metadata)
     }
-    
+
     if (report.breadcrumbs.length > 0) {
       console.log('Breadcrumbs:', report.breadcrumbs.slice(-5))
     }
-    
+
     if (report.error.stack) {
       console.log('Stack Trace:', report.error.stack)
     }
-    
+
     console.groupEnd()
   }
 
@@ -569,7 +569,7 @@ class GlobalErrorRegistry {
       clearInterval(this.flushTimer)
       this.flushTimer = null
     }
-    
+
     // Flush any remaining batches
     if (this.errorBatches.length > 0) {
       this.flushBatch()

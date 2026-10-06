@@ -1,5 +1,5 @@
 import { PrismaClient } from '@prisma/client';
-import { generateId } from '../../utils/id-generator';
+import { generateId } from '../../utils';
 import { aiAnalyticsService } from './ai-analytics-service';
 import { providerStatusService } from './provider-status-service';
 
@@ -359,7 +359,7 @@ export class AlertingService {
    */
   async runMonitoringCheck(): Promise<Alert[]> {
     console.log('Running alert monitoring check...');
-    
+
     const alerts: Alert[] = [];
     const now = new Date();
 
@@ -509,7 +509,7 @@ export class AlertingService {
     try {
       // Check provider status
       const providerStatus = await providerStatusService.getAllProviderStatus();
-      
+
       for (const provider of providerStatus) {
         if (provider.circuitState === 'OPEN') {
           alerts.push(await this.createAlert({
@@ -852,42 +852,42 @@ export class AlertingService {
 
   private calculateHealthScore(activeAlerts: number, criticalAlerts: number, avgResolutionTime: number): number {
     let score = 100;
-    
+
     // Reduce score for active alerts
     score -= activeAlerts * 5;
-    
+
     // Reduce score more for critical alerts
     score -= criticalAlerts * 15;
-    
+
     // Reduce score for slow resolution times
     if (avgResolutionTime > 60) {
       score -= Math.min(20, (avgResolutionTime - 60) / 10);
     }
-    
+
     return Math.max(0, Math.min(100, score));
   }
 
   private generateRecommendations(activeAlerts: number, criticalAlerts: number, alertsByType: any[]): string[] {
     const recommendations = [];
-    
+
     if (criticalAlerts > 0) {
       recommendations.push(`Address ${criticalAlerts} critical alert(s) immediately`);
     }
-    
+
     if (activeAlerts > 10) {
       recommendations.push('Consider reviewing alert thresholds to reduce noise');
     }
-    
+
     const costAlerts = alertsByType.find(a => a.alertType === 'COST_THRESHOLD');
     if (costAlerts && costAlerts._count > 2) {
       recommendations.push('Implement cost optimization measures');
     }
-    
+
     const performanceAlerts = alertsByType.find(a => a.alertType === 'PERFORMANCE_DEGRADATION');
     if (performanceAlerts && performanceAlerts._count > 3) {
       recommendations.push('Investigate performance optimization opportunities');
     }
-    
+
     return recommendations;
   }
 }

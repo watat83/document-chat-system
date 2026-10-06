@@ -13,120 +13,130 @@
 // ==========================================
 
 // Document processing status
-export enum ProcessingStatus {
-  PENDING = 'PENDING',
-  QUEUED = 'QUEUED',
-  PROCESSING = 'PROCESSING',
-  COMPLETED = 'COMPLETED',
-  FAILED = 'FAILED',
-}
+export const ProcessingStatus = {
+  PENDING: 'PENDING',
+  QUEUED: 'QUEUED',
+  PROCESSING: 'PROCESSING',
+  COMPLETED: 'COMPLETED',
+  FAILED: 'FAILED',
+} as const
+export type ProcessingStatus = typeof ProcessingStatus[keyof typeof ProcessingStatus]
 
 // Document classification types
-export enum DocumentType {
-  PROPOSAL = 'PROPOSAL',
-  CONTRACT = 'CONTRACT',
-  SOLICITATION = 'SOLICITATION',
-  AMENDMENT = 'AMENDMENT',
-  CERTIFICATION = 'CERTIFICATION',
-  CAPABILITY_STATEMENT = 'CAPABILITY_STATEMENT',
-  PAST_PERFORMANCE = 'PAST_PERFORMANCE',
-  COMPLIANCE = 'COMPLIANCE',
-  TEMPLATE = 'TEMPLATE',
-  OTHER = 'OTHER',
-}
+export const DocumentType = {
+  PROPOSAL: 'PROPOSAL',
+  CONTRACT: 'CONTRACT',
+  SOLICITATION: 'SOLICITATION',
+  AMENDMENT: 'AMENDMENT',
+  CERTIFICATION: 'CERTIFICATION',
+  CAPABILITY_STATEMENT: 'CAPABILITY_STATEMENT',
+  PAST_PERFORMANCE: 'PAST_PERFORMANCE',
+  COMPLIANCE: 'COMPLIANCE',
+  TEMPLATE: 'TEMPLATE',
+  OTHER: 'OTHER',
+} as const
+export type DocumentType = typeof DocumentType[keyof typeof DocumentType]
 
 // Contract-specific types (separate from DocumentType)
-export enum ContractType {
-  FIXED_PRICE = 'FIXED_PRICE',
-  COST_PLUS = 'COST_PLUS',
-  TIME_AND_MATERIALS = 'TIME_AND_MATERIALS',
-  RETAINER = 'RETAINER',
-  MILESTONE_BASED = 'MILESTONE_BASED',
-  SUBSCRIPTION = 'SUBSCRIPTION',
-  PERFORMANCE_BASED = 'PERFORMANCE_BASED',
-  FRAMEWORK_AGREEMENT = 'FRAMEWORK_AGREEMENT',
-  MASTER_SERVICE_AGREEMENT = 'MASTER_SERVICE_AGREEMENT',
-  OTHER = 'OTHER',
-}
+export const ContractType = {
+  FIXED_PRICE: 'FIXED_PRICE',
+  COST_PLUS: 'COST_PLUS',
+  TIME_AND_MATERIALS: 'TIME_AND_MATERIALS',
+  RETAINER: 'RETAINER',
+  MILESTONE_BASED: 'MILESTONE_BASED',
+  SUBSCRIPTION: 'SUBSCRIPTION',
+  PERFORMANCE_BASED: 'PERFORMANCE_BASED',
+  FRAMEWORK_AGREEMENT: 'FRAMEWORK_AGREEMENT',
+  MASTER_SERVICE_AGREEMENT: 'MASTER_SERVICE_AGREEMENT',
+  OTHER: 'OTHER',
+} as const
+export type ContractType = typeof ContractType[keyof typeof ContractType]
 
 // Workflow status
-export enum WorkflowStatus {
-  DRAFT = 'DRAFT',
-  REVIEW = 'REVIEW',
-  APPROVED = 'APPROVED',
-  REJECTED = 'REJECTED',
-  ARCHIVED = 'ARCHIVED',
-}
+export const WorkflowStatus = {
+  DRAFT: 'DRAFT',
+  REVIEW: 'REVIEW',
+  APPROVED: 'APPROVED',
+  REJECTED: 'REJECTED',
+  ARCHIVED: 'ARCHIVED',
+} as const
+export type WorkflowStatus = typeof WorkflowStatus[keyof typeof WorkflowStatus]
 
 // Security classification
-export enum SecurityClassification {
-  PUBLIC = 'PUBLIC',
-  INTERNAL = 'INTERNAL',
-  CONFIDENTIAL = 'CONFIDENTIAL',
-  SECRET = 'SECRET',
-}
+export const SecurityClassification = {
+  PUBLIC: 'PUBLIC',
+  INTERNAL: 'INTERNAL',
+  CONFIDENTIAL: 'CONFIDENTIAL',
+  SECRET: 'SECRET',
+} as const
+export type SecurityClassification = typeof SecurityClassification[keyof typeof SecurityClassification]
 
 // Entity types for extraction
-export enum EntityType {
-  PERSON = 'PERSON',
-  ORGANIZATION = 'ORGANIZATION',
-  LOCATION = 'LOCATION',
-  DATE = 'DATE',
-  MONEY = 'MONEY',
-  EMAIL = 'EMAIL',
-  PHONE = 'PHONE',
-  ADDRESS = 'ADDRESS',
-  CONTRACT_NUMBER = 'CONTRACT_NUMBER',
-  NAICS_CODE = 'NAICS_CODE',
-  CERTIFICATION = 'CERTIFICATION',
-  DEADLINE = 'DEADLINE',
-  REQUIREMENT = 'REQUIREMENT',
-  MISC = 'MISC',
-}
+export const EntityType = {
+  PERSON: 'PERSON',
+  ORGANIZATION: 'ORGANIZATION',
+  LOCATION: 'LOCATION',
+  DATE: 'DATE',
+  MONEY: 'MONEY',
+  EMAIL: 'EMAIL',
+  PHONE: 'PHONE',
+  ADDRESS: 'ADDRESS',
+  CONTRACT_NUMBER: 'CONTRACT_NUMBER',
+  NAICS_CODE: 'NAICS_CODE',
+  CERTIFICATION: 'CERTIFICATION',
+  DEADLINE: 'DEADLINE',
+  REQUIREMENT: 'REQUIREMENT',
+  MISC: 'MISC',
+} as const
+export type EntityType = typeof EntityType[keyof typeof EntityType]
 
 // Permission types
-export enum PermissionType {
-  READ = 'READ',
-  WRITE = 'WRITE',
-  DELETE = 'DELETE',
-  SHARE = 'SHARE',
-  COMMENT = 'COMMENT',
-}
+export const PermissionType = {
+  READ: 'READ',
+  WRITE: 'WRITE',
+  DELETE: 'DELETE',
+  SHARE: 'SHARE',
+  COMMENT: 'COMMENT',
+} as const
+export type PermissionType = typeof PermissionType[keyof typeof PermissionType]
 
 // Comment/workflow types
-export enum CommentType {
-  COMMENT = 'COMMENT',
-  APPROVAL = 'APPROVAL',
-  REJECTION = 'REJECTION',
-  CHANGE_REQUEST = 'CHANGE_REQUEST',
-  QUESTION = 'QUESTION',
-  SUGGESTION = 'SUGGESTION',
-}
+export const CommentType = {
+  COMMENT: 'COMMENT',
+  APPROVAL: 'APPROVAL',
+  REJECTION: 'REJECTION',
+  CHANGE_REQUEST: 'CHANGE_REQUEST',
+  QUESTION: 'QUESTION',
+  SUGGESTION: 'SUGGESTION',
+} as const
+export type CommentType = typeof CommentType[keyof typeof CommentType]
 
 // Compliance status
-export enum ComplianceStatus {
-  COMPLIANT = 'COMPLIANT',
-  NON_COMPLIANT = 'NON_COMPLIANT',
-  PARTIAL = 'PARTIAL',
-  PENDING = 'PENDING',
-  UNKNOWN = 'UNKNOWN',
-}
+export const ComplianceStatus = {
+  COMPLIANT: 'COMPLIANT',
+  NON_COMPLIANT: 'NON_COMPLIANT',
+  PARTIAL: 'PARTIAL',
+  PENDING: 'PENDING',
+  UNKNOWN: 'UNKNOWN',
+} as const
+export type ComplianceStatus = typeof ComplianceStatus[keyof typeof ComplianceStatus]
 
 // Processing event types
-export enum ProcessingEventType {
-  UPLOAD = 'UPLOAD',
-  TEXT_EXTRACTION = 'TEXT_EXTRACTION',
-  SECTION_ANALYSIS = 'SECTION_ANALYSIS',
-  ENTITY_EXTRACTION = 'ENTITY_EXTRACTION',
-  CONTENT_ANALYSIS = 'CONTENT_ANALYSIS',
-  SECURITY_ANALYSIS = 'SECURITY_ANALYSIS',
-  CONTRACT_ANALYSIS = 'CONTRACT_ANALYSIS',
-  COMPLIANCE_CHECK = 'COMPLIANCE_CHECK',
-  VECTORIZATION = 'VECTORIZATION',
-  COMPLETED = 'COMPLETED',
-  FAILED = 'FAILED',
-  CANCELLED = 'CANCELLED',
-}
+export const ProcessingEventType = {
+  UPLOAD: 'UPLOAD',
+  TEXT_EXTRACTION: 'TEXT_EXTRACTION',
+  SECTION_ANALYSIS: 'SECTION_ANALYSIS',
+  ENTITY_EXTRACTION: 'ENTITY_EXTRACTION',
+  CONTENT_ANALYSIS: 'CONTENT_ANALYSIS',
+  SECURITY_ANALYSIS: 'SECURITY_ANALYSIS',
+  CONTRACT_ANALYSIS: 'CONTRACT_ANALYSIS',
+  COMPLIANCE_CHECK: 'COMPLIANCE_CHECK',
+  VECTORIZATION: 'VECTORIZATION',
+  COMPLETED: 'COMPLETED',
+  FAILED: 'FAILED',
+  CANCELLED: 'CANCELLED',
+} as const
+export type ProcessingEventType = typeof ProcessingEventType[keyof typeof ProcessingEventType]
 
 // ==========================================
 // CORE DOCUMENT INTERFACE (UNIFIED)
@@ -146,7 +156,7 @@ export interface Document {
   filePath: string
   uploadDate: string // ISO string
   lastModified: string // ISO string
-  
+
   // Computed fields
   type: string // Computed file type (pdf, md, etc.)
 
@@ -180,6 +190,14 @@ export interface Document {
 
   // Client-side only
   originalFile?: File
+  // Read-only compatibility projections returned by the document API.
+  folderPath?: string | null
+  processedAt?: string
+  updatedBy?: string
+  contractValue?: string
+  deadline?: string
+  securityAnalysis?: { classification: string; piiDetected: boolean; piiTypes: string[]; complianceStatus: string; redactionNeeded: boolean }
+  aiData?: { content?: DocumentContent & { extractedText?: string }; analysis?: DocumentAnalysis; security?: DocumentAnalysis['security']; processedAt?: string; modelVersion?: string; processingHistory?: DocumentProcessing['events']; [key: string]: any }
 }
 
 // ==========================================
@@ -274,21 +292,21 @@ export interface DocumentEmbeddings {
   documentId: string // Reference to the source document
   documentTitle: string // Human-readable document name
   organizationNamespace: string // Unique organization identifier (business name or organizationId)
-  
+
   // Chunk references - minimal data stored in DB
   chunks: {
     id: string // Unique chunk ID (e.g., "doc123_chunk_0")
     chunkIndex: number // Sequential chunk number
     vectorId: string // Pinecone vector ID reference
-    
+
     // Text position for attribution
     startChar: number // Start position in original text
     endChar: number // End position in original text
-    
+
     // Optional: Key terms for hybrid search
     keywords?: string[] // Main keywords from this chunk
   }[]
-  
+
   // Processing metadata
   model: string // Embedding model used (e.g., "text-embedding-3-small")
   dimensions: number // Vector dimensions (e.g., 1536)
@@ -412,6 +430,7 @@ export interface DocumentProcessing {
 }
 
 export interface DocumentAnalysis {
+  contractAnalysis?: ContractAnalysis
   // Document quality and readability scores
   qualityScore?: number // 0-100
   readabilityScore?: number // 0-100

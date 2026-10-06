@@ -1,14 +1,12 @@
-import { 
+import {
   DocumentCreationRequest,
   DocumentType,
-  type DocumentCreationRequestType 
+  type DocumentCreationRequestType
 } from '@/types/document-processing'
-import { 
-  Document, 
-  AIProcessingData,
-  ProcessingEvent 
+import {
+  Document,
 } from '@/types/documents'
-import { v4 as uuidv4 } from 'uuid'
+import { randomUUID as uuidv4 } from 'node:crypto'
 
 export interface DocumentTemplate {
   id: string
@@ -65,91 +63,30 @@ export class DocumentCreatorService {
 
       // Generate initial content using AI if requested
       if (options.generateInitialContent && !initialContent) {
-        initialContent = await this.generateInitialContent(request.type, request.name)
+        initialContent = await this.generateInitialContent(request.type.toLowerCase(), request.name)
       }
 
-      // Create processing history entry
-      const processingEvent: ProcessingEvent = {
-        timestamp: nowIso,
-        event: 'document_created',
-        success: true
-      }
-
-      // Extract direct document fields (no metadata wrapper)
-
-      // Create AI processing data
-      const aiData: AIProcessingData = {
-        // Status & Progress
-        status: {
-          status: 'completed', // Created documents start as completed
-          progress: 100,
-          startedAt: nowIso,
-          completedAt: nowIso,
-          retryCount: 0
-        },
-        
-        // Content Analysis (single source of truth)
-        content: {
-          extractedText: initialContent,
-          summary: this.generateBasicSummary(initialContent),
-          keywords: [], // Will be populated by AI processing
-          keyPoints: this.extractKeyPoints(initialContent),
-          actionItems: [],
-          questions: []
-        },
-        
-        // Document Structure (preserved as requested)
-        structure: {
-          sections: this.extractSections(initialContent),
-          tables: [],
-          images: [],
-          ocrResults: []
-        },
-        
-        // Analysis Results
-        analysis: {
-          qualityScore: 8, // Default for created documents
-          readabilityScore: 7,
-          complexityMetrics: {
-            readabilityScore: 7
-          },
-          entities: [],
-          confidence: 0.9, // High confidence for user-created content
-          suggestions: []
-        },
-        
-        // Processing Metadata
-        processedAt: nowIso,
-        modelVersion: 'document-creator-v1.0',
-        processingHistory: [processingEvent]
-      }
-
-      // Create the document object
+      const sections = this.extractSections(initialContent).map((section, index) => ({
+        ...section, id: uuidv4(), sectionOrder: index, sectionType: 'text', parentId: null, level: 1,
+      }));
       const document: Document = {
-        id: documentId,
-        name: request.name,
-        folderId: null, // Will be set by the UI when organizing
-        type: this.getFileExtensionForType(request.type),
-        size: this.calculateSize(initialContent),
-        mimeType: this.getMimeTypeForType(request.type),
-        filePath: `/documents/${documentId}`, // Virtual path for created documents
-        uploadDate: nowIso,
-        lastModified: nowIso,
-        updatedBy: request.createdBy,
-        organizationId: request.organizationId,
-        
-        // Document permissions
-        isEditable: true, // Created documents are always editable
-        
-        // Direct document fields (no metadata wrapper)
-        tags: request.tags || [],
-        setAsideType: undefined,
-        naicsCodes: [],
-        documentType: request.type as any,
-        
-        // AI data (consolidated single source of truth)
-        aiData
-      }
+        id: documentId, name: request.name, folderId: null,
+        organizationId: request.organizationId, uploadedById: request.createdBy,
+        type: 'md', mimeType: 'text/markdown', size: new TextEncoder().encode(initialContent).length,
+        filePath: `/documents/${documentId}`, uploadDate: nowIso, lastModified: nowIso,
+        createdAt: nowIso, updatedAt: nowIso, deletedAt: null,
+        updatedBy: request.createdBy, isEditable: true, tags: request.tags ?? [],
+        documentType: request.type, securityClassification: 'INTERNAL', workflowStatus: 'DRAFT',
+        description: null, extractedText: initialContent, summary: this.generateBasicSummary(initialContent),
+        content: { sections, tables: [], images: [], keyPoints: this.extractKeyPoints(initialContent) },
+        entities: { entities: [] }, sharing: { permissions: [], share: null, shareViews: [], comments: [] },
+        revisions: { revisions: [] }, analysis: { contract: null, compliance: null },
+        embeddings: { documentId, documentTitle: request.name, organizationNamespace: request.organizationId, chunks: [], model: '', dimensions: 0, totalChunks: 0, lastProcessed: '' },
+        processing: {
+          currentStatus: 'COMPLETED', progress: 100, currentStep: null, estimatedCompletion: null,
+          events: [{ id: uuidv4(), userId: request.createdBy, event: 'Document created', eventType: 'COMPLETED', success: true, error: null, timestamp: nowIso, duration: 0, metadata: null }],
+        },
+      };
 
       return document
 
@@ -245,13 +182,13 @@ export class DocumentCreatorService {
     switch (documentType) {
       case 'proposal':
         return `# ${title}\n\n## Executive Summary\n\n[Your executive summary here]\n\n## Technical Approach\n\n[Your technical approach here]\n\n## Project Timeline\n\n[Your project timeline here]\n\n## Budget\n\n[Your budget information here]`
-      
+
       case 'compliance':
         return `# ${title}\n\n## Compliance Overview\n\n[Compliance overview here]\n\n## Requirements\n\n[List of requirements here]\n\n## Certification\n\n[Certification details here]`
-      
+
       case 'contract':
         return `# ${title}\n\n## Contract Overview\n\n[Contract overview here]\n\n## Terms and Conditions\n\n[Terms and conditions here]\n\n## Deliverables\n\n[Deliverables here]`
-      
+
       default:
         return `# ${title}\n\n[Document content here]`
     }
@@ -315,7 +252,7 @@ export class DocumentCreatorService {
     const sections = []
     const lines = content.split('\n')
     let currentSection = { title: 'Introduction', content: '', pageNumber: 1 }
-    
+
     for (const line of lines) {
       if (line.startsWith('#')) {
         if (currentSection.content.trim()) {
@@ -330,11 +267,11 @@ export class DocumentCreatorService {
         currentSection.content += line + '\n'
       }
     }
-    
+
     if (currentSection.content.trim()) {
       sections.push(currentSection)
     }
-    
+
     return sections
   }
 

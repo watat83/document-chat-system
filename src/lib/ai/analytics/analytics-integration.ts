@@ -3,7 +3,7 @@ import { providerStatusService } from './provider-status-service';
 import { alertingService } from './alerting-service';
 import { costOptimizationService } from './cost-optimization-service';
 import { abTestingService } from './ab-testing-service';
-import { generateId } from '../../utils/id-generator';
+import { generateId } from '../../utils';
 
 /**
  * Integration layer that connects analytics services to the AI service manager
@@ -83,7 +83,7 @@ export class AnalyticsIntegration {
   }): Promise<void> {
     try {
       const latency = data.endTime.getTime() - data.startTime.getTime();
-      
+
       const metricData: AIMetricData = {
         requestId: data.requestId,
         provider: data.provider,
@@ -142,13 +142,13 @@ export class AnalyticsIntegration {
     provider: string;
     model: string;
     confidence: number;
-    reasoning: string;
+    reasoningText: string;
     fallbackProviders: string[];
   }> {
     try {
       // Get provider status
       const healthyProviders = await providerStatusService.getHealthyProviders();
-      
+
       if (healthyProviders.length === 0) {
         throw new Error('No healthy providers available');
       }
@@ -171,7 +171,7 @@ export class AnalyticsIntegration {
             provider: abTestAssignment.provider,
             model: abTestAssignment.config.model || 'default',
             confidence: 0.8,
-            reasoning: `A/B test assignment: ${abTestAssignment.name}`,
+            reasoningText: `A/B test assignment: ${abTestAssignment.name}`,
             fallbackProviders: healthyProviders.slice(1, 3).map(p => p.provider),
           };
         }
@@ -190,13 +190,13 @@ export class AnalyticsIntegration {
 
     } catch (error) {
       console.error('Failed to get routing recommendation:', error);
-      
+
       // Fallback to default routing
       return {
         provider: 'openai',
         model: 'gpt-3.5-turbo',
         confidence: 0.5,
-        reasoning: 'Fallback due to analytics error',
+        reasoningText: 'Fallback due to analytics error',
         fallbackProviders: ['anthropic', 'google'],
       };
     }
@@ -248,7 +248,7 @@ export class AnalyticsIntegration {
 
     } catch (error) {
       console.error('Failed to get realtime analytics:', error);
-      
+
       return {
         totalRequests: 0,
         avgLatency: 0,
@@ -277,7 +277,7 @@ export class AnalyticsIntegration {
   }> {
     try {
       const report = await costOptimizationService.generateRecommendations(organizationId);
-      
+
       return {
         totalSavings: report.potentialSavings,
         recommendations: report.recommendations.slice(0, 5).map(rec => ({
@@ -292,7 +292,7 @@ export class AnalyticsIntegration {
 
     } catch (error) {
       console.error('Failed to generate cost optimizations:', error);
-      
+
       return {
         totalSavings: 0,
         recommendations: [],
@@ -361,10 +361,10 @@ export class AnalyticsIntegration {
     try {
       // Check if user is part of any active A/B tests
       const activeTests = await abTestingService.getActiveTests(data.userId, data.organizationId);
-      
+
       for (const test of activeTests) {
         const variant = await abTestingService.assignVariant(test.id, data.userId, data.organizationId);
-        
+
         if (variant && variant.provider === data.provider) {
           // Record A/B test result
           await abTestingService.recordResult({
@@ -391,14 +391,14 @@ export class AnalyticsIntegration {
   private async checkABTestAssignment(userId: string, organizationId: string): Promise<any> {
     try {
       const activeTests = await abTestingService.getActiveTests(userId, organizationId);
-      
+
       for (const test of activeTests) {
         const variant = await abTestingService.assignVariant(test.id, userId, organizationId);
         if (variant) {
           return variant;
         }
       }
-      
+
       return null;
     } catch (error) {
       console.error('Failed to check A/B test assignment:', error);
@@ -416,7 +416,7 @@ export class AnalyticsIntegration {
     // Score providers based on priority
     const scoredProviders = healthyProviders.map(provider => {
       const metrics = providerMetrics.find(m => m.provider === provider.provider);
-      
+
       if (!metrics) {
         return {
           provider: provider.provider,
@@ -426,7 +426,7 @@ export class AnalyticsIntegration {
       }
 
       let score = 0;
-      
+
       // Score based on priority
       switch (priority) {
         case 'fast':
@@ -460,14 +460,14 @@ export class AnalyticsIntegration {
 
     // Sort by score
     scoredProviders.sort((a, b) => b.score - a.score);
-    
+
     const best = scoredProviders[0];
-    
+
     return {
       provider: best.provider,
       model: this.getDefaultModel(best.provider),
       confidence: best.confidence,
-      reasoning: `Selected based on ${priority} priority with score ${best.score.toFixed(2)}`,
+      reasoningText: `Selected based on ${priority} priority with score ${best.score.toFixed(2)}`,
       fallbackProviders: scoredProviders.slice(1, 3).map(p => p.provider),
     };
   }

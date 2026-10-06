@@ -1,3 +1,4 @@
+import { AuditCategory, AuditEventType, AuditSeverity } from '@prisma/client';
 /**
  * @swagger
  * /api/v1/audit/compliance-report:
@@ -86,9 +87,10 @@ import { ComplianceReportGenerator } from '@/lib/audit/compliance-report';
 import { crudAuditLogger } from '@/lib/audit/crud-audit-logger';
 
 export async function GET(request: NextRequest) {
+  let userId: string | null = null;
   try {
     // Check authentication
-    const { userId } = await auth();
+    ({ userId } = await auth());
     if (!userId) {
       return NextResponse.json(
         { success: false, error: 'Authentication required' },
@@ -99,9 +101,9 @@ export async function GET(request: NextRequest) {
     // Get user and check permissions
     const user = await db.user.findUnique({
       where: { clerkId: userId },
-      select: { 
-        id: true, 
-        role: true, 
+      select: {
+        id: true,
+        role: true,
         organizationId: true,
         firstName: true,
         lastName: true
@@ -140,12 +142,12 @@ export async function GET(request: NextRequest) {
     }
 
     // Parse dates
-    const startDate = startDateParam ? 
-      new Date(startDateParam) : 
+    const startDate = startDateParam ?
+      new Date(startDateParam) :
       new Date(Date.now() - 30 * 24 * 60 * 60 * 1000); // 30 days ago
 
-    const endDate = endDateParam ? 
-      new Date(endDateParam) : 
+    const endDate = endDateParam ?
+      new Date(endDateParam) :
       new Date();
 
     // Validate dates
@@ -173,7 +175,7 @@ export async function GET(request: NextRequest) {
 
     // Generate compliance report
     console.log(`Generating compliance report for organization ${targetOrganizationId}, period: ${startDate.toISOString()} to ${endDate.toISOString()}`);
-    
+
     const report = await ComplianceReportGenerator.generateReport(
       targetOrganizationId,
       startDate,
@@ -244,7 +246,7 @@ export async function GET(request: NextRequest) {
 
   } catch (error) {
     console.error('Error generating compliance report:', error);
-    
+
     // Log error for audit trail
     try {
       if (userId) {
@@ -267,7 +269,7 @@ export async function GET(request: NextRequest) {
             }
           },
           AuditCategory.AUDIT_MANAGEMENT,
-          AuditEventType.ERROR,
+          AuditEventType.API_REQUEST_FAILED,
           AuditSeverity.CRITICAL
         );
       }
@@ -276,8 +278,8 @@ export async function GET(request: NextRequest) {
     }
 
     return NextResponse.json(
-      { 
-        success: false, 
+      {
+        success: false,
         error: 'Failed to generate compliance report',
         details: process.env.NODE_ENV === 'development' ? (error as Error).message : undefined
       },
