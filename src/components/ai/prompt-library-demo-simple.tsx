@@ -549,7 +549,7 @@ Technical POC: Dr. Bob Johnson, bob.johnson@demo.gov
                   <strong>3. Compare Results:</strong> Notice how each operation produces completely different outputs from the same input
                 </div>
                 <div className="p-3 bg-blue-50 rounded-lg">
-                  <strong>Real AI Results:</strong> "Full Text Extraction" uses specialized prompts to ensure the AI returns complete text without summarization, while "Executive Summary" creates strategic overviews. See the actual difference in AI behavior!
+                  <strong>Real AI Results:</strong> &quot;Full Text Extraction&quot; uses specialized prompts to ensure the AI returns complete text without summarization, while &quot;Executive Summary&quot; creates strategic overviews. See the actual difference in AI behavior!
                 </div>
                 <div className="p-3 bg-green-50 rounded-lg">
                   <strong>Real AI Processing:</strong> This demo now uses actual AI models to process your documents. Upload PDF/DOCX files or paste text to see real extraction, summarization, and analysis results.

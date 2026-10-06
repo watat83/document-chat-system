@@ -52,7 +52,6 @@ const CompetencyCombobox: React.FC<CompetencyComboboxProps> = ({
   const [functionalAreaFilter, setFunctionalAreaFilter] = useState<string>('all');
   const [complexityFilter, setComplexityFilter] = useState<string>('all');
   const [isLoading, setIsLoading] = useState(false);
-  const [searchSuggestions, setSearchSuggestions] = useState<string[]>([]);
   const [showFilters, setShowFilters] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
@@ -118,15 +117,7 @@ const CompetencyCombobox: React.FC<CompetencyComboboxProps> = ({
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
-  // Get search suggestions
-  useEffect(() => {
-    if (debouncedSearchQuery.length >= 2) {
-      const suggestions = getSearchSuggestions(competencies, debouncedSearchQuery, 5);
-      setSearchSuggestions(suggestions);
-    } else {
-      setSearchSuggestions([]);
-    }
-  }, [debouncedSearchQuery, competencies]);
+  const searchSuggestions = useMemo(() => debouncedSearchQuery.length >= 2 ? getSearchSuggestions(competencies, debouncedSearchQuery, 5) : [], [debouncedSearchQuery, competencies]);
 
   // Handle selection
   const handleSelect = useCallback((pscCode: string) => {
@@ -437,7 +428,7 @@ const CompetencyCombobox: React.FC<CompetencyComboboxProps> = ({
               {/* Empty state */}
               {debouncedSearchQuery.trim() && !hasResults && !isSearching && (
                 <div className="py-8 text-center space-y-2">
-                  <p>No competencies found for "{debouncedSearchQuery}"</p>
+                  <p>No competencies found for &quot;{debouncedSearchQuery}&quot;</p>
                   <p className="text-xs text-muted-foreground">
                     Try adjusting your search terms or clearing filters
                   </p>

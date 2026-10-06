@@ -3,7 +3,8 @@ import {
   BaseCodeLinePlugin,
   BaseCodeSyntaxPlugin,
 } from '@platejs/code-block';
-import lowlight from 'lowlight';
+import { all, createLowlight } from 'lowlight';
+const lowlight = createLowlight(all);
 
 import {
   CodeBlockElementStatic,

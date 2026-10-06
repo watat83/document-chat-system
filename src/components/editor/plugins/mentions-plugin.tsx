@@ -520,17 +520,18 @@ function useMentionLookupService(mentionString: string | null) {
 
   useEffect(() => {
     const cachedResults = mentionsCache.get(mentionString)
+    let timeout: number | undefined
 
     if (mentionString == null) {
-      setResults([])
-      return
+      timeout = window.setTimeout(() => setResults([]), 0)
+      return () => window.clearTimeout(timeout)
     }
 
     if (cachedResults === null) {
       return
     } else if (cachedResults !== undefined) {
-      setResults(cachedResults)
-      return
+      timeout = window.setTimeout(() => setResults(cachedResults), 0)
+      return () => window.clearTimeout(timeout)
     }
 
     mentionsCache.set(mentionString, null)
@@ -640,7 +641,6 @@ export function MentionsPlugin(): JSX.Element | null {
   )
 
   return (
-    // @ts-ignore
     <LexicalTypeaheadMenuPlugin<MentionTypeaheadOption>
       onQueryChange={setQueryString}
       onSelectOption={onSelectOption}

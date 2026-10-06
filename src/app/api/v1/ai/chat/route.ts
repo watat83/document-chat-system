@@ -1,3 +1,6 @@
+import { AuditCategory, AuditEventType } from '@prisma/client';
+import { guardUsage } from '@/lib/billing/usage-guard';
+import { UsageTrackingService, UsageType } from '@/lib/usage-tracking';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { z } from 'zod';
@@ -6,9 +9,7 @@ import { prisma } from '@/lib/db';
 import { crudAuditLogger } from '@/lib/audit/crud-audit-logger';
 import { checkRateLimit, rateLimitConfigs } from '@/lib/rate-limit';
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+function getOpenAI() { return new OpenAI({ apiKey: process.env.OPENAI_API_KEY }); }
 
 const chatRequestSchema = z.object({
   messages: z.array(z.object({
@@ -126,6 +127,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    const account = await prisma.user.findFirst({ where: { clerkId: userId, deletedAt: null } });
+    if (!account) return NextResponse.json({ error: 'Account unavailable' }, { status: 403 });
+    const usageError = await guardUsage(account.organizationId, UsageType.AI_QUERY);
+    if (usageError) return usageError;
+
     // Rate limiting for AI requests (prevents cost explosion)
     const rateLimitResult = await checkRateLimit(request, rateLimitConfigs.ai, 'ai-chat');
     if (!rateLimitResult.success) {
@@ -160,7 +166,7 @@ export async function POST(request: NextRequest) {
     if (!validation.success) {
       console.error('❌ Chat request validation failed:', validation.error.format());
       return NextResponse.json(
-        { 
+        {
           error: 'Invalid request parameters',
           details: validation.error.format()
         },
@@ -181,13 +187,15 @@ export async function POST(request: NextRequest) {
 
     // Call OpenAI API
     console.log('🚀 Calling OpenAI API...');
-    const completion = await openai.chat.completions.create({
+    const completion = await getOpenAI().chat.completions.create({
       model,
       messages,
       temperature,
       max_tokens,
       stream: false
     });
+
+    await UsageTrackingService.trackUsage({ organizationId: account.organizationId, usageType: UsageType.AI_QUERY, quantity: 1, resourceType: 'chat' });
 
     console.log('✅ OpenAI response received:', {
       choices: completion.choices.length,
@@ -205,41 +213,9 @@ export async function POST(request: NextRequest) {
       try {
         const userPrompt = messages.find(m => m.role === 'user')?.content || 'Chat conversation';
         const assistantResponse = completion.choices[0]?.message?.content || '';
-        
-        await crudAuditLogger.logAIOperation(
-          'CREATE',
-          `chat_${Date.now()}`,
-          `AI Chat Interaction`,
-          null,
-          {
-            model,
-            temperature,
-            max_tokens,
-            prompt: userPrompt.substring(0, 500), // Truncate for storage
-            response: assistantResponse.substring(0, 500), // Truncate for storage
-            usage: completion.usage
-          },
-          {
-            algorithm: model,
-            score: completion.usage?.total_tokens || 0, // Use token count as score
-            isAIDecision: true,
-            model: model,
-            provider: 'openai',
-            profileName: user.firstName && user.lastName ? `${user.firstName} ${user.lastName}` : 'Unknown User',
-            opportunityTitle: 'AI Chat Session',
-            confidence: temperature < 0.5 ? 95 : (temperature < 1.0 ? 85 : 75), // Lower temperature = higher confidence
-            factors: {
-              messageCount: messages.length,
-              promptTokens: completion.usage?.prompt_tokens,
-              completionTokens: completion.usage?.completion_tokens,
-              totalTokens: completion.usage?.total_tokens,
-              temperature,
-              max_tokens
-            },
-            endpoint: '/api/v1/ai/chat',
-            method: 'POST'
-          }
-        );
+
+        await crudAuditLogger.logCRUDOperation({ operation: 'CREATE', entityType: 'AIChat', entityId: `chat_${Date.now()}`, entityName: 'AI Chat Interaction',
+          currentData: { model, usage: completion.usage }, metadata: { organizationId: user.organizationId, userId: user.id, provider: 'openai', endpoint: '/api/v1/ai/chat', method: 'POST' } }, AuditCategory.AI_SERVICES, AuditEventType.DATA_CREATED);
       } catch (auditError) {
         console.error('Failed to create AI chat audit log:', auditError);
       }
@@ -249,7 +225,7 @@ export async function POST(request: NextRequest) {
 
   } catch (error) {
     console.error('❌ AI chat error:', error);
-    
+
     // Handle specific OpenAI errors
     if (error instanceof OpenAI.APIError) {
       console.error('OpenAI API Error:', {
@@ -257,9 +233,9 @@ export async function POST(request: NextRequest) {
         message: error.message,
         type: error.type
       });
-      
+
       return NextResponse.json(
-        { 
+        {
           error: 'AI service error',
           details: error.message
         },

@@ -1,9 +1,9 @@
 /**
  * Example usage of file upload capabilities with CleanOpenRouterAdapter
- * 
+ *
  * This file demonstrates how to use the enhanced file upload functionality
  * for both images and PDFs in government contracting scenarios.
- * 
+ *
  * Based on OpenRouter documentation: https://openrouter.ai/docs/features/images-and-pdfs
  */
 
@@ -34,7 +34,7 @@ export async function analyzeUploadedImage(file: File): Promise<string> {
 
   // Convert to base64
   const base64Data = await CleanOpenRouterAdapter.fileToBase64(file);
-  
+
   const adapter = new CleanOpenRouterAdapter(config);
   await adapter.initialize();
 
@@ -81,7 +81,7 @@ export async function analyzeUploadedPDF(
 
   // Convert to base64
   const base64Data = await CleanOpenRouterAdapter.fileToBase64(file);
-  
+
   const adapter = new CleanOpenRouterAdapter(config);
   await adapter.initialize();
 
@@ -119,11 +119,11 @@ export async function analyzeMultipleFiles(
   // Validate both files
   const imageValidation = CleanOpenRouterAdapter.validateFile(imageFile);
   const pdfValidation = CleanOpenRouterAdapter.validateFile(pdfFile);
-  
+
   if (!imageValidation.isValid) {
     throw new Error(`Image validation failed: ${imageValidation.error}`);
   }
-  
+
   if (!pdfValidation.isValid) {
     throw new Error(`PDF validation failed: ${pdfValidation.error}`);
   }
@@ -147,9 +147,12 @@ export async function analyzeMultipleFiles(
       },
       {
         type: 'file',
-        data: pdfBase64,
-        mimeType: 'application/pdf',
-        metadata: { engine: 'pdf-text' }
+
+        file: {
+          data: pdfBase64,
+          mediaType: 'application/pdf',
+          metadata: { engine: 'pdf-text' }
+        }
       }
     ]
   );
@@ -184,7 +187,7 @@ export async function estimateFileProcessingCost(
   const attachments = await Promise.all(
     files.map(async (file) => {
       const base64Data = await CleanOpenRouterAdapter.fileToBase64(file);
-      
+
       if (file.type.startsWith('image/')) {
         return {
           type: 'image' as const,
@@ -197,7 +200,7 @@ export async function estimateFileProcessingCost(
           type: 'file' as const,
           data: base64Data,
           mimeType: file.type,
-          metadata: { 
+          metadata: {
             engine: 'pdf-text',
             pageCount: 10 // Estimate - could be calculated from file
           }
@@ -220,7 +223,7 @@ export async function estimateFileProcessingCost(
   };
 
   const costEstimate = await adapter.estimateCost(request);
-  
+
   console.log('File Processing Cost Estimate:');
   console.log(`- Total Cost: $${costEstimate.estimatedCost.toFixed(4)}`);
   console.log(`- Text Processing: $${costEstimate.breakdown.promptCost?.toFixed(4) || 0}`);
@@ -241,11 +244,11 @@ export async function batchProcessFiles(
   await adapter.initialize();
 
   const results: string[] = [];
-  
+
   for (const file of files) {
     try {
       let result: string;
-      
+
       if (file.type.startsWith('image/')) {
         result = await analyzeUploadedImage(file);
       } else if (file.type === 'application/pdf') {
@@ -253,9 +256,9 @@ export async function batchProcessFiles(
       } else {
         throw new Error(`Unsupported file type: ${file.type}`);
       }
-      
+
       results.push(result);
-      
+
       // Add delay between requests to respect rate limits
       await new Promise(resolve => setTimeout(resolve, 1000));
     } catch (error) {
@@ -263,7 +266,7 @@ export async function batchProcessFiles(
       results.push(`Error processing ${file.name}: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
-  
+
   return results;
 }
 
@@ -278,21 +281,21 @@ export function checkModelCapabilities(
 ): { supported: boolean; message: string } {
   const supportsVision = CleanOpenRouterAdapter.isVisionModel(modelId);
   const supportsPDF = CleanOpenRouterAdapter.isPDFModel(modelId);
-  
+
   if (hasImages && !supportsVision) {
     return {
       supported: false,
       message: `Model ${modelId} does not support image analysis. Please select a vision-enabled model.`
     };
   }
-  
+
   if (hasPDFs && !supportsPDF) {
     return {
       supported: false,
       message: `Model ${modelId} does not support PDF processing. Please select a PDF-capable model.`
     };
   }
-  
+
   return {
     supported: true,
     message: `Model ${modelId} supports all required capabilities.`
@@ -334,7 +337,7 @@ export async function analyzeGovernmentContract(
   const totalCost = await Promise.all(
     allFiles.map(async (file) => {
       const base64Data = await CleanOpenRouterAdapter.fileToBase64(file);
-      
+
       const attachment = file.type.startsWith('image/')
         ? {
             type: 'image' as const,
@@ -387,13 +390,13 @@ export function getFileInfo(file: File): {
   recommendedEngine?: string;
 } {
   const validation = CleanOpenRouterAdapter.validateFile(file);
-  
+
   return {
     name: file.name,
     size: `${(file.size / 1024 / 1024).toFixed(2)} MB`,
     type: file.type,
     isSupported: validation.isValid,
-    recommendedEngine: file.type === 'application/pdf' 
+    recommendedEngine: file.type === 'application/pdf'
       ? CleanOpenRouterAdapter.getRecommendedPDFEngine(false, false, 'balanced')
       : undefined
   };

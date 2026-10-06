@@ -26,7 +26,7 @@
  *                   $ref: '#/components/schemas/Profile'
  *       401:
  *         $ref: '#/components/responses/Unauthorized'
- *   
+ *
  *   patch:
  *     tags: [Profiles]
  *     summary: Update user's company profile
@@ -200,19 +200,19 @@ function calculateProfileCompleteness(profile: any): number {
     { field: 'yearEstablished', weight: 2 },
     { field: 'employeeCount', weight: 1 }, // Reduced from 2
     { field: 'annualRevenue', weight: 1 }, // Reduced from 2
-    
+
     // Government identifiers (20% weight)
     { field: 'uei', weight: 5 },
     { field: 'cageCode', weight: 5 },
     { field: 'duns', weight: 3 },
     { field: 'primaryNaics', weight: 7 },
-    
+
     // SAM.gov Integration (10% weight - new high-priority field)
     { field: 'samGovSyncStatus', weight: 10 },
-    
+
     // Certifications (15% weight)
     { field: 'certifications', weight: 15 },
-    
+
     // Capabilities and preferences (20% weight - reduced to make room for SAM.gov)
     { field: 'coreCompetencies', weight: 7 }, // Reduced from 8
     { field: 'pastPerformance', weight: 4 }, // Reduced from 5
@@ -221,18 +221,18 @@ function calculateProfileCompleteness(profile: any): number {
   ]
 
   let completedWeight = 0
-  
+
   fields.forEach(({ field, weight }) => {
     const value = profile[field]
-    
+
     if (field === 'samGovSyncStatus') {
       // SAM.gov completeness calculation with partial scoring
       const samGovData = profile.samGovData
       const samGovSyncedAt = profile.samGovSyncedAt
-      
+
       // Apply partial completion logic for SAM.gov field
       let samGovCompletionRatio = 0
-      
+
       // Full completion (100%) - actual sync with SAM.gov system
       if ((samGovData && (samGovData.uei || samGovData.entityName)) || samGovSyncedAt) {
         samGovCompletionRatio = 1.0
@@ -245,14 +245,14 @@ function calculateProfileCompleteness(profile: any): number {
       else if (profile.uei || profile.cageCode) {
         samGovCompletionRatio = 0.2
       }
-      
+
       // Apply the partial completion to the weight (instead of binary complete/incomplete)
       completedWeight += weight * samGovCompletionRatio
       return // Skip the normal completion logic for this field
     }
-    
+
     let isComplete = false
-    
+
     if (field === 'certifications') {
       // Check if certifications object exists AND has certifications
       if (value && typeof value === 'object') {
@@ -261,10 +261,10 @@ function calculateProfileCompleteness(profile: any): number {
           const certifications = value.certifications || []
           const setAsides = value.setAsides || []
           isComplete = certifications.length > 0 || setAsides.length > 0
-        } 
+        }
         // Handle legacy structure: {has8a: true, hasHubZone: false, ...}
         else {
-          const hasActiveCertification = Object.entries(value).some(([key, val]) => 
+          const hasActiveCertification = Object.entries(value).some(([key, val]) =>
             key.startsWith('has') && val === true
           )
           isComplete = hasActiveCertification
@@ -300,12 +300,12 @@ function calculateProfileCompleteness(profile: any): number {
     } else {
       isComplete = value != null && value !== ''
     }
-    
+
     if (isComplete) {
       completedWeight += weight
     }
   })
-  
+
   return Math.min(100, completedWeight)
 }
 
@@ -313,7 +313,7 @@ function calculateProfileCompleteness(profile: any): number {
 async function fetchProfileData(userId: string) {
   console.log('Profile GET: Starting request')
   console.log('Profile GET: userId =', userId)
-  
+
   if (!userId) {
     console.log('Profile GET: No userId, returning 401')
     throw commonErrors.unauthorized()
@@ -344,11 +344,11 @@ async function fetchProfileData(userId: string) {
       let organization
       let attempts = 0
       const maxAttempts = 5
-      
+
       while (!organization && attempts < maxAttempts) {
         attempts++
         let slug
-        
+
         if (attempts === 1) {
           slug = `org-${userId.slice(0, 8)}`
         } else if (attempts === 2) {
@@ -357,7 +357,7 @@ async function fetchProfileData(userId: string) {
           // Use timestamp + random for unique slug
           slug = `org-${userId.slice(0, 6)}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
         }
-        
+
         try {
           organization = await db.organization.create({
             data: {
@@ -381,6 +381,7 @@ async function fetchProfileData(userId: string) {
         }
       }
 
+      if (!organization) throw new Error('Organization provisioning unavailable');
       // Create user
       user = await db.user.create({
         data: {
@@ -395,7 +396,7 @@ async function fetchProfileData(userId: string) {
         },
         include: { organization: true }
       })
-      
+
       console.log('Profile GET: Created new user and organization:', { userId: user.id, orgId: user.organizationId })
     }
 
@@ -404,7 +405,7 @@ async function fetchProfileData(userId: string) {
     // Get organization's profile (with retry logic for race conditions)
     console.log('Profile GET: Looking for profile')
     let profile = await db.profile.findFirst({
-      where: { 
+      where: {
         organizationId: user.organizationId,
         deletedAt: null
       },
@@ -417,13 +418,13 @@ async function fetchProfileData(userId: string) {
 
     if (!profile) {
       console.log('Profile GET: Profile not found, attempting to create default profile')
-      
+
       // Use a database transaction to prevent race conditions
       try {
         profile = await db.$transaction(async (tx) => {
           // Double-check that no profile exists (race condition protection)
           const existingProfile = await tx.profile.findFirst({
-            where: { 
+            where: {
               organizationId: user.organizationId,
               deletedAt: null
             },
@@ -433,12 +434,12 @@ async function fetchProfileData(userId: string) {
               updatedBy: true
             }
           })
-          
+
           if (existingProfile) {
             console.log('Profile GET: Found existing profile in transaction')
             return existingProfile
           }
-          
+
           // Create new profile within transaction
           console.log('Profile GET: Creating new profile in transaction')
           const newProfile = await tx.profile.create({
@@ -482,19 +483,19 @@ async function fetchProfileData(userId: string) {
 
           return newProfile;
         })
-        
+
         console.log('Profile GET: Successfully created/found profile:', profile.id)
         return {
           success: true,
           data: profile
         }
-        
+
       } catch (error: any) {
         console.error('Profile GET: Transaction failed:', error)
-        
+
         // Final fallback - try to find any existing profile one more time
         const fallbackProfile = await db.profile.findFirst({
-          where: { 
+          where: {
             organizationId: user.organizationId,
             deletedAt: null
           },
@@ -504,7 +505,7 @@ async function fetchProfileData(userId: string) {
             updatedBy: true
           }
         })
-        
+
         if (fallbackProfile) {
           console.log('Profile GET: Found fallback profile after transaction failure')
           return {
@@ -512,7 +513,7 @@ async function fetchProfileData(userId: string) {
             data: fallbackProfile
           }
         }
-        
+
         // If all else fails, throw the error
         throw error
       }
@@ -520,7 +521,7 @@ async function fetchProfileData(userId: string) {
 
     // Recalculate profile completeness to ensure it's current
     const currentCompleteness = calculateProfileCompleteness(profile)
-    
+
     // If completeness has changed, update it in the database
     if (currentCompleteness !== profile.profileCompleteness) {
       console.log(`Profile completeness changed from ${profile.profileCompleteness}% to ${currentCompleteness}%`)
@@ -533,7 +534,7 @@ async function fetchProfileData(userId: string) {
           updatedBy: true
         }
       })
-      
+
       return {
         success: true,
         data: updatedProfile
@@ -548,7 +549,7 @@ async function fetchProfileData(userId: string) {
 
 export const GET = asyncHandler(async () => {
   const { userId } = await auth()
-  
+
   if (!userId) {
     throw commonErrors.unauthorized()
   }
@@ -610,23 +611,23 @@ export const GET = asyncHandler(async () => {
 
 export const PATCH = asyncHandler(async (request: NextRequest) => {
   const { userId } = await auth()
-  
+
   if (!userId) {
     throw commonErrors.unauthorized()
   }
 
     const body = await request.json()
-    
+
     // Transform old format data to new format (for existing users)
     const transformedBody = { ...body }
-    
+
     // Transform organizationLevels to uppercase if present
     if (transformedBody.organizationLevels && Array.isArray(transformedBody.organizationLevels)) {
-      transformedBody.organizationLevels = transformedBody.organizationLevels.map((level: string) => 
+      transformedBody.organizationLevels = transformedBody.organizationLevels.map((level: string) =>
         level.toUpperCase()
       )
     }
-    
+
     // Handle pastPerformance keyProjects transformation
     if (transformedBody.pastPerformance?.keyProjects) {
       transformedBody.pastPerformance.keyProjects = transformedBody.pastPerformance.keyProjects.map((project: any) => ({
@@ -636,14 +637,14 @@ export const PATCH = asyncHandler(async (request: NextRequest) => {
         value: typeof project.value === 'string' ? parseInt(project.value) || 0 : project.value,
         completedYear: typeof project.completedYear === 'string' ? parseInt(project.completedYear) || 0 : project.completedYear || (typeof project.completionYear === 'string' ? parseInt(project.completionYear) || 0 : project.completionYear),
         // Map client field to customerType with default value and capitalize first letter
-        customerType: project.customerType 
+        customerType: project.customerType
           ? project.customerType.charAt(0).toUpperCase() + project.customerType.slice(1).toLowerCase()
           : (project.client ? 'Federal' : undefined),
         // Preserve client field for display purposes
         client: project.client,
         clientContactId: project.clientContactId || undefined,
         contractId: project.contractId || undefined,
-        
+
         // Include all the new enhanced fields for profile enrichment
         agency: project.agency || undefined,
         naicsCode: project.naicsCode || undefined,
@@ -653,7 +654,7 @@ export const PATCH = asyncHandler(async (request: NextRequest) => {
         securityClearanceRequired: project.securityClearanceRequired || undefined,
         performanceLocation: project.performanceLocation || undefined,
         primeContractor: project.primeContractor !== undefined ? project.primeContractor : undefined,
-        
+
         // Include other optional fields that may exist
         contractDuration: project.contractDuration || undefined,
         subcontractorRole: project.subcontractorRole || undefined,
@@ -665,7 +666,7 @@ export const PATCH = asyncHandler(async (request: NextRequest) => {
         certificationsMet: project.certificationsMet || undefined
       }))
     }
-    
+
     // Debug logging to track certification data flow
     console.log('Profile PATCH: Received body:', JSON.stringify(body, null, 2))
     console.log('Profile PATCH: Transformed body:', JSON.stringify(transformedBody, null, 2))
@@ -673,14 +674,14 @@ export const PATCH = asyncHandler(async (request: NextRequest) => {
       console.log('Profile PATCH: Certifications data:', JSON.stringify(body.certifications, null, 2))
       console.log('Profile PATCH: SDVOSB expiration date:', body.certifications.sdvosbExpirationDate)
     }
-    
+
     const validatedData = ProfileUpdateSchema.parse(transformedBody)
-    
+
     // Debug logging to track what survived validation
     console.log('Profile PATCH: Validated data:', JSON.stringify(validatedData, null, 2))
     if (validatedData.certifications) {
       console.log('Profile PATCH: Validated certifications:', JSON.stringify(validatedData.certifications, null, 2))
-      console.log('Profile PATCH: Validated SDVOSB expiration date:', validatedData.certifications.sdvosbExpirationDate)
+      console.log('Profile PATCH: Validated SDVOSB expiration date:', validatedData.certifications.legacy?.sdvosbExpirationDate)
     }
 
     // Get user's organization and profile or create if doesn't exist
@@ -700,11 +701,11 @@ export const PATCH = asyncHandler(async (request: NextRequest) => {
       let organization
       let attempts = 0
       const maxAttempts = 5
-      
+
       while (!organization && attempts < maxAttempts) {
         attempts++
         let slug
-        
+
         if (attempts === 1) {
           slug = `org-${userId.slice(0, 8)}`
         } else if (attempts === 2) {
@@ -713,7 +714,7 @@ export const PATCH = asyncHandler(async (request: NextRequest) => {
           // Use timestamp + random for unique slug
           slug = `org-${userId.slice(0, 6)}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
         }
-        
+
         try {
           organization = await db.organization.create({
             data: {
@@ -737,6 +738,7 @@ export const PATCH = asyncHandler(async (request: NextRequest) => {
         }
       }
 
+      if (!organization) throw new Error('Organization provisioning unavailable');
       // Create user
       user = await db.user.create({
         data: {
@@ -754,10 +756,10 @@ export const PATCH = asyncHandler(async (request: NextRequest) => {
     }
 
     console.log('Profile PATCH: Looking for existing profile for organizationId:', user.organizationId)
-    
+
     // Debug: Check if there are multiple profiles (shouldn't happen)
     const allProfiles = await db.profile.findMany({
-      where: { 
+      where: {
         organizationId: user.organizationId,
         deletedAt: null
       }
@@ -766,14 +768,14 @@ export const PATCH = asyncHandler(async (request: NextRequest) => {
     if (allProfiles.length > 1) {
       console.warn('Profile PATCH: WARNING - Multiple profiles found for organization:', allProfiles.map(p => ({ id: p.id, createdAt: p.createdAt })))
     }
-    
+
     const existingProfile = allProfiles[0] || null
 
     console.log('Profile PATCH: Using profile:', !!existingProfile, existingProfile?.id)
 
     if (!existingProfile) {
       console.log('Profile PATCH: No existing profile found - creating new profile first')
-      
+
       // Create profile if it doesn't exist (for backward compatibility)
       const newProfile = await db.profile.create({
         data: {
@@ -793,9 +795,9 @@ export const PATCH = asyncHandler(async (request: NextRequest) => {
           updatedBy: true
         }
       })
-      
+
       console.log('Profile PATCH: Created new profile with ID:', newProfile.id)
-      
+
       return NextResponse.json({
         success: true,
         data: newProfile
@@ -814,7 +816,7 @@ export const PATCH = asyncHandler(async (request: NextRequest) => {
 
     console.log('Profile PATCH: Updating profile with ID:', existingProfile.id)
     console.log('Profile PATCH: Update data:', JSON.stringify(updateData, null, 2))
-    
+
     // Update profile
     const updatedProfile = await db.profile.update({
       where: { id: existingProfile.id },
@@ -840,8 +842,8 @@ export const PATCH = asyncHandler(async (request: NextRequest) => {
           endpoint: '/api/v1/profile',
           method: 'PATCH',
           userAgent: request.headers.get('user-agent'),
-          ipAddress: request.headers.get('x-forwarded-for') || 
-                    request.headers.get('x-real-ip') || 
+          ipAddress: request.headers.get('x-forwarded-for') ||
+                    request.headers.get('x-real-ip') ||
                     'unknown',
           completenessChange: {
             from: existingProfile.profileCompleteness,
@@ -858,7 +860,7 @@ export const PATCH = asyncHandler(async (request: NextRequest) => {
     try {
       const pattern = `match_score:${existingProfile.id}:*`
       const keys = await redis.keys(pattern)
-      
+
       if (keys.length > 0) {
         await redis.del(...keys)
         console.log(`Cleared ${keys.length} cached match scores after profile update`)
@@ -876,7 +878,7 @@ export const PATCH = asyncHandler(async (request: NextRequest) => {
 
 export const DELETE = asyncHandler(async () => {
   const { userId } = await auth()
-  
+
   if (!userId) {
     throw commonErrors.unauthorized()
   }
@@ -892,7 +894,7 @@ export const DELETE = asyncHandler(async () => {
   }
 
   const profile = await db.profile.findFirst({
-    where: { 
+    where: {
       organizationId: user.organizationId,
       deletedAt: null
     }

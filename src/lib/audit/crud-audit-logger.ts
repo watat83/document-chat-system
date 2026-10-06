@@ -4,11 +4,11 @@
  */
 
 import { prisma } from '@/lib/db';
-import { 
-  AuditEventType, 
-  AuditCategory, 
+import {
+  AuditEventType,
+  AuditCategory,
   AuditSeverity,
-  type Prisma 
+  type Prisma
 } from '@prisma/client';
 import { auth } from '@clerk/nextjs/server';
 import { getOrganizationId } from '@/lib/auth/get-organization-id';
@@ -37,9 +37,9 @@ export interface CRUDEventData {
  */
 export class CRUDAuditLogger {
   private static instance: CRUDAuditLogger;
-  
+
   private constructor() {}
-  
+
   static getInstance(): CRUDAuditLogger {
     if (!CRUDAuditLogger.instance) {
       CRUDAuditLogger.instance = new CRUDAuditLogger();
@@ -58,7 +58,7 @@ export class CRUDAuditLogger {
   ): Promise<void> {
     try {
       const { userId: clerkUserId, orgId } = await auth();
-      
+
       if (!clerkUserId) {
         console.warn('No authenticated user for audit log');
         return;
@@ -76,7 +76,7 @@ export class CRUDAuditLogger {
       }
 
       const organizationId = user.organizationId || (await getOrganizationId(user.id));
-      
+
       if (!organizationId) {
         console.warn('No organization context for audit log');
         return;
@@ -85,7 +85,7 @@ export class CRUDAuditLogger {
       // Mask sensitive data if specified
       let maskedPreviousData = eventData.previousData;
       let maskedCurrentData = eventData.currentData;
-      
+
       if (eventData.sensitiveFields && eventData.sensitiveFields.length > 0) {
         maskedPreviousData = maskSensitiveData(eventData.previousData, eventData.sensitiveFields);
         maskedCurrentData = maskSensitiveData(eventData.currentData, eventData.sensitiveFields);
@@ -93,7 +93,7 @@ export class CRUDAuditLogger {
 
       // Calculate what changed
       const changes = this.calculateChanges(
-        maskedPreviousData, 
+        maskedPreviousData,
         maskedCurrentData,
         eventData.changedFields
       );
@@ -147,7 +147,7 @@ export class CRUDAuditLogger {
     specifiedFields?: string[]
   ): Record<string, { old: any; new: any }> {
     const changes: Record<string, { old: any; new: any }> = {};
-    
+
     if (!previousData && !currentData) {
       return changes;
     }
@@ -174,7 +174,7 @@ export class CRUDAuditLogger {
     for (const key of allKeys) {
       const oldValue = previousData?.[key];
       const newValue = currentData?.[key];
-      
+
       if (JSON.stringify(oldValue) !== JSON.stringify(newValue)) {
         changes[key] = { old: oldValue, new: newValue };
       }
@@ -189,7 +189,7 @@ export class CRUDAuditLogger {
   private buildDescription(eventData: CRUDEventData, changes: Record<string, any>): string {
     const { operation, entityType, entityName } = eventData;
     const entityLabel = entityName || `${entityType} ${eventData.entityId}`;
-    
+
     switch (operation) {
       case 'CREATE':
         return `Created ${entityLabel}`;
@@ -393,7 +393,7 @@ export class CRUDAuditLogger {
           actionType
         }
       },
-      AuditCategory.OPPORTUNITY_MANAGEMENT,
+      AuditCategory.BUSINESS_LOGIC,
       this.getEventTypeForOperation(operation, 'OPPORTUNITY'),
       AuditSeverity.INFO
     );
@@ -425,7 +425,7 @@ export class CRUDAuditLogger {
           isAIDecision: true
         }
       },
-      AuditCategory.MATCH_SCORING,
+      AuditCategory.AI_SERVICES,
       AuditEventType.MATCH_SCORE_FEEDBACK_PROVIDED,
       AuditSeverity.INFO
     );
@@ -444,30 +444,30 @@ export class CRUDAuditLogger {
         case 'CREATE':
           return AuditEventType.DOCUMENT_UPLOADED;
         case 'READ':
-          return AuditEventType.DOCUMENT_DOWNLOADED;
+          return AuditEventType.DATA_ACCESSED;
         case 'UPDATE':
-          return AuditEventType.DOCUMENT_PROCESSED;
+          return AuditEventType.DATA_UPDATED;
         case 'DELETE':
           return AuditEventType.DOCUMENT_DELETED;
         default:
-          return AuditEventType.DOCUMENT_PROCESSED;
+          return AuditEventType.DATA_UPDATED;
       }
     }
-    
+
     // Fallback for other entity types - try to construct the event type name
     const baseType = entityType.toUpperCase().replace(/[^A-Z0-9]/g, '_');
-    
+
     switch (operation) {
       case 'CREATE':
-        return AuditEventType[`${baseType}_CREATED` as keyof typeof AuditEventType] || AuditEventType.SYSTEM_UPDATE;
+        return AuditEventType[`${baseType}_CREATED` as keyof typeof AuditEventType] || AuditEventType.DATA_CREATED;
       case 'READ':
-        return AuditEventType[`${baseType}_ACCESSED` as keyof typeof AuditEventType] || AuditEventType.AUDIT_LOG_ACCESSED;
+        return AuditEventType[`${baseType}_ACCESSED` as keyof typeof AuditEventType] || AuditEventType.DATA_ACCESSED;
       case 'UPDATE':
-        return AuditEventType[`${baseType}_UPDATED` as keyof typeof AuditEventType] || AuditEventType.SYSTEM_UPDATE;
+        return AuditEventType[`${baseType}_UPDATED` as keyof typeof AuditEventType] || AuditEventType.DATA_UPDATED;
       case 'DELETE':
-        return AuditEventType[`${baseType}_DELETED` as keyof typeof AuditEventType] || AuditEventType.SYSTEM_UPDATE;
+        return AuditEventType[`${baseType}_DELETED` as keyof typeof AuditEventType] || AuditEventType.DATA_DELETED;
       default:
-        return AuditEventType.SYSTEM_UPDATE;
+        return AuditEventType.DATA_UPDATED;
     }
   }
 
@@ -544,8 +544,8 @@ export class CRUDAuditLogger {
       ]);
 
       // SECURITY: Verify all logs belong to the requested organization
-      const invalidLogs = logs.filter(log => 
-        log.organizationId !== organizationId || 
+      const invalidLogs = logs.filter(log =>
+        log.organizationId !== organizationId ||
         (log.user && log.user.organizationId !== organizationId)
       );
 
@@ -558,7 +558,7 @@ export class CRUDAuditLogger {
             userOrganization: log.user?.organizationId
           }))
         });
-        
+
         // Log this security violation
         await CRUDAuditLogger.getInstance().logSecurityViolation(
           'TENANT_ISOLATION_BREACH',
@@ -569,13 +569,13 @@ export class CRUDAuditLogger {
             severity: 'CRITICAL'
           }
         );
-        
+
         // Filter out invalid logs
-        const validLogs = logs.filter(log => 
-          log.organizationId === organizationId && 
+        const validLogs = logs.filter(log =>
+          log.organizationId === organizationId &&
           (!log.user || log.user.organizationId === organizationId)
         );
-        
+
         return {
           logs: validLogs,
           total: validLogs.length,
@@ -640,14 +640,14 @@ export class CRUDAuditLogger {
       });
 
       // SECURITY: Verify all logs belong to the requested organization
-      const validLogs = logs.filter(log => 
-        log.organizationId === organizationId && 
+      const validLogs = logs.filter(log =>
+        log.organizationId === organizationId &&
         (!log.user || log.user.organizationId === organizationId)
       );
 
       if (validLogs.length !== logs.length) {
         console.error(`SECURITY VIOLATION: Filtered out ${logs.length - validLogs.length} logs with wrong organization ID`);
-        
+
         await CRUDAuditLogger.getInstance().logSecurityViolation(
           'TENANT_ISOLATION_BREACH',
           'Audit statistics query included cross-tenant data',
@@ -675,7 +675,7 @@ export class CRUDAuditLogger {
       for (let i = 0; i < timeframeDays; i++) {
         const date = new Date(Date.now() - i * 24 * 60 * 60 * 1000);
         const dateStr = date.toISOString().split('T')[0];
-        const count = validLogs.filter(log => 
+        const count = validLogs.filter(log =>
           log.createdAt.toISOString().split('T')[0] === dateStr
         ).length;
         recentActivity.unshift({ date: dateStr, count });
@@ -731,20 +731,7 @@ export class CRUDAuditLogger {
     try {
       const violations = [];
 
-      // Check for audit logs with missing organization IDs
-      const logsWithoutOrg = await prisma.auditLog.count({
-        where: {
-          organizationId: null
-        }
-      });
-
-      if (logsWithoutOrg > 0) {
-        violations.push({
-          type: 'MISSING_ORGANIZATION' as const,
-          description: 'Audit logs found without organization ID',
-          count: logsWithoutOrg
-        });
-      }
+      // organizationId is mandatory and protected by a foreign key in the schema.
 
       // Check for cross-tenant contamination in user relationships
       const crossTenantUsers = await prisma.auditLog.findMany({
@@ -780,7 +767,7 @@ export class CRUDAuditLogger {
 
       if (!isValid) {
         console.warn(`Tenant isolation violations detected for organization ${organizationId}:`, violations);
-        
+
         // Log the isolation violation
         await CRUDAuditLogger.getInstance().logSecurityViolation(
           'TENANT_ISOLATION_VALIDATION_FAILED',

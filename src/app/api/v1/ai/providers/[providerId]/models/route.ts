@@ -1,3 +1,4 @@
+import { normalizeError } from '@/lib/errors/normalize-error';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { cacheManager } from '@/lib/cache';
@@ -82,17 +83,17 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ providerId: string }> }
 ) {
+  const { providerId } = await params;
   try {
     const { userId } = await auth();
-    
+
     if (!userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { providerId } = await params;
     const { searchParams } = new URL(request.url);
     const forceRefresh = searchParams.get('force') === 'true';
-    
+
     // Validate provider ID
     if (!['openai', 'anthropic', 'openrouter'].includes(providerId)) {
       return NextResponse.json({ error: 'Invalid provider ID' }, { status: 400 });
@@ -104,7 +105,7 @@ export async function GET(
       case 'openai':
         adapter = new OpenAIAdapter({
           apiKey: ai.openaiApiKey,
-          organizationId: ai.openaiOrgId,
+          organizationId: ai.openaiOrganizationId,
           maxRetries: 1,
           timeout: 3000
         });
@@ -135,11 +136,12 @@ export async function GET(
     try {
       await Promise.race([
         adapter.initialize(),
-        new Promise((_, reject) => 
+        new Promise((_, reject) =>
           setTimeout(() => reject(new Error('Adapter initialization timeout')), 5000)
         )
       ]);
-    } catch (error) {
+    } catch (caughtError) {
+      const error = normalizeError(caughtError);
       console.warn(`⚠️ ${providerId} adapter initialization failed, continuing with degraded mode:`, error);
       // Don't fail the request - allow models to be fetched even if initialization failed
     }
@@ -149,7 +151,8 @@ export async function GET(
       console.log('🗑️ Force refresh requested, clearing cache...');
       try {
         await cacheManager.invalidate(`ai:${providerId}:models`);
-      } catch (error) {
+      } catch (caughtError) {
+      const error = normalizeError(caughtError);
         console.warn('Could not clear cache:', error);
       }
     }
@@ -159,11 +162,12 @@ export async function GET(
     try {
       models = await Promise.race([
         adapter.getAvailableModels(),
-        new Promise((_, reject) => 
+        new Promise((_, reject) =>
           setTimeout(() => reject(new Error('Model loading timeout')), 8000)
         )
       ]) as any[];
-    } catch (error) {
+    } catch (caughtError) {
+      const error = normalizeError(caughtError);
       console.warn(`⚠️ ${providerId} model loading failed:`, error);
       // Return empty array if model loading fails
       models = [];
@@ -187,23 +191,24 @@ export async function GET(
 
     return NextResponse.json(uiModels);
 
-  } catch (error) {
+  } catch (caughtError) {
+      const error = normalizeError(caughtError);
     console.error('Error loading provider models:', error);
-    
+
     // Return graceful degradation instead of hard failure
     if (error.message?.includes('timeout')) {
       return NextResponse.json(
-        { 
-          error: 'Provider temporarily unavailable', 
+        {
+          error: 'Provider temporarily unavailable',
           message: `${providerId} models are loading, try again in a moment`,
           models: [] // Empty models array for graceful degradation
         },
         { status: 503 } // Service Temporarily Unavailable
       );
     }
-    
+
     return NextResponse.json(
-      { 
+      {
         error: 'Failed to load models',
         models: [] // Always provide empty array for graceful degradation
       },
@@ -256,13 +261,13 @@ export async function POST(
 ) {
   try {
     const { userId } = await auth();
-    
+
     if (!userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     const { providerId } = await params;
-    
+
     // Validate provider ID
     if (!['openai', 'anthropic', 'openrouter'].includes(providerId)) {
       return NextResponse.json({ error: 'Invalid provider ID' }, { status: 400 });
@@ -274,7 +279,7 @@ export async function POST(
       case 'openai':
         adapter = new OpenAIAdapter({
           apiKey: ai.openaiApiKey,
-          organizationId: ai.openaiOrgId,
+          organizationId: ai.openaiOrganizationId,
           maxRetries: 1,
           timeout: 3000
         });
@@ -305,11 +310,12 @@ export async function POST(
     try {
       await Promise.race([
         adapter.initialize(),
-        new Promise((_, reject) => 
+        new Promise((_, reject) =>
           setTimeout(() => reject(new Error('Adapter initialization timeout')), 2000)
         )
       ]);
-    } catch (error) {
+    } catch (caughtError) {
+      const error = normalizeError(caughtError);
       console.warn(`⚠️ ${providerId} adapter initialization failed, continuing with degraded mode:`, error);
       // Don't fail the request - allow refresh to continue
     }
@@ -318,14 +324,15 @@ export async function POST(
     try {
       await cacheManager.invalidate(`ai:${providerId}:models`);
       console.log(`🗑️ Cleared ${providerId} models cache for refresh`);
-    } catch (error) {
+    } catch (caughtError) {
+      const error = normalizeError(caughtError);
       console.warn('Could not clear cache:', error);
     }
-    
+
     // Get updated models with timeout to prevent hanging
     const models = await Promise.race([
       adapter.getAvailableModels(),
-      new Promise((_, reject) => 
+      new Promise((_, reject) =>
         setTimeout(() => reject(new Error('Model refresh timeout')), 3000)
       )
     ]) as any[];
@@ -336,7 +343,8 @@ export async function POST(
       modelsCount: models.length
     });
 
-  } catch (error) {
+  } catch (caughtError) {
+      const error = normalizeError(caughtError);
     console.error('Error refreshing provider models:', error);
     return NextResponse.json(
       { error: 'Failed to refresh models' },

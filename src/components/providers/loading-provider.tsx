@@ -26,43 +26,11 @@ interface LoadingProviderProps {
 }
 
 export function LoadingProvider({ children }: LoadingProviderProps) {
-  const [isPageLoading, setIsPageLoading] = useState(true)
-  const [pageLoadingVariant, setPageLoadingVariant] = useState<'dashboard' | 'profile' | 'opportunities' | 'settings' | 'default'>('default')
+  const [isPageLoading, setIsPageLoading] = useState(false)
+  const [manualVariant, setPageLoadingVariant] = useState<'dashboard' | 'profile' | 'opportunities' | 'settings' | 'default'>('default')
   const pathname = usePathname()
 
-  // Auto-set loading variant based on route
-  useEffect(() => {
-    if (pathname.includes('/dashboard')) {
-      setPageLoadingVariant('dashboard')
-    } else if (pathname.includes('/profile')) {
-      setPageLoadingVariant('profile')
-    } else if (pathname.includes('/opportunities')) {
-      setPageLoadingVariant('opportunities')
-    } else if (pathname.includes('/settings')) {
-      setPageLoadingVariant('settings')
-    } else {
-      setPageLoadingVariant('default')
-    }
-  }, [pathname])
-
-  // Optimized loading management for fast navigation
-  useEffect(() => {
-    // For client-side navigation, minimize loading states
-    setIsPageLoading(false)
-    
-    // Only show loading for actual page refreshes
-    const navigationEntry = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming
-    if (navigationEntry?.type === 'reload') {
-      setIsPageLoading(true)
-      
-      // Reduced loading time for faster perceived performance
-      const timer = setTimeout(() => {
-        setIsPageLoading(false)
-      }, 150)
-
-      return () => clearTimeout(timer)
-    }
-  }, [pathname])
+  const pageLoadingVariant = pathname.includes('/dashboard') ? 'dashboard' : pathname.includes('/profile') ? 'profile' : pathname.includes('/opportunities') ? 'opportunities' : pathname.includes('/settings') ? 'settings' : manualVariant
 
   const setPageLoading = (loading: boolean) => {
     setIsPageLoading(loading)

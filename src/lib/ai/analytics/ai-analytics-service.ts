@@ -1,6 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import { cache } from 'react';
-import { generateId } from '../../utils/id-generator';
+import { generateId } from '../../utils';
 
 const prisma = new PrismaClient();
 
@@ -237,7 +237,7 @@ export class AIAnalyticsService {
    */
   async getProviderPerformanceMetrics(query: AnalyticsQuery): Promise<ProviderPerformanceMetrics[]> {
     const whereClause = this.buildWhereClause(query);
-    
+
     const metrics = await prisma.aIMetric.groupBy({
       by: ['provider'],
       where: whereClause,
@@ -333,7 +333,7 @@ export class AIAnalyticsService {
    */
   async getCostAnalysis(query: AnalyticsQuery): Promise<CostAnalysis> {
     const whereClause = this.buildWhereClause(query);
-    
+
     // Total cost
     const totalCostResult = await prisma.aIMetric.aggregate({
       where: whereClause,
@@ -345,7 +345,7 @@ export class AIAnalyticsService {
     const totalCost = totalCostResult._sum.cost || 0;
 
     // Project monthly cost based on current usage
-    const daysDiff = query.endDate && query.startDate 
+    const daysDiff = query.endDate && query.startDate
       ? Math.ceil((query.endDate.getTime() - query.startDate.getTime()) / (1000 * 60 * 60 * 24))
       : 30;
     const projectedMonthlyCost = (totalCost / daysDiff) * 30;
@@ -413,7 +413,7 @@ export class AIAnalyticsService {
 
     // Cost trend (daily)
     const costTrendData = await prisma.$queryRaw<Array<{date: string, cost: number}>>`
-      SELECT 
+      SELECT
         DATE(created_at) as date,
         SUM(cost) as cost
       FROM ai_metrics
@@ -549,7 +549,7 @@ export class AIAnalyticsService {
 
     // Hourly usage
     const hourlyData = await prisma.$queryRaw<Array<{hour: number, requests: number, cost: number}>>`
-      SELECT 
+      SELECT
         EXTRACT(HOUR FROM created_at) as hour,
         COUNT(*) as requests,
         SUM(cost) as cost
@@ -569,7 +569,7 @@ export class AIAnalyticsService {
 
     // Daily usage
     const dailyData = await prisma.$queryRaw<Array<{date: string, requests: number, cost: number}>>`
-      SELECT 
+      SELECT
         DATE(created_at) as date,
         COUNT(*) as requests,
         SUM(cost) as cost
@@ -589,7 +589,7 @@ export class AIAnalyticsService {
 
     // Weekly usage
     const weeklyData = await prisma.$queryRaw<Array<{week: string, requests: number, cost: number}>>`
-      SELECT 
+      SELECT
         DATE_TRUNC('week', created_at) as week,
         COUNT(*) as requests,
         SUM(cost) as cost
@@ -785,7 +785,7 @@ export class AIAnalyticsService {
 
   private async generateOptimizationOpportunities(query: AnalyticsQuery) {
     const opportunities = [];
-    
+
     // Check for expensive models with low quality
     const expensiveModels = await prisma.aIMetric.groupBy({
       by: ['model'],
@@ -798,11 +798,7 @@ export class AIAnalyticsService {
         id: true,
       },
       having: {
-        _count: {
-          id: {
-            gt: 10,
-          },
-        },
+        id: { _count: { gt: 10 } },
       },
     });
 
@@ -853,7 +849,7 @@ export class AIAnalyticsService {
       const costScore = Math.max(0, 1 - (item.cost / 0.1)); // Normalize cost to 0-1 scale
       const qualityScore = item.responseQuality || 0.5;
       const successScore = item.success ? 1 : 0;
-      
+
       totalScore += (costScore * 0.3 + qualityScore * 0.5 + successScore * 0.2);
     }
 
@@ -862,7 +858,7 @@ export class AIAnalyticsService {
 
   private async generateRoutingRecommendations(query: AnalyticsQuery) {
     const recommendations = [];
-    
+
     // Analyze routing patterns
     const routingData = await prisma.aIMetric.groupBy({
       by: ['routingDecision'],
@@ -882,7 +878,7 @@ export class AIAnalyticsService {
     // Check if too many requests are going to expensive tiers
     const expensiveRequests = routingData.filter(item => item.routingDecision === 'powerful');
     const totalRequests = routingData.reduce((sum, item) => sum + item._count.id, 0);
-    
+
     if (expensiveRequests.length > 0 && (expensiveRequests[0]._count.id / totalRequests) > 0.4) {
       recommendations.push({
         type: 'routing_optimization',
@@ -936,13 +932,13 @@ export class AIAnalyticsService {
     });
 
     if (previousMonthRequests === 0) return 0;
-    
+
     return ((currentMonthRequests - previousMonthRequests) / previousMonthRequests) * 100;
   }
 
   private analyzeFeedback(feedbackData: any[]) {
     const validFeedback = feedbackData.filter(item => item && typeof item === 'object');
-    
+
     if (validFeedback.length === 0) {
       return {
         totalFeedback: 0,

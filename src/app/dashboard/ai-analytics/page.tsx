@@ -13,9 +13,9 @@ export const metadata: Metadata = {
 
 export default async function AIAnalyticsPage() {
   const { userId } = await auth();
-  
+
   if (!userId) {
-    redirect('/sign-in');
+    redirect('/sign-in/');
   }
 
   // In a real implementation, you would get the organization ID from the user's session
@@ -45,7 +45,7 @@ export default async function AIAnalyticsPage() {
             </Badge>
           </div>
         </div>
-        
+
         {/* Quick Stats */}
         <div className="grid grid-cols-1 md:grid-cols-5 gap-4 py-4">
           <Card className="bg-gradient-to-r from-blue-50 to-blue-100 border-blue-200">
@@ -57,7 +57,7 @@ export default async function AIAnalyticsPage() {
               <p className="text-xs text-blue-600 mt-1">+12.3% from yesterday</p>
             </CardContent>
           </Card>
-          
+
           <Card className="bg-gradient-to-r from-green-50 to-green-100 border-green-200">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium text-green-700">Success Rate</CardTitle>
@@ -67,7 +67,7 @@ export default async function AIAnalyticsPage() {
               <p className="text-xs text-green-600 mt-1">Excellent performance</p>
             </CardContent>
           </Card>
-          
+
           <Card className="bg-gradient-to-r from-purple-50 to-purple-100 border-purple-200">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium text-purple-700">Avg Latency</CardTitle>
@@ -77,7 +77,7 @@ export default async function AIAnalyticsPage() {
               <p className="text-xs text-purple-600 mt-1">-8.2% improvement</p>
             </CardContent>
           </Card>
-          
+
           <Card className="bg-gradient-to-r from-yellow-50 to-yellow-100 border-yellow-200">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium text-yellow-700">Total Cost</CardTitle>
@@ -87,7 +87,7 @@ export default async function AIAnalyticsPage() {
               <p className="text-xs text-yellow-600 mt-1">$23.12 saved today</p>
             </CardContent>
           </Card>
-          
+
           <Card className="bg-gradient-to-r from-indigo-50 to-indigo-100 border-indigo-200">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium text-indigo-700">Quality Score</CardTitle>
@@ -111,12 +111,12 @@ export default async function AIAnalyticsPage() {
           </CardHeader>
           <CardContent>
             <p className="text-sm text-muted-foreground">
-              Monitor AI routing decisions, provider performance, and system health in real-time with 
+              Monitor AI routing decisions, provider performance, and system health in real-time with
               comprehensive dashboards and automated alerts.
             </p>
           </CardContent>
         </Card>
-        
+
         <Card className="border-l-4 border-l-green-500">
           <CardHeader className="pb-3">
             <CardTitle className="text-lg flex items-center gap-2">
@@ -126,12 +126,12 @@ export default async function AIAnalyticsPage() {
           </CardHeader>
           <CardContent>
             <p className="text-sm text-muted-foreground">
-              Automatic cost tracking, budget optimization, and intelligent recommendations to 
+              Automatic cost tracking, budget optimization, and intelligent recommendations to
               reduce AI spending while maintaining quality.
             </p>
           </CardContent>
         </Card>
-        
+
         <Card className="border-l-4 border-l-purple-500">
           <CardHeader className="pb-3">
             <CardTitle className="text-lg flex items-center gap-2">
@@ -141,7 +141,7 @@ export default async function AIAnalyticsPage() {
           </CardHeader>
           <CardContent>
             <p className="text-sm text-muted-foreground">
-              Test different AI routing strategies and provider configurations to optimize 
+              Test different AI routing strategies and provider configurations to optimize
               performance, cost, and user satisfaction.
             </p>
           </CardContent>
@@ -149,16 +149,16 @@ export default async function AIAnalyticsPage() {
       </div>
 
       {/* Main Analytics Dashboard */}
-      <HybridAnalyticsDashboard 
-        demoMode={true} 
+      <HybridAnalyticsDashboard
+        demoMode={true}
         organizationId={organizationId}
       />
-      
+
       {/* Footer Info */}
       <div className="mt-8 p-4 bg-muted/30 rounded-lg">
         <div className="flex items-center justify-between text-sm text-muted-foreground">
           <div>
-            <strong>Phase 5 Features:</strong> Real-time monitoring, cost optimization, A/B testing, 
+            <strong>Phase 5 Features:</strong> Real-time monitoring, cost optimization, A/B testing,
             alerting system, and comprehensive reporting
           </div>
           <div className="flex items-center gap-2">

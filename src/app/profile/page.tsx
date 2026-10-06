@@ -193,7 +193,7 @@ export default function ProfilePage() {
                 <Button
                   onClick={() =>
                     router.push(
-                      '/sign-in?redirect_url=' + encodeURIComponent('/profile')
+                      `/sign-in/?redirect_url=${encodeURIComponent('/profile')}`
                     )
                   }
                 >

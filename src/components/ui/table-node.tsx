@@ -35,14 +35,7 @@ import {
   Trash2Icon,
   XIcon,
 } from 'lucide-react';
-import {
-  type TElement,
-  type TTableCellElement,
-  type TTableElement,
-  type TTableRowElement,
-  KEYS,
-  PathApi,
-} from 'platejs';
+import { type TElement, type TTableCellElement, type TTableElement, type TTableRowElement, KEYS, PathApi } from 'platejs';
 import {
   type PlateElementProps,
   PlateElement,
@@ -451,14 +444,17 @@ export function TableRowElement(props: PlateElementProps<TTableRowElement>) {
     },
   });
 
+  const { ref: forwardedRef, ...elementProps } = props;
+  const composedRef = useComposedRef(forwardedRef, previewRef);
+
   return (
     <PlateElement
-      {...props}
-      ref={useComposedRef(props.ref, previewRef)}
+      {...elementProps}
+      ref={composedRef}
       as="tr"
       className={cn('group/row', isDragging && 'opacity-50')}
       attributes={{
-        ...props.attributes,
+        ...elementProps.attributes,
         'data-selected': selected ? 'true' : undefined,
       }}
     >
@@ -469,7 +465,7 @@ export function TableRowElement(props: PlateElementProps<TTableRowElement>) {
         </td>
       )}
 
-      {props.children}
+      {elementProps.children}
     </PlateElement>
   );
 }

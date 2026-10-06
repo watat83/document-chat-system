@@ -3,7 +3,7 @@ import { errorConfig as envErrorConfig, app } from '@/lib/config/env'
 
 /**
  * Centralized Error Handling Configuration
- * 
+ *
  * All error handling thresholds, timeouts, and settings in one place.
  * Supports environment variable overrides and runtime configuration.
  */
@@ -141,8 +141,8 @@ function loadErrorConfig(): ErrorConfig {
       cooldownPeriod: envErrorConfig.notifications.cooldownPeriod,
       persistentSeverities: (envErrorConfig.notifications.persistentSeverities || 'critical')
         .split(',')
-        .map(s => s.trim())
-        .filter(s => s) as ['critical'] | ['critical', 'high'],
+        .map((s: string) => s.trim())
+        .filter((s: string) => s) as ['critical'] | ['critical', 'high'],
     },
     retry: {
       maxAttempts: envErrorConfig.retry.maxAttempts,
@@ -192,7 +192,7 @@ function loadErrorConfig(): ErrorConfig {
 
   // Validate configuration
   const result = errorConfigSchema.safeParse(config)
-  
+
   if (!result.success) {
     console.error('Invalid error configuration:', result.error.issues)
     throw new Error('Invalid error handling configuration')
@@ -220,12 +220,12 @@ export function getErrorConfig(): ErrorConfig {
 export function updateErrorConfig(updates: Partial<ErrorConfig>): void {
   const currentConfig = getErrorConfig()
   const newConfig = { ...currentConfig, ...updates }
-  
+
   const result = errorConfigSchema.safeParse(newConfig)
   if (!result.success) {
     throw new Error('Invalid error configuration update')
   }
-  
+
   errorConfig = result.data
 }
 
@@ -250,11 +250,11 @@ export const getDevelopmentConfig = () => getErrorConfig().development
 // Configuration validation helpers
 export function validateConfig(config: Partial<ErrorConfig>): { valid: boolean; errors?: string[] } {
   const result = errorConfigSchema.safeParse(config)
-  
+
   if (result.success) {
     return { valid: true }
   }
-  
+
   return {
     valid: false,
     errors: result.error.issues.map(issue => `${issue.path.join('.')}: ${issue.message}`)

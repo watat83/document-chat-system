@@ -124,7 +124,7 @@ export function PricingTable({
       if (onPlanSelect) {
         onPlanSelect(plan)
       } else {
-        window.location.href = '/sign-up'
+        window.location.assign('/sign-up')
       }
     }
   }

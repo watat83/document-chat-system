@@ -6,7 +6,7 @@ import { cacheConfig } from '@/lib/cache/config';
 export async function GET(request: NextRequest) {
   try {
     const { userId } = await auth();
-    
+
     if (!userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
@@ -66,7 +66,7 @@ async function generateMatchesFromAI(userId: string, filters: any) {
       userId,
       score: 87.5,
       status: 'pending',
-      reasoning: 'Strong match based on NAICS code and past performance',
+      reasoningText: 'Strong match based on NAICS code and past performance',
       opportunity: {
         id: '1',
         title: 'IT Services Contract',
@@ -88,7 +88,7 @@ async function generateMatchesFromAI(userId: string, filters: any) {
       userId,
       score: 72.3,
       status: 'pending',
-      reasoning: 'Good match with some capability gaps',
+      reasoningText: 'Good match with some capability gaps',
       opportunity: {
         id: '2',
         title: 'Consulting Services',
@@ -130,6 +130,6 @@ async function generateMatchesFromAI(userId: string, filters: any) {
   // Apply pagination
   const startIndex = (filters.page - 1) * filters.limit;
   const endIndex = startIndex + filters.limit;
-  
+
   return filteredMatches.slice(startIndex, endIndex);
 }

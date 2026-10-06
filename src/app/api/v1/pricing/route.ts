@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server'
 import { stripe } from '@/lib/stripe-server'
-import { SUBSCRIPTION_PLANS } from '@/lib/stripe'
+import { PricingService } from '@/lib/pricing-service'
+import type Stripe from 'stripe'
+import { auth } from '@clerk/nextjs/server'
+import { isPlatformAdmin } from '@/lib/security/platform-admin'
 import { cacheManager } from '@/lib/cache'
 import { prisma } from '@/lib/prisma'
 
@@ -89,91 +92,24 @@ import { prisma } from '@/lib/prisma'
  */
 
 async function fetchPricingData() {
-  // Get active plans from database (this is now our source of truth for which plans to show)
-  let dbPlans: any[] = []
+  const plans = await PricingService.getActivePlans();
+  const prices = new Map<string, Stripe.Price>();
   try {
-    dbPlans = await prisma.pricingPlan.findMany({
-      where: { isActive: true },
-      orderBy: { displayOrder: 'asc' }
-    })
-
-    if (dbPlans.length === 0) {
-      console.warn('No active pricing plans found in database')
-      // Fall back to hardcoded plans if DB is empty
-      throw new Error('No active plans in database')
-    }
-  } catch (dbError) {
-    console.error('Error fetching pricing plans from database:', dbError)
-    // Fallback to hardcoded plans
-    return Object.entries(SUBSCRIPTION_PLANS).map(([key, plan]) => ({
-      id: plan.id,
-      name: plan.name,
-      description: plan.description,
-      price: plan.price,
-      priceId: plan.priceId,
-      interval: plan.interval,
-      features: plan.features,
-      limits: plan.limits,
-      popular: plan.id === 'pro',
-      displayOrder: 999,
-      cta: plan.priceId ? 'Get Started' : 'Contact Sales',
-      stripePriceData: null,
-      yearlyPrice: null,
-      yearlyPriceId: null,
-      metadata: null
-    }))
-  }
-
-  // Fetch current prices from Stripe for active plans
-  const stripePrices: Record<string, any> = {}
-  try {
-    const prices = await stripe.prices.list({
-      active: true,
-      limit: 100,
-    })
-
-    // Create a map of price IDs to price data
-    prices.data.forEach(price => {
-      stripePrices[price.id] = price
-    })
-  } catch (stripeError) {
-    console.error('Error fetching prices from Stripe:', stripeError)
-  }
-
-  // Build pricing data from database plans
-  const pricingData = dbPlans.map(dbPlan => {
-    // Get current price from Stripe if available
-    const stripePrice = dbPlan.stripeMonthlyPriceId ? stripePrices[dbPlan.stripeMonthlyPriceId] : null
-    
-    // Use Stripe price if available, otherwise use database price
-    const currentPrice = stripePrice?.unit_amount 
-      ? stripePrice.unit_amount / 100 
-      : dbPlan.monthlyPrice / 100
-
+    if (stripe) for (const price of (await stripe.prices.list({ active: true, limit: 100 })).data) prices.set(price.id, price);
+  } catch (error) { console.error('Could not refresh Stripe prices:', error); }
+  return plans.map(plan => {
+    const price = plan.stripeMonthlyPriceId ? prices.get(plan.stripeMonthlyPriceId) : undefined;
     return {
-      id: dbPlan.planType.toLowerCase(),
-      name: dbPlan.displayName,
-      description: dbPlan.description,
-      price: currentPrice,
-      priceId: dbPlan.stripeMonthlyPriceId,
-      interval: 'month',
-      features: (dbPlan.features as any).list || [],
-      limits: dbPlan.limits as any,
-      popular: dbPlan.isPopular,
-      displayOrder: dbPlan.displayOrder,
-      cta: dbPlan.planType === 'ENTERPRISE' ? 'Contact Sales' : 'Get Started',
-      stripePriceData: stripePrice ? {
-        currency: stripePrice.currency,
-        interval: stripePrice.recurring?.interval,
-        intervalCount: stripePrice.recurring?.interval_count,
-      } : null,
-      yearlyPrice: dbPlan.yearlyPrice ? dbPlan.yearlyPrice / 100 : null,
-      yearlyPriceId: dbPlan.stripeYearlyPriceId,
-      metadata: dbPlan.metadata
-    }
-  })
-
-  return pricingData
+      id: plan.planType.toLowerCase(), name: plan.displayName, description: plan.description,
+      price: price?.unit_amount != null ? price.unit_amount / 100 : plan.monthlyPrice / 100,
+      priceId: plan.stripeMonthlyPriceId ?? null, interval: 'month', features: plan.features.list,
+      limits: plan.limits, popular: plan.isPopular, displayOrder: plan.displayOrder,
+      cta: plan.planType === 'ENTERPRISE' ? 'Contact Sales' : 'Get Started',
+      stripePriceData: price ? { currency: price.currency, interval: price.recurring?.interval, intervalCount: price.recurring?.interval_count } : null,
+      yearlyPrice: plan.yearlyPrice != null ? plan.yearlyPrice / 100 : null,
+      yearlyPriceId: plan.stripeYearlyPriceId ?? null, metadata: plan.metadata ?? null,
+    };
+  });
 }
 
 export async function GET() {
@@ -196,42 +132,26 @@ export async function GET() {
 
   } catch (error) {
     console.error('Error fetching pricing data:', error)
-    
-    // Fallback to static data if Stripe fails
-    const fallbackPricing = Object.entries(SUBSCRIPTION_PLANS).map(([key, plan]) => ({
-      id: plan.id,
-      name: plan.name,
-      description: plan.description,
-      price: plan.price,
-      priceId: plan.priceId,
-      interval: plan.interval,
-      features: plan.features,
-      limits: plan.limits,
-      popular: plan.id === 'pro',
-      cta: plan.priceId ? 'Get Started' : 'Contact Sales',
-      stripePriceData: null
-    }))
 
-    return NextResponse.json({
-      success: true,
-      data: fallbackPricing,
-      fallback: true
-    })
+    return NextResponse.json({ success: false, error: 'Pricing is unavailable' }, { status: 503 });
   }
 }
 
 // Admin endpoint to invalidate pricing cache (for when pricing changes)
 export async function DELETE() {
+  const { userId } = await auth();
+  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!isPlatformAdmin(userId)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   try {
     await cacheManager.invalidate('pricing:plans')
-    
+
     return NextResponse.json({
       success: true,
       message: 'Pricing cache cleared successfully'
     })
   } catch (error) {
     console.error('Error clearing pricing cache:', error)
-    
+
     return NextResponse.json({
       success: false,
       error: 'Failed to clear pricing cache'

@@ -1,5 +1,8 @@
 'use client';
 
+import { useConversationHistory } from '@/hooks/use-conversation-history';
+import { readSSEData } from '@/lib/ai/sse-reader';
+
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useAuth, SignInButton } from '@clerk/nextjs';
 import { useNotify } from '@/contexts/notification-context';
@@ -19,7 +22,7 @@ import { EnhancedMessageRenderer } from '@/components/chat/enhanced-message-rend
 import { MessageActions } from '@/components/chat/message-actions';
 import { ModelSelectionModal } from '@/components/ai/model-selection-modal';
 import { getDefaultProvider, getUIProviders } from '@/lib/ai/admin/provider-management';
-import { 
+import {
   Sparkles,
   Send,
   Upload,
@@ -62,6 +65,12 @@ const ensureStringContent = (content: any): string => {
   return String(content);
 };
 
+interface ChatWireMessage {
+  role: string;
+  content: string;
+  attachments?: { type: string; data?: string; name: string; mimeType: string; size: number; detail: string; pdfEngine?: string; annotations?: unknown }[];
+}
+
 interface CleanAIChatProps {
   organizationId: string;
   className?: string;
@@ -99,7 +108,7 @@ interface AttachedFile {
   processingMethod?: string;  // How the file was processed
 }
 
-interface Citation {
+export interface Citation {
   url: string;
   title?: string;
   content?: string;
@@ -125,6 +134,7 @@ interface ChatMessage {
     };
     citations?: Citation[];
     annotations?: any[];
+    generatedMedia?: { type: string; url: string; prompt: string; revisedPrompt?: string };
   };
 }
 
@@ -211,21 +221,23 @@ export function CleanAIChat({ organizationId, className, onCitationsUpdate, chat
   const models = useAIModels();
   const features = useAIFeatures();
   const imageRouter = useImageRouterStore();
-  
+
   // Chat state
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const history = useConversationHistory(userId, organizationId, messages, setMessages);
+  const requestAbort = useRef<AbortController | null>(null);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamProgress, setStreamProgress] = useState(0);
   const [isThinking, setIsThinking] = useState(false);
-  
+
   // Compute overall loading state including AI models loading
   const isInputDisabled = useMemo(() => {
-    return isLoading || ai.loading || models.length === 0;
-  }, [isLoading, ai.loading, models.length]);
+    return isLoading || ai.loading || models.length === 0 || (!history.ready && !history.error);
+  }, [isLoading, ai.loading, models.length, history.ready, history.error]);
   const [currentStreamingMessage, setCurrentStreamingMessage] = useState('');
-  
+
   // Image generation mode toggle
   const [imageGenerationMode, setImageGenerationMode] = useState(false);
 
@@ -234,23 +246,23 @@ export function CleanAIChat({ organizationId, className, onCitationsUpdate, chat
 
   // Textarea ref for auto-resize
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  
+
   // AI integration state
   const [hasUsageQuota, setHasUsageQuota] = useState(true);
   const [apiKeyConfigured, setApiKeyConfigured] = useState(false);
-  
+
   // File handling
   const [documents, setDocuments] = useState<UploadedDocument[]>([]);
   const [isDragOver, setIsDragOver] = useState(false);
   const [isProcessingFiles, setIsProcessingFiles] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  
+
   // UI state
   const [showToolsPanel, setShowToolsPanel] = useState(false);
   const [activeToolsTab, setActiveToolsTab] = useState<'tools' | 'files' | 'apps'>('tools');
   const [markdownMode, setMarkdownMode] = useState(true);
-  
+
   // Model selection modal state
   const [modalMode, setModalMode] = useState<'text' | 'media'>('text');
 
@@ -280,7 +292,7 @@ export function CleanAIChat({ organizationId, className, onCitationsUpdate, chat
     if (state?.documentChatEnabled) {
       const scope = state.documentScope!;
       let contextText = '';
-      
+
       switch (scope.mode) {
         case 'all-documents':
           contextText = `I can help you search and analyze all ${scope.documentCount || 0} documents in your account.`;
@@ -292,39 +304,39 @@ export function CleanAIChat({ organizationId, className, onCitationsUpdate, chat
           contextText = `I'm analyzing your ${scope.documentIds?.length || 0} selected documents.`;
           break;
       }
-      
+
       return {
         id: 'welcome-doc',
         role: 'assistant',
         content: `🔍 **Document Chat Enabled**\n\n${contextText}\n\nYou can ask me about:\n• Document requirements and specifications\n• Deadlines and timelines\n• Contract terms and conditions\n• NAICS codes and classifications\n• Any specific content in your documents`,
-        timestamp: new Date().toISOString()
+        timestamp: new Date()
       };
     } else {
       return {
         id: 'welcome-general',
-        role: 'assistant', 
+        role: 'assistant',
         content: `👋 **Welcome to AI Assistant**\n\nI'm here to help with your questions, provide insights, and assist with any topics you'd like to discuss.\n\n💡 *Tip: Enable "Document Chat" in the floating chat window to search and analyze your uploaded documents.*`,
-        timestamp: new Date().toISOString()
+        timestamp: new Date()
       };
     }
   };
   const [currentlyUsedModel, setCurrentlyUsedModel] = useState<string | null>(null);
-  
+
   // Check API configuration on mount
   useEffect(() => {
     const checkAPIConfiguration = async () => {
       try {
         const response = await fetch('/api/v1/ai/health');
-        
+
         if (response.ok) {
           const data = await response.json();
-          
+
           // Check if we have any configured providers
           const hasConfiguredProviders = data.providers?.configured?.length > 0;
           const hasValidConfig = data.system?.validation?.isValid || false;
-          
+
           setApiKeyConfigured(hasConfiguredProviders && hasValidConfig);
-          
+
           // Optional: Notify user of system status
           if (hasConfiguredProviders && hasValidConfig) {
             console.log('AI system ready: All providers configured');
@@ -343,7 +355,7 @@ export function CleanAIChat({ organizationId, className, onCitationsUpdate, chat
 
     checkAPIConfiguration();
   }, [notifySuccess, notifyInfo, notifyWarning, notifyError]);
-  
+
   // Refs
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -371,7 +383,7 @@ export function CleanAIChat({ organizationId, className, onCitationsUpdate, chat
       return () => clearTimeout(timer);
     }
   }, [isLoaded, isSignedIn, models.length, ai.loading]); // Depend on auth state
-  
+
   // Initialize ImageRouter models if not already loaded (optional feature)
   useEffect(() => {
     const loadImageRouterModels = async () => {
@@ -379,7 +391,7 @@ export function CleanAIChat({ organizationId, className, onCitationsUpdate, chat
         console.log('🎨 Loading ImageRouter models...');
         try {
           imageRouter.actions.setLoading(true);
-          
+
           // Fetch ImageRouter models from the API with authentication
           const response = await fetch('/api/v1/ai/providers/imagerouter/models', {
             method: 'GET',
@@ -388,7 +400,7 @@ export function CleanAIChat({ organizationId, className, onCitationsUpdate, chat
             },
             credentials: 'include', // Include cookies for authentication
           });
-          
+
           if (response.ok) {
             const models = await response.json();
             imageRouter.actions.setModels(models);
@@ -402,7 +414,7 @@ export function CleanAIChat({ organizationId, className, onCitationsUpdate, chat
             } catch (e) {
               console.warn('⚠️ Could not read error response');
             }
-            
+
             // Set empty models array to prevent further attempts
             imageRouter.actions.setModels([]);
           }
@@ -411,7 +423,7 @@ export function CleanAIChat({ organizationId, className, onCitationsUpdate, chat
           // The error is likely a network issue, auth issue, or the API endpoint is down
           // Since the API has fallback models, this shouldn't break the UI
           console.log('⚠️ ImageRouter models will be unavailable, but the chat will still work');
-          
+
           // Set empty models array to prevent retries and stop the error loop
           imageRouter.actions.setModels([]);
         } finally {
@@ -419,7 +431,7 @@ export function CleanAIChat({ organizationId, className, onCitationsUpdate, chat
         }
       }
     };
-    
+
     // Only attempt to load ImageRouter models once per session
     // If it fails, we set an empty array to prevent retries
     loadImageRouterModels();
@@ -581,7 +593,7 @@ export function CleanAIChat({ organizationId, className, onCitationsUpdate, chat
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, currentStreamingMessage]);
-  
+
   // Auto-resize textarea
   useEffect(() => {
     if (textareaRef.current) {
@@ -607,7 +619,7 @@ export function CleanAIChat({ organizationId, className, onCitationsUpdate, chat
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragOver(false);
-    
+
     const files = e.dataTransfer.files;
     if (files.length > 0) {
       handleFileUpload(files);
@@ -617,14 +629,14 @@ export function CleanAIChat({ organizationId, className, onCitationsUpdate, chat
   const handlePaste = (e: React.ClipboardEvent) => {
     const items = e.clipboardData.items;
     const files: File[] = [];
-    
+
     for (let i = 0; i < items.length; i++) {
       if (items[i].type.indexOf('image') !== -1) {
         const file = items[i].getAsFile();
         if (file) files.push(file);
       }
     }
-    
+
     if (files.length > 0) {
       handleFileUpload(files);
     }
@@ -638,23 +650,23 @@ export function CleanAIChat({ organizationId, className, onCitationsUpdate, chat
   const preprocessMessage = (content: string): string => {
     // Media URL patterns
     const mediaUrlPattern = /https?:\/\/[^\s]+\.(jpg|jpeg|png|gif|webp|svg|bmp|tiff|ico|mp4|mov|avi|mkv|wmv|flv|webm|m4v|3gp|ogv|mp3|wav|flac|aac|ogg|wma|m4a|opus|pdf|doc|docx|xls|xlsx|ppt|pptx|txt|rtf|odt|ods|odp|zip|rar|7z|tar|gz|bz2)(\?[^\s]*)?/gi;
-    
+
     // Convert plain media URLs to markdown format for better rendering
     return content.replace(mediaUrlPattern, (url) => {
       // Don't convert if it's already in markdown format
-      if (content.includes(`![`) && content.includes(`](${url})`) || 
+      if (content.includes(`![`) && content.includes(`](${url})`) ||
           content.includes(`[`) && content.includes(`](${url})`)) {
         return url;
       }
-      
+
       // Extract filename for alt text
       const filename = url.split('/').pop()?.split('?')[0] || 'file';
-      
+
       // For images, use markdown image syntax
       if (/\.(jpg|jpeg|png|gif|webp|svg|bmp|tiff|ico)(\?[^\s]*)?$/i.test(url)) {
         return `![${filename}](${url})`;
       }
-      
+
       // For other media, use link syntax (will be handled by UniversalMessageRenderer)
       return `[${filename}](${url})`;
     });
@@ -742,8 +754,8 @@ export function CleanAIChat({ organizationId, className, onCitationsUpdate, chat
         } else if (imageRouter.models.length > 0) {
           // Models are loaded in imageRouter store but not in providers yet
           const fallbackModel = imageRouter.models[0];
-          const modelToSet = fallbackModel.id || fallbackModel.name;
-          console.log('🔄 Using first model from imageRouter store as fallback:', { id: fallbackModel.id, name: fallbackModel.name, using: modelToSet });
+          const modelToSet = fallbackModel.name;
+          console.log('🔄 Using first model from imageRouter store as fallback:', { name: fallbackModel.name, using: modelToSet });
           ai.setSelectedModel(modelToSet);
         } else {
           console.error('❌ No ImageRouter models available, using fallback');
@@ -790,7 +802,7 @@ export function CleanAIChat({ organizationId, className, onCitationsUpdate, chat
   // Message handling
   const sendMessage = async (messageContent: string) => {
     if (!messageContent.trim()) return;
-    
+
     // Preprocess the message to convert image URLs
     const processedContent = preprocessMessage(messageContent);
 
@@ -840,12 +852,13 @@ export function CleanAIChat({ organizationId, className, onCitationsUpdate, chat
 
     setMessages(prev => [...prev, userMessage]);
     setInput('');
-    
+
     // Don't clear uploaded documents - keep them for follow-up questions
     // setDocuments([]);
-    
+
+    requestAbort.current = new AbortController();
     setIsThinking(true);
-    setIsLoading(false);
+    setIsLoading(true);
     setIsStreaming(false);
     setStreamProgress(0);
 
@@ -867,23 +880,23 @@ export function CleanAIChat({ organizationId, className, onCitationsUpdate, chat
       // 2. IMAGE GENERATION: User explicitly toggled image mode AND no files attached
       else if (imageGenerationMode) {
         console.log('🎨 Image generation mode enabled, using selected image model');
-        
+
         // Use the model that was already set by the toggle (from providers array)
         const modelToUse = selectedModel || 'openai/dall-e-3';
-        
+
         console.log('🎨 Using selected image model:', {
           id: modelToUse,
           mode: 'image_generation'
         });
         setCurrentlyUsedModel(modelToUse);
-        
+
         const mediaResult = await callMediaAPI(processedContent, modelToUse);
-        
+
         // Handle the result or return early if authentication failed
         if (mediaResult === null) {
           return;
         }
-        
+
         // If we get a result, create a message with the generated image
         if (mediaResult) {
           const assistantMessage: ChatMessage = {
@@ -910,13 +923,13 @@ export function CleanAIChat({ organizationId, className, onCitationsUpdate, chat
               }
             }
           };
-          
+
           setMessages(prev => [...prev, assistantMessage]);
         }
-        
+
         return;
       }
-      
+
       // 3. WEB SEARCH: Auto-detect web search needs
       let finalContent = processedContent;
       const webSearchNeeded = needsWebSearch(processedContent);
@@ -936,17 +949,14 @@ export function CleanAIChat({ organizationId, className, onCitationsUpdate, chat
       if (webSearchNeeded) {
         console.log('🔍 Web search detected, will use online model');
       }
-      
+
       // 4. DEFAULT: Text generation with file processing
       const modelToUse = selectedModel;
       console.log('💬 Text/file processing mode, using model:', modelToUse);
 
       setCurrentlyUsedModel(modelToUse);
-      
-      // Add thinking delay (1.5-3 seconds) - This delay does NOT count toward usage
-      const thinkingDelay = Math.random() * 1500 + 1500; // 1.5-3 seconds
-      await new Promise(resolve => setTimeout(resolve, thinkingDelay));
-      
+
+
       // Switch from thinking to typing
       setIsThinking(false);
       setIsLoading(true);
@@ -971,7 +981,7 @@ export function CleanAIChat({ organizationId, className, onCitationsUpdate, chat
   const callRealAI = async (messageContent: string, attachedFiles: AttachedFile[], modelToUse: string, needsWebSearch: boolean) => {
     try {
       console.log('🚀 callRealAI function called with:', messageContent.substring(0, 50) + '...', attachedFiles.length, 'files');
-      
+
       // Prepare file context from processed documents (including OCR-processed images)
       const fileContextMessages = [];
       for (const processedFile of attachedFiles) {
@@ -982,7 +992,7 @@ export function CleanAIChat({ organizationId, className, onCitationsUpdate, chat
           });
         }
       }
-      
+
       console.log('📄 File context messages:', fileContextMessages.length, 'processed files included');
 
       // Prepare messages for AI API
@@ -1049,7 +1059,7 @@ Provide accurate, helpful, and professional assistance.`
       // Convert messages to API format using imperative approach
       const conversationMessages = [];
       for (const message of messages) {
-        const apiMessage = {
+        const apiMessage: ChatWireMessage = {
           role: message.role,
           content: message.content,
           attachments: undefined
@@ -1152,14 +1162,15 @@ Provide accurate, helpful, and professional assistance.`
       };
 
       // Combine all messages
-      const apiMessages = [
+      const apiMessages: ChatWireMessage[] = [
         systemMessage,
         ...fileContextMessages,
         ...conversationMessages,
         userMessage
       ];
-      
+
       let requestBody = {
+        documentContext: undefined as ChatState['documentScope'] | undefined,
         messages: apiMessages,
         model: modelToUse,
         provider: selectedProvider,
@@ -1176,7 +1187,7 @@ Provide accurate, helpful, and professional assistance.`
           }
         }
       };
-      
+
       console.log('🚀 Sending request to enhanced-chat:', {
         messageCount: requestBody.messages?.length,
         model: requestBody.model,
@@ -1184,7 +1195,7 @@ Provide accurate, helpful, and professional assistance.`
         webSearchEnabled: requestBody.options?.webSearch?.enabled,
         hasAttachments: 'checking...'
       });
-      
+
       // Debug image attachments
       if (requestBody.messages) {
         for (let msgIndex = 0; msgIndex < requestBody.messages.length; msgIndex++) {
@@ -1199,40 +1210,41 @@ Provide accurate, helpful, and professional assistance.`
       console.log('  - temperature:', requestBody.temperature);
       console.log('  - maxTokens:', requestBody.maxTokens);
       console.log('  - useVercelOptimized:', requestBody.useVercelOptimized);
-      
+
       console.log('🌐 About to make fetch request...');
-      
+
       // Choose the appropriate endpoint based on chat state
-      const apiEndpoint = chatState?.documentChatEnabled 
-        ? '/api/v1/ai/document-chat' 
+      const apiEndpoint = chatState?.documentChatEnabled
+        ? '/api/v1/ai/document-chat'
         : '/api/v1/ai/enhanced-chat';
-      
+
       // Modify request body for document chat
       if (chatState?.documentChatEnabled) {
         requestBody = {
           ...requestBody,
           documentContext: chatState.documentScope,
           useVercelOptimized: true,
-          model: 'gpt-4o', // Use OpenAI for document chat
+          model: selectedModel.replace(/^(openai|anthropic)\//, ''),
           temperature: 0.3, // Lower temperature for factual responses
         };
       }
-      
+
       const response = await fetch(apiEndpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(requestBody)
+        body: JSON.stringify(requestBody),
+        signal: requestAbort.current?.signal
       });
-      
+
       console.log('✅ Fetch completed, response status:', response.status);
-      
+
       if (!response.ok) {
         // Handle different error types
         const errorData = await response.json();
         console.error('❌ API Error Response:', errorData);
-        
+
         if (response.status === 400) {
           // Validation error - show details
           console.error('🔍 Validation Error Details:', errorData.details);
@@ -1247,7 +1259,7 @@ Provide accurate, helpful, and professional assistance.`
           }
           return;
         }
-        
+
         if (response.status === 429) {
           // Rate limit or quota exceeded
           setHasUsageQuota(false);
@@ -1261,14 +1273,14 @@ Provide accurate, helpful, and professional assistance.`
           notifyError('API configuration issue. Please check your API keys in settings.');
           return;
         }
-        
+
         throw new Error(`API error: ${response.status}`);
       }
-      
+
       // Check if response is JSON or streaming
       const contentType = response.headers.get('content-type');
       console.log('🔍 Response content type:', contentType);
-      
+
       if (contentType?.includes('application/json')) {
         // Handle JSON response (non-streaming)
         const responseData = await response.json();
@@ -1283,17 +1295,17 @@ Provide accurate, helpful, and professional assistance.`
           responseKeys: Object.keys(responseData || {}),
           metadataKeys: responseData.metadata ? Object.keys(responseData.metadata) : []
         });
-        
+
         if (responseData.success === false) {
           throw new Error(responseData.message || 'API request failed');
         }
-        
+
         // Simulate streaming for JSON responses
         const rawContent = responseData.content || responseData.message || 'No content received';
         // Ensure content is always a string
         const content = ensureStringContent(rawContent);
         const actualModel = responseData.model || selectedModel;
-        
+
         // Update the currently used model to show the actual model from the API
         setCurrentlyUsedModel(actualModel);
         // Track usage in Zustand store
@@ -1303,7 +1315,7 @@ Provide accurate, helpful, and professional assistance.`
             cost: responseData.cost || 0
           });
         }
-        
+
         // Update model performance metrics
         if (responseData.model) {
           ai.updateModelPerformance(responseData.model, {
@@ -1312,7 +1324,7 @@ Provide accurate, helpful, and professional assistance.`
             lastUsed: new Date()
           });
         }
-        
+
         // Store file annotations for cost optimization
         if (responseData.fileAnnotations && attachedFiles.length > 0) {
           setDocuments(prev => {
@@ -1325,7 +1337,7 @@ Provide accurate, helpful, and professional assistance.`
                   break;
                 }
               }
-              
+
               if (matchingFile && doc.type === 'application/pdf') {
                 updatedDocs.push({
                   ...doc,
@@ -1338,22 +1350,22 @@ Provide accurate, helpful, and professional assistance.`
             return updatedDocs;
           });
         }
-        
+
         // Extract citations from response (web search citations)
         // Check multiple locations where citations might be stored
-        const webCitations = responseData.citations || 
-                           responseData.metadata?.citations || 
+        const webCitations = responseData.citations ||
+                           responseData.metadata?.citations ||
                            [];
-        const annotations = responseData.annotations || 
-                          responseData.metadata?.annotations || 
+        const annotations = responseData.annotations ||
+                          responseData.metadata?.annotations ||
                           [];
-        
+
         // Extract file citations from the response content
         const fileCitations = extractFileCitations(content, attachedFiles);
-        
+
         // Combine web and file citations
         const allCitations = [...webCitations, ...fileCitations];
-        
+
         console.log('🔍 Citations extracted:', {
           hasAttachedFiles: attachedFiles.length > 0,
           attachedFilesCount: attachedFiles.length,
@@ -1365,73 +1377,45 @@ Provide accurate, helpful, and professional assistance.`
           fullResponseData: responseData,
           responseContent: content.substring(0, 500) + '...' // Show first 500 chars
         });
-        
+
         // Update citations panel immediately if we have citations
         if (allCitations.length > 0) {
           console.log('📚 Updating citations panel with', allCitations.length, 'citations');
           onCitationsUpdate?.(allCitations);
         }
-        
+
         await simulateStreaming(content, actualModel, { citations: allCitations, annotations });
-        
+
       } else {
         // Handle streaming response
         const reader = response.body?.getReader();
         if (!reader) {
           throw new Error('No response stream available');
         }
-        
+
         setIsStreaming(true);
         setCurrentStreamingMessage('');
-        
-        const decoder = new TextDecoder();
+
         let fullContent = '';
         let streamingModel: string | null = null;
-        
-        try {
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            
-            const chunk = decoder.decode(value, { stream: true });
-            const lines = chunk.split('\n');
-            
-            for (const line of lines) {
-              if (line.startsWith('data: ')) {
-                const data = line.slice(6);
-                if (data === '[DONE]') {
-                  break;
-                }
-                
-                try {
-                  const parsed = JSON.parse(data);
-                  
-                  // Extract model information from the first chunk
-                  if (parsed.model && !streamingModel) {
-                    streamingModel = parsed.model;
-                    setCurrentlyUsedModel(streamingModel);
-                  }
-                  
-                  if (parsed.choices && parsed.choices[0] && parsed.choices[0].delta && parsed.choices[0].delta.content) {
-                    const newContent = parsed.choices[0].delta.content;
-                    // Ensure content is always a string
-                    const stringContent = ensureStringContent(newContent);
-                    fullContent += stringContent;
-                    setCurrentStreamingMessage(fullContent);
-                  }
-                } catch (e) {
-                  // Skip malformed JSON
-                }
-              }
-            }
+        for await (const data of readSSEData(reader)) {
+          if (data === '[DONE]') break;
+          const parsed = JSON.parse(data);
+          if (parsed.error) throw new Error(typeof parsed.error === 'string' ? parsed.error : 'AI response failed');
+          if (parsed.model && !streamingModel) {
+            streamingModel = parsed.model;
+            setCurrentlyUsedModel(streamingModel);
           }
-        } finally {
-          reader.releaseLock();
+          const content = parsed.choices?.[0]?.delta?.content;
+          if (content) {
+            fullContent += ensureStringContent(content);
+            setCurrentStreamingMessage(fullContent);
+          }
         }
-        
+
         // Extract file citations from the final content
         const fileCitations = extractFileCitations(fullContent, attachedFiles);
-        
+
         // Create final message
         const assistantMessage: ChatMessage = {
           id: `assistant_${Date.now()}`,
@@ -1451,21 +1435,21 @@ Provide accurate, helpful, and professional assistance.`
             annotations: []
           }
         };
-        
+
         setMessages(prev => [...prev, assistantMessage]);
         setCurrentStreamingMessage('');
-        
+
         // Update citations panel if citations exist
         if (fileCitations && fileCitations.length > 0) {
           onCitationsUpdate?.(fileCitations);
         }
-        
+
         // Track usage in Zustand store
         ai.trackUsage({
           tokens: 0, // Would use actual metrics from streaming
           cost: 0
         });
-        
+
         // Update model performance metrics
         if (streamingModel) {
           ai.updateModelPerformance(streamingModel, {
@@ -1474,14 +1458,15 @@ Provide accurate, helpful, and professional assistance.`
             lastUsed: new Date()
           });
         }
-        
+
         // Notify user of successful AI response
         notifySuccess('AI response generated successfully');
       }
-      
+
     } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') return;
       console.error('Real AI API error:', error);
-      
+
       // Handle specific error types
       if (error instanceof TypeError && error.message.includes('Failed to fetch')) {
         console.error('❌ Network error - failed to fetch API endpoint');
@@ -1503,13 +1488,13 @@ Provide accurate, helpful, and professional assistance.`
   // Media API call for image generation
   const callMediaAPI = async (prompt: string, selectedModel: string) => {
     try {
-      
+
       // Check if user is authenticated for media generation
       if (!isSignedIn) {
         notifyWarning('Please sign in to use image generation features.');
         return null;
       }
-      
+
       const requestBody = {
         prompt,
         type: 'image', // Required field for media API
@@ -1529,7 +1514,7 @@ Provide accurate, helpful, and professional assistance.`
         imageGenerationMode,
         requestBody
       });
-      
+
       const response = await fetch('/api/v1/ai/media', {
         method: 'POST',
         headers: {
@@ -1537,9 +1522,9 @@ Provide accurate, helpful, and professional assistance.`
         },
         body: JSON.stringify(requestBody)
       });
-      
+
       console.log('✅ Media API response status:', response.status);
-      
+
       if (!response.ok) {
         let errorData;
         try {
@@ -1553,31 +1538,31 @@ Provide accurate, helpful, and professional assistance.`
           statusText: response.statusText,
           headers: Object.fromEntries(response.headers.entries())
         });
-        
+
         if (response.status === 400) {
           notifyError(`Media generation failed: ${errorData.message || 'Invalid request'}`);
           return null;
         }
-        
+
         if (response.status === 429) {
           notifyWarning('Rate limit reached for media generation. Please try again later.');
           return null;
         }
-        
+
         if (response.status === 401) {
           notifyWarning('Media generation requires authentication.');
           return null;
         }
-        
+
         throw new Error(`Media API error: ${response.status}`);
       }
-      
+
       const responseData = await response.json();
       console.log('🎨 Media API response:', responseData);
-      
+
       if (responseData.success && responseData.data && responseData.data.results && responseData.data.results.length > 0) {
         const imageData = responseData.data.results[0];
-        
+
         // Track usage in Zustand store
         if (responseData.data.usage) {
           ai.trackUsage({
@@ -1585,7 +1570,7 @@ Provide accurate, helpful, and professional assistance.`
             cost: responseData.data.usage.cost || responseData.actualCost || 0
           });
         }
-        
+
         notifySuccess('Image generated successfully');
         return {
           url: imageData.url,
@@ -1597,10 +1582,10 @@ Provide accurate, helpful, and professional assistance.`
       } else {
         throw new Error('No image data received from API');
       }
-      
+
     } catch (error) {
       console.error('Media API error:', error);
-      
+
       if (error instanceof TypeError && error.message.includes('Failed to fetch')) {
         notifyError('Network error: Unable to connect to media service. Please check your internet connection and try again.');
       } else if (error instanceof Error) {
@@ -1608,27 +1593,27 @@ Provide accurate, helpful, and professional assistance.`
       } else {
         notifyError('Media generation service temporarily unavailable.');
       }
-      
+
       return null;
     }
   };
-  
+
   // Extract file citations from AI response
   const extractFileCitations = (content: string, attachedFiles: AttachedFile[]): Citation[] => {
     const citations: Citation[] = [];
-    
+
     // Pattern to match file references like [filename.pdf]
     const fileRefPattern = /\[([^\[\]]+\.[a-zA-Z0-9]+)\]/g;
     const matches = Array.from(content.matchAll(fileRefPattern));
-    
+
     matches.forEach((match, index) => {
       const fileName = match[1];
       const startIndex = match.index || 0;
       const endIndex = startIndex + match[0].length;
-      
+
       // Find the corresponding file
       const file = attachedFiles.find(f => f.name === fileName);
-      
+
       if (file) {
         citations.push({
           url: file.url || `file://${fileName}`,
@@ -1650,7 +1635,7 @@ Provide accurate, helpful, and professional assistance.`
         });
       }
     });
-    
+
     // Remove duplicates based on filename
     const uniqueCitations = [];
     const seenTitles = new Set();
@@ -1660,7 +1645,7 @@ Provide accurate, helpful, and professional assistance.`
         uniqueCitations.push(citation);
       }
     }
-    
+
     return uniqueCitations;
   };
 
@@ -1718,16 +1703,16 @@ Would you like me to dive deeper into any aspects of your question?
 
 > **Note**: Enable API keys for full functionality.`;
   };
-  
+
   const simulateStreaming = async (fullContent: string, modelName?: string, metadata?: { citations?: Citation[]; annotations?: any[] }) => {
     // Small delay before starting to type (0.5-1 second)
     const typingDelay = Math.random() * 500 + 500; // 0.5-1 seconds
     await new Promise(resolve => setTimeout(resolve, typingDelay));
-    
+
     // Start streaming
     setIsStreaming(true);
     setCurrentStreamingMessage('');
-    
+
     const words = fullContent.split(' ');
     const totalWords = words.length;
     let currentIndex = 0;
@@ -1738,15 +1723,15 @@ Would you like me to dive deeper into any aspects of your question?
           const wordsToAdd = Math.min(3, totalWords - currentIndex);
           const newWords = words.slice(currentIndex, currentIndex + wordsToAdd);
           const newContent = newWords.join(' ');
-          
-          setCurrentStreamingMessage(prev => 
+
+          setCurrentStreamingMessage(prev =>
             prev + (prev ? ' ' : '') + newContent
           );
           setStreamProgress((currentIndex / totalWords) * 100);
           currentIndex += wordsToAdd;
         } else {
           clearInterval(streamInterval);
-          
+
           const assistantMessage: ChatMessage = {
             id: `assistant_${Date.now()}`,
             role: 'assistant' as const,
@@ -1767,12 +1752,12 @@ Would you like me to dive deeper into any aspects of your question?
           };
           setMessages(prev => [...prev, assistantMessage]);
           setCurrentStreamingMessage('');
-          
+
           // Update citations panel if citations exist
           if (metadata?.citations && metadata.citations.length > 0) {
             onCitationsUpdate?.(metadata.citations);
           }
-          
+
           // Notify user of successful response (demo mode)
           notifySuccess('Response generated successfully');
           resolve();
@@ -1791,7 +1776,7 @@ Would you like me to dive deeper into any aspects of your question?
     const modelCost = costPerToken[model] || costPerToken['gpt-4o-mini'];
     const promptCost = (usage.promptTokens / 1000) * modelCost.prompt;
     const completionCost = (usage.completionTokens / 1000) * modelCost.completion;
-    
+
     return promptCost + completionCost;
   };
 
@@ -1808,18 +1793,17 @@ Would you like me to dive deeper into any aspects of your question?
   const resetChat = () => {
     setMessages([]);
     setInput('');
-    setTotalCost(0);
     setCurrentStreamingMessage('');
     setDocuments([]); // Clear attached files when resetting chat
   };
 
-  const handleFileUpload = async (files: FileList) => {
+  const handleFileUpload = async (files: FileList | File[]) => {
     if (!files || files.length === 0) return;
 
     console.log(`🔄 Starting file upload for ${files.length} files`);
     setIsUploading(true);
     setIsProcessingFiles(true);
-    
+
     const maxFileSize = 50 * 1024 * 1024; // 50MB limit
     const maxFiles = 10;
 
@@ -1829,10 +1813,10 @@ Would you like me to dive deeper into any aspects of your question?
       setIsProcessingFiles(false);
       return;
     }
-    
+
     for (const file of Array.from(files)) {
       console.log(`📁 Processing file: ${file.name} (${file.type}, ${file.size} bytes)`);
-      
+
       // Validate file size
       if (file.size > maxFileSize) {
         notifyError(`File "${file.name}" exceeds 50MB limit`);
@@ -1841,19 +1825,19 @@ Would you like me to dive deeper into any aspects of your question?
 
       // Enhanced file validation with extension fallback
       const validation = validateFile(file, maxFileSize);
-      
+
       if (!validation.isValid) {
         notifyError(validation.error || `Failed to validate file: ${file.name}`);
         continue; // Skip this file and continue with others
       }
-      
+
       // Create corrected file if needed
       let processedFile = file;
       if (validation.correctedMimeType) {
         processedFile = createCorrectedFile(file, validation.correctedMimeType);
         console.log(`[ENHANCED UPLOAD] File ${file.name} MIME type corrected: "${file.type}" → "${validation.correctedMimeType}"`);
       }
-      
+
       const newDoc: UploadedDocument = {
         id: `doc_${Date.now()}_${Math.random().toString(36).substr(2, 9)}_${processedFile.name.replace(/[^a-zA-Z0-9]/g, '_')}`,
         name: processedFile.name,
@@ -1862,7 +1846,7 @@ Would you like me to dive deeper into any aspects of your question?
         uploadedAt: new Date(),
         processing: true
       };
-      
+
       setDocuments(prev => {
         const updated = [...prev, newDoc];
         console.log(`📄 Added document to state. Total documents: ${updated.length}`, {
@@ -1872,11 +1856,11 @@ Would you like me to dive deeper into any aspects of your question?
         });
         return updated;
       });
-      
+
       // Process different file types
       try {
         const fileUrl = URL.createObjectURL(processedFile);
-        
+
         if (processedFile.type.startsWith('image/')) {
           // For images, keep original base64 for vision models
           const reader = new FileReader();
@@ -1888,14 +1872,14 @@ Would you like me to dive deeper into any aspects of your question?
               mimeType: processedFile.type,
               base64Length: base64Data.length
             });
-            
+
             setDocuments(prev => {
               const updated = [];
               for (const doc of prev) {
                 if (doc.id === newDoc.id) {
                   updated.push({
-                    ...doc, 
-                    processing: false, 
+                    ...doc,
+                    processing: false,
                     content: `![${processedFile.name}](${base64Data})`,
                     url: fileUrl,
                     file: processedFile,
@@ -1928,12 +1912,12 @@ Would you like me to dive deeper into any aspects of your question?
             if (result.success && result.text.trim()) {
               // Successfully processed - store extracted text
               console.log(`✅ Text extraction successful for ${processedFile.name}: ${result.text.length} characters`);
-              
-              setDocuments(prev => prev.map(doc => 
-                doc.id === newDoc.id 
-                  ? { 
-                      ...doc, 
-                      processing: false, 
+
+              setDocuments(prev => prev.map(doc =>
+                doc.id === newDoc.id
+                  ? {
+                      ...doc,
+                      processing: false,
                       content: result.text,
                       url: fileUrl,
                       file: processedFile,
@@ -1951,15 +1935,15 @@ Would you like me to dive deeper into any aspects of your question?
             } else {
               // Failed to process - fallback to base64
               console.log(`⚠️ Text extraction failed for ${processedFile.name}, falling back to base64`);
-              
+
               const reader = new FileReader();
               reader.onload = (e) => {
                 const base64Data = e.target?.result as string;
-                setDocuments(prev => prev.map(doc => 
-                  doc.id === newDoc.id 
-                    ? { 
-                        ...doc, 
-                        processing: false, 
+                setDocuments(prev => prev.map(doc =>
+                  doc.id === newDoc.id
+                    ? {
+                        ...doc,
+                        processing: false,
                         content: `**Document:** ${processedFile.name} (${formatFileSize(processedFile.size)})`,
                         url: fileUrl,
                         file: processedFile,
@@ -1976,16 +1960,16 @@ Would you like me to dive deeper into any aspects of your question?
             }
           } catch (error) {
             console.error(`❌ Error processing file ${processedFile.name}:`, error);
-            
+
             // Fallback to base64 on any error
             const reader = new FileReader();
             reader.onload = (e) => {
               const base64Data = e.target?.result as string;
-              setDocuments(prev => prev.map(doc => 
-                doc.id === newDoc.id 
-                  ? { 
-                      ...doc, 
-                      processing: false, 
+              setDocuments(prev => prev.map(doc =>
+                doc.id === newDoc.id
+                  ? {
+                      ...doc,
+                      processing: false,
                       content: `**Document:** ${processedFile.name} (${formatFileSize(processedFile.size)})`,
                       url: fileUrl,
                       file: processedFile,
@@ -2003,17 +1987,17 @@ Would you like me to dive deeper into any aspects of your question?
         }
       } catch (error) {
         console.error('Error processing file:', error);
-        setDocuments(prev => prev.map(doc => 
-          doc.id === newDoc.id 
+        setDocuments(prev => prev.map(doc =>
+          doc.id === newDoc.id
             ? { ...doc, processing: false, content: `Error processing ${processedFile.name}` }
             : doc
         ));
       }
-      
+
       // Small delay to prevent race conditions when processing multiple files
       await new Promise(resolve => setTimeout(resolve, 100));
     }
-    
+
     console.log(`✅ File upload completed. Processing ${Array.from(files).length} files`);
     setIsUploading(false);
     setIsProcessingFiles(false);
@@ -2066,6 +2050,11 @@ Would you like me to dive deeper into any aspects of your question?
     setShowToolsPanel(false);
   };
 
+  if (isSignedIn && !history.ready && !history.error) {
+    return <div className="flex h-full items-center justify-center text-muted-foreground">Loading your conversation…</div>;
+  }
+
+
   // Prevent hydration errors by only rendering after mount
   if (!isMounted) {
     return (
@@ -2096,7 +2085,7 @@ Would you like me to dive deeper into any aspects of your question?
   }
 
   return (
-    <div 
+    <div
       className={`flex h-full bg-background text-foreground ${className} ${isDragOver ? 'bg-primary/10' : ''}`}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
@@ -2112,9 +2101,10 @@ Would you like me to dive deeper into any aspects of your question?
           </div>
         </div>
       )}
-      
+
       {/* Main Chat Area */}
       <div className="flex-1 flex flex-col">
+        {history.error && <p role="status" className="border-b bg-amber-50 px-4 py-2 text-sm text-amber-900 dark:bg-amber-950 dark:text-amber-100">{history.error}</p>}
         {/* Chat Messages */}
         <div className="flex-1 overflow-hidden">
           <ScrollArea className="h-full" onScrollCapture={handleScroll}>
@@ -2132,7 +2122,7 @@ Would you like me to dive deeper into any aspects of your question?
                       Your intelligent assistant for documents and information
                     </p>
                   </div>
-                  
+
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 mb-6 sm:mb-8">
                     <div className="p-3 sm:p-4 rounded-lg bg-muted/50 border border-border">
                       <div className="flex items-center gap-2 sm:gap-3 mb-2">
@@ -2189,7 +2179,7 @@ Would you like me to dive deeper into any aspects of your question?
                       </button>
                     </div>
                   </div>
-                  
+
                   {documents.length > 0 && (
                     <div className="mt-6 rounded-lg p-4 bg-muted border border-border">
                       <p className="text-sm text-muted-foreground">
@@ -2205,8 +2195,8 @@ Would you like me to dive deeper into any aspects of your question?
                   <div
                     key={message.id}
                     className={`group w-full ${
-                      message.role === 'assistant' 
-                        ? 'bg-muted/50' 
+                      message.role === 'assistant'
+                        ? 'bg-muted/50'
                         : ''
                     }`}
                   >
@@ -2223,7 +2213,7 @@ Would you like me to dive deeper into any aspects of your question?
                           </div>
                         )}
                       </div>
-                      
+
                       {/* Message Content */}
                       <div className="flex-1 min-w-0">
                         <div className="mb-1 flex items-center gap-2">
@@ -2243,7 +2233,7 @@ Would you like me to dive deeper into any aspects of your question?
                           attachedFiles={message.attachedFiles}
                           citations={message.metadata?.citations}
                         />
-                        
+
                         {/* Message Actions - Only for assistant messages */}
                         {message.role === 'assistant' && (
                           <MessageActions
@@ -2257,7 +2247,7 @@ Would you like me to dive deeper into any aspects of your question?
                           />
                         )}
                       </div>
-                      
+
                       {/* Actions */}
                       <div className="flex-shrink-0 opacity-0 group-hover:opacity-100 transition-all duration-200">
                         <button
@@ -2270,7 +2260,7 @@ Would you like me to dive deeper into any aspects of your question?
                     </div>
                   </div>
                 ))}
-                
+
                 {/* Streaming Message */}
                 {isStreaming && currentStreamingMessage && (
                   <div className="group w-full bg-muted/50">
@@ -2304,7 +2294,7 @@ Would you like me to dive deeper into any aspects of your question?
                     </div>
                   </div>
                 )}
-                
+
                 {/* AI Thinking Indicator */}
                 {isThinking && (
                   <div className="group w-full bg-muted/50">
@@ -2337,7 +2327,7 @@ Would you like me to dive deeper into any aspects of your question?
                     </div>
                   </div>
                 )}
-                
+
                 {/* AI Typing Indicator */}
                 {isLoading && !isThinking && !isStreaming && (
                   <div className="group w-full bg-muted/50">
@@ -2434,7 +2424,7 @@ Would you like me to dive deeper into any aspects of your question?
                   </div>
                 </div>
               )}
-              
+
               {/* Tools Panel */}
               {showToolsPanel && (
                 <div className="absolute bottom-full left-0 right-0 mb-2 rounded-xl shadow-xl bg-card border border-border max-h-[70vh]">
@@ -2443,8 +2433,8 @@ Would you like me to dive deeper into any aspects of your question?
                       type="button"
                       onClick={() => setActiveToolsTab('tools')}
                       className={`flex-1 px-2 sm:px-4 py-2 sm:py-3 text-xs sm:text-sm font-medium transition-colors ${
-                        activeToolsTab === 'tools' 
-                          ? 'text-foreground bg-muted' 
+                        activeToolsTab === 'tools'
+                          ? 'text-foreground bg-muted'
                           : 'text-muted-foreground hover:text-foreground'
                       }`}
                     >
@@ -2474,7 +2464,7 @@ Would you like me to dive deeper into any aspects of your question?
                         <div>
                           <h4 className="text-sm font-medium text-foreground mb-2">AI Model Settings</h4>
                           <div className="space-y-3">
-                            
+
                             {/* OpenRouter Integration Toggle */}
                             <div className="flex items-center justify-between p-3 bg-muted rounded-lg">
                               <div className="flex items-center space-x-2">
@@ -2520,7 +2510,7 @@ Would you like me to dive deeper into any aspects of your question?
                                 />
                               </button>
                             </div>
-                            
+
                             {/* Provider/Model Selection */}
                             <div className="space-y-2">
                               <Select
@@ -2597,9 +2587,9 @@ Would you like me to dive deeper into any aspects of your question?
                             </div>
                           </div>
                         </div>
-                        
+
                         <Separator className="bg-border" />
-                        
+
                         <div>
                           <h4 className="text-sm font-medium text-foreground mb-2">Content Templates</h4>
                           <div className="flex gap-2 overflow-x-auto pb-2">
@@ -2741,7 +2731,7 @@ Would you like me to dive deeper into any aspects of your question?
                   disabled={isInputDisabled}
                   rows={2}
                 />
-                
+
                 {/* Tools Button */}
                 <div className="absolute bottom-2 sm:bottom-3 left-2 sm:left-3">
                   <button
@@ -2753,6 +2743,7 @@ Would you like me to dive deeper into any aspects of your question?
                   </button>
                 </div>
 
+                {(isLoading || isThinking || isStreaming) && <button type="button" onClick={() => requestAbort.current?.abort()} className="absolute bottom-3 right-14 rounded-md border bg-background px-3 py-1.5 text-sm" aria-label="Stop response">Stop</button>}
                 {/* Send Button */}
                 <div className="absolute bottom-2 sm:bottom-3 right-2 sm:right-3">
                   <button

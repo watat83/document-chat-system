@@ -91,7 +91,7 @@ ${extractedText}`
 
       console.log(`🔍 [SECURITY ANALYZER] Starting analysis for document: ${documentName}`);
       console.log(`🔍 [SECURITY ANALYZER] Text length: ${extractedText.length} characters`);
-      
+
       const response = await this.executeAICompletion(
         prompt,
         'You are an expert security analyst specializing in government contracting documents. Identify sensitive information and security risks with high accuracy.',
@@ -112,7 +112,7 @@ ${extractedText}`
         securityRisksCount: analysis.securityRisks.length,
         recommendationsCount: analysis.recommendations.length
       });
-      
+
       // Validation check: Ensure confidence score is always a valid number
       if (typeof analysis.confidenceScore !== 'number' || isNaN(analysis.confidenceScore) || analysis.confidenceScore < 0 || analysis.confidenceScore > 100) {
         console.error(`❌ [SECURITY ANALYZER] CRITICAL: Invalid confidence score detected!`, {
@@ -124,12 +124,12 @@ ${extractedText}`
         analysis.confidenceScore = analysis.classification === 'PUBLIC' ? 85 : 75;
         console.log(`🔧 [SECURITY ANALYZER] Forced confidence score to:`, analysis.confidenceScore);
       }
-      
+
       return { success: true, analysis: analysis }
 
     } catch (error) {
       console.error('Security analysis error:', error)
-      
+
       // Fallback analysis with conservative security approach
       const fallbackAnalysis = this.generateFallbackSecurityAnalysis(extractedText)
       return { success: true, analysis: fallbackAnalysis }
@@ -139,7 +139,7 @@ ${extractedText}`
   private parseSecurityAnalysis(response: string, originalText: string): SecurityAnalysis {
     try {
       console.log(`🔍 [SECURITY ANALYZER] Parsing AI response (${response.length} chars):`, response.substring(0, 500) + '...');
-      
+
       const parsed = this.parseJsonResponse(response)
       console.log(`🔍 [SECURITY ANALYZER] Parsed JSON object:`, {
         classification: parsed.classification,
@@ -148,7 +148,7 @@ ${extractedText}`
         sensitiveDataDetected: parsed.sensitiveDataDetected,
         allKeys: Object.keys(parsed)
       });
-      
+
       // Enhanced confidence score validation with detailed logging
       let confidenceScore;
       if (parsed.confidenceScore !== undefined && parsed.confidenceScore !== null) {
@@ -157,15 +157,15 @@ ${extractedText}`
       } else {
         console.warn(`⚠️ [SECURITY ANALYZER] AI did not provide confidenceScore, using fallback analysis confidence`);
         // Generate confidence based on classification and sensitive data detection
-        const baseConfidence = parsed.classification === 'PUBLIC' ? 85 : 
+        const baseConfidence = parsed.classification === 'PUBLIC' ? 85 :
                               parsed.classification === 'INTERNAL' ? 75 :
                               parsed.classification === 'CONFIDENTIAL' ? 70 : 65;
         const adjustedConfidence = parsed.sensitiveDataDetected ? Math.max(60, baseConfidence - 10) : baseConfidence;
         confidenceScore = adjustedConfidence;
       }
-      
+
       console.log(`✅ [SECURITY ANALYZER] Final confidence score:`, confidenceScore);
-      
+
       return {
         classification: ResponseValidators.validateSecurityClassification(parsed.classification),
         sensitiveDataDetected: Boolean(parsed.sensitiveDataDetected),
@@ -185,7 +185,7 @@ ${extractedText}`
 
   private generateFallbackSecurityAnalysis(text: string): SecurityAnalysis {
     console.log(`🔄 [SECURITY ANALYZER] Generating fallback security analysis for ${text.length} character text`);
-    
+
     const lowerText = text.toLowerCase()
     const sensitiveDataTypes: string[] = []
     const securityRisks: string[] = []
@@ -226,9 +226,9 @@ ${extractedText}`
       'fouo', 'cui', 'itar', 'ear', 'proprietary'
     ]
 
-    let detectedClassificationLevel = SecurityClassification.PUBLIC // Default to PUBLIC for most documents
+    let detectedClassificationLevel: SecurityClassification = SecurityClassification.PUBLIC // Default to PUBLIC for most documents
     let classificationConfidence = 75; // Base confidence for PUBLIC classification
-    
+
     for (const keyword of classificationKeywords) {
       if (lowerText.includes(keyword)) {
         sensitiveDataTypes.push('Classification markers')
@@ -283,14 +283,14 @@ ${extractedText}`
       recommendations,
       confidenceScore: classificationConfidence // Improved confidence calculation
     }
-    
+
     console.log(`✅ [SECURITY ANALYZER] Fallback analysis result:`, {
       classification: fallbackResult.classification,
       confidenceScore: fallbackResult.confidenceScore,
       sensitiveDataDetected: fallbackResult.sensitiveDataDetected,
       sensitiveDataTypesCount: fallbackResult.sensitiveDataTypes.length
     });
-    
+
     return fallbackResult;
   }
 }

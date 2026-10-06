@@ -35,6 +35,7 @@ model Organization {
   usageMigrations UsageMigration[]
   apiKeys         ApiKey[]
   profiles        Profile[]
+  savedSearches   SavedSearch[]
 
   // Account Deletion
   accountDeletions AccountDeletion[]
@@ -64,6 +65,8 @@ model Organization {
   auditLogExports    AuditLogExport[]
   securityIncidents  SecurityIncident[]
 
+  conversations Conversation[]
+
   @@map("organizations")
 }
 
@@ -91,6 +94,7 @@ model User {
   activities     Activity[]
   documents      Document[]
   apiKeys        ApiKey[]
+  savedSearches  SavedSearch[]
 
   // Notifications
   notifications            Notification[]
@@ -110,6 +114,8 @@ model User {
   // Profile Relations
   createdProfiles Profile[] @relation("ProfileCreatedBy")
   updatedProfiles Profile[] @relation("ProfileUpdatedBy")
+
+  conversations Conversation[]
 
   @@map("users")
 }
@@ -313,6 +319,7 @@ model BillingEvent {
   stripeEventId String    @unique
   processed     Boolean   @default(false)
   processedAt   DateTime?
+  processingStartedAt DateTime?
 
   // Event Data
   data Json // Raw Stripe event data
@@ -450,6 +457,10 @@ enum SubscriptionStatus {
 }
 
 enum UsageType {
+  OPPORTUNITY_MATCH
+  MATCH_SCORE_CALCULATION
+  SAVED_FILTER
+  SAVED_SEARCH
   AI_QUERY
   DOCUMENT_PROCESSING
   API_CALL
@@ -1239,6 +1250,11 @@ model SecurityIncident {
   reportedAt     DateTime?
   resolvedAt     DateTime?
 
+  acknowledged        Boolean   @default(false)
+  acknowledgedAt      DateTime?
+  acknowledgedBy      String?
+  acknowledgmentNotes String?   @db.Text
+
   // Incident Classification
   incidentType SecurityIncidentType
   severity     SecuritySeverity
@@ -1286,6 +1302,11 @@ model SecurityIncident {
 // Comprehensive Audit and Security Enums
 
 enum AuditEventType {
+  DATA_CREATED
+  DATA_ACCESSED
+  DATA_UPDATED
+  DATA_DELETED
+  MATCH_SCORE_FEEDBACK_PROVIDED
   // =============================================
   // AUTHENTICATION & AUTHORIZATION
   // =============================================
@@ -1634,4 +1655,57 @@ enum OrganizationLevel {
   COUNTY
   ENTERPRISE
   DEPARTMENT
+}
+
+model Conversation {
+  id String @id @default(cuid())
+  organizationId String
+  userId String
+  title String @default("New conversation")
+  messages Json
+  revision Int @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([organizationId, userId, updatedAt])
+  @@map("conversations")
+}
+
+// Saved searches are accessed through tenant-scoped server routes only.
+model SavedSearch {
+  id             String    @id @default(cuid())
+  organizationId String
+  userId         String
+  name           String
+  description    String?
+  category       String?
+  filters        Json
+  color          String?
+  icon           String?
+  isDefault      Boolean   @default(false)
+  isShared       Boolean   @default(false)
+  isFavorite     Boolean   @default(false)
+  sharedBy       String?
+  usageCount     Int       @default(0)
+  lastUsedAt     DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  deletedAt      DateTime?
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, userId, deletedAt])
+  @@index([organizationId, isShared, deletedAt])
+  @@map("saved_searches")
+}
+
+model RateLimitCounter {
+  key     String   @id
+  count   Int
+  resetAt DateTime @db.Timestamptz(6)
+
+  @@index([resetAt], map: "rate_limit_counters_reset_at_idx")
+  @@map("rate_limit_counters")
 }

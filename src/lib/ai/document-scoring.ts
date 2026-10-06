@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import { simpleAIClient } from './services/simple-ai-client'
 
 // Create local interfaces to avoid import issues
@@ -14,6 +15,7 @@ interface DocumentScoreType {
   criteria: ScoringCriteriaType
   weights: { [key: string]: number }
   confidence: number
+  confidenceSource: 'heuristic'
   scoredAt: Date
   scoringModel: string
   processingTimeMs: number
@@ -68,17 +70,17 @@ export class DocumentScoringService {
     options: DocumentScoringOptions = {}
   ): Promise<DocumentScoreType> {
     const startTime = Date.now()
-    
+
     try {
       // Validate and normalize weights
       const weights = this.normalizeWeights(options.weights)
-      
+
       // Generate scoring prompt
       const prompt = this.generateScoringPrompt(input, options.documentType, weights)
-      
+
       // Execute AI completion request using simpleAIClient
       console.log(`🔍 [SCORING SERVICE] Starting AI scoring analysis...`)
-      
+
       const response = await simpleAIClient.generateCompletion({
         model: 'gpt-4o',
         messages: [
@@ -96,26 +98,27 @@ export class DocumentScoringService {
       })
 
       console.log(`🔍 [SCORING SERVICE] AI response received: ${response.content?.length || 0} chars`)
-      
+
       // Parse the AI response into scoring criteria
       const criteria = this.parseAIScoringResponse(response.content)
-      
+
       // Calculate overall score using weights
       const overallScore = this.calculateOverallScore(criteria, weights)
-      
+
       // Create document score object
       const documentScore: DocumentScoreType = {
         overallScore,
         criteria,
         weights,
         confidence: this.calculateConfidence(criteria, response),
+        confidenceSource: 'heuristic',
         scoredAt: new Date(),
         scoringModel: response.model || 'gpt-4o',
         processingTimeMs: Date.now() - startTime
       }
 
       return documentScore
-      
+
     } catch (error) {
       console.error('Document scoring failed:', error)
       throw new Error(`Document scoring failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
@@ -130,11 +133,11 @@ export class DocumentScoringService {
     options: DocumentScoringOptions = {}
   ): Promise<any> {
     const startTime = Date.now()
-    
+
     try {
       // Generate analysis prompt
       const prompt = this.generateAnalysisPrompt(input, options.documentType)
-      
+
       // Execute AI completion request for analysis using simpleAIClient
       const response = await simpleAIClient.generateCompletion({
         model: 'gpt-4o', // Use consistent model
@@ -151,12 +154,12 @@ export class DocumentScoringService {
         maxTokens: 4000, // Max tokens for GPT-4 Turbo output
         temperature: 0.2
       })
-      
+
       // Parse the AI response into analysis results
       const analysis = this.parseAIAnalysisResponse(response.content, input)
-      
+
       return analysis
-      
+
     } catch (error) {
       console.error('Document analysis failed:', error)
       throw new Error(`Document analysis failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
@@ -188,12 +191,12 @@ export class DocumentScoringService {
     concurrency: number = 3
   ): Promise<DocumentScoreType[]> {
     const results: DocumentScoreType[] = []
-    
+
     // Process in batches to respect concurrency limits
     for (let i = 0; i < inputs.length; i += concurrency) {
       const batch = inputs.slice(i, i + concurrency)
       const batchPromises = batch.map(input => this.scoreDocument(input, options))
-      
+
       try {
         const batchResults = await Promise.all(batchPromises)
         results.push(...batchResults)
@@ -203,7 +206,7 @@ export class DocumentScoringService {
         results.push(...Array(batch.length).fill(null))
       }
     }
-    
+
     return results.filter(Boolean) // Remove null results from failed batches
   }
 
@@ -223,7 +226,7 @@ export class DocumentScoringService {
 
     const normalized = { ...defaultWeights, ...weights }
     const total = Object.values(normalized).reduce((sum, weight) => sum + weight, 0)
-    
+
     // Normalize to sum to 1.0
     if (Math.abs(total - 1.0) > 0.01) {
       Object.keys(normalized).forEach(key => {
@@ -274,7 +277,7 @@ Please respond with a JSON object containing scores for each criterion:
   "riskAssessment": <0-100>,
   "reasoning": {
     "relevance": "Brief explanation",
-    "compliance": "Brief explanation", 
+    "compliance": "Brief explanation",
     "completeness": "Brief explanation",
     "technicalMerit": "Brief explanation",
     "riskAssessment": "Brief explanation"
@@ -376,62 +379,10 @@ Provide thorough, accurate analysis that helps contractors make informed busines
    * Parse AI scoring response into structured criteria
    */
   private parseAIScoringResponse(content: string): ScoringCriteriaType {
-    try {
-      console.log(`🔍 [SCORING SERVICE] Parsing AI response, length: ${content.length}`);
-      console.log(`🔍 [SCORING SERVICE] Response preview:`, content.substring(0, 300) + '...');
-      
-      // Extract JSON from the response
-      const jsonMatch = content.match(/\{[\s\S]*\}/)
-      if (!jsonMatch) {
-        console.error('❌ [SCORING SERVICE] No JSON found in AI response');
-        throw new Error('No JSON found in AI response')
-      }
-
-      console.log(`🔍 [SCORING SERVICE] Found JSON:`, jsonMatch[0].substring(0, 200) + '...');
-      const parsed = JSON.parse(jsonMatch[0])
-      
-      console.log(`🔍 [SCORING SERVICE] Parsed JSON with keys:`, Object.keys(parsed));
-      console.log(`🔍 [SCORING SERVICE] Raw score values:`, {
-        relevance: parsed.relevance,
-        compliance: parsed.compliance,
-        completeness: parsed.completeness,
-        technicalMerit: parsed.technicalMerit,
-        riskAssessment: parsed.riskAssessment
-      });
-      
-      // Extract scores and validate
-      const criteria: ScoringCriteriaType = {
-        relevance: this.clampScore(parsed.relevance || 0),
-        compliance: this.clampScore(parsed.compliance || 0),
-        completeness: this.clampScore(parsed.completeness || 0),
-        technicalMerit: this.clampScore(parsed.technicalMerit || 0),
-        riskAssessment: this.clampScore(parsed.riskAssessment || 0)
-      }
-
-      console.log(`✅ [SCORING SERVICE] Final scores:`, criteria);
-      
-      // Validate that no scores are zero (unless explicitly intended)
-      const zeroScores = Object.entries(criteria).filter(([_, score]) => score === 0);
-      if (zeroScores.length > 0) {
-        console.warn(`⚠️ [SCORING SERVICE] Zero scores detected:`, zeroScores);
-      }
-
-      return criteria
-      
-    } catch (error) {
-      console.error('❌ [SCORING SERVICE] Failed to parse AI scoring response:', error)
-      console.error('❌ [SCORING SERVICE] Response that failed:', content.substring(0, 500));
-      
-      // Return default scores if parsing fails - but warn loudly
-      console.error('⚠️ [SCORING SERVICE] CRITICAL: Using fallback scores due to parsing failure');
-      return {
-        relevance: 50,
-        compliance: 50,
-        completeness: 50,
-        technicalMerit: 50,
-        riskAssessment: 50
-      }
-    }
+    const json = content.match(/\{[\s\S]*\}/)?.[0];
+    if (!json) throw new Error('Scoring response did not contain JSON');
+    const score = z.number().min(0).max(100);
+    return z.object({ relevance: score, compliance: score, completeness: score, technicalMerit: score, riskAssessment: score }).parse(JSON.parse(json));
   }
 
   /**
@@ -446,7 +397,7 @@ Provide thorough, accurate analysis that helps contractors make informed busines
       }
 
       const parsed = JSON.parse(jsonMatch[0])
-      
+
       // Validate and structure the analysis
       const analysis = {
         keyTerms: parsed.keyTerms || [],
@@ -462,7 +413,7 @@ Provide thorough, accurate analysis that helps contractors make informed busines
       }
 
       return analysis
-      
+
     } catch (error) {
       console.error('Failed to parse AI analysis response:', error)
       // Return minimal analysis if parsing fails
@@ -483,7 +434,7 @@ Provide thorough, accurate analysis that helps contractors make informed busines
    * Calculate overall weighted score
    */
   private calculateOverallScore(criteria: ScoringCriteriaType, weights: { [key: string]: number }): number {
-    const weightedScore = 
+    const weightedScore =
       (criteria.relevance * weights.relevance) +
       (criteria.compliance * weights.compliance) +
       (criteria.completeness * weights.completeness) +
@@ -501,11 +452,11 @@ Provide thorough, accurate analysis that helps contractors make informed busines
     const scores = [criteria.relevance, criteria.compliance, criteria.completeness, criteria.technicalMerit, criteria.riskAssessment]
     const variance = this.calculateVariance(scores)
     const avgScore = scores.reduce((sum, score) => sum + score, 0) / scores.length
-    
+
     // Lower variance and reasonable average scores indicate higher confidence
     const varianceConfidence = Math.max(0, 1 - (variance / 1000)) // Normalize variance
     const rangeConfidence = avgScore > 10 && avgScore < 90 ? 0.8 : 0.6 // Extreme scores less confident
-    
+
     return Math.min(0.95, Math.max(0.3, (varianceConfidence + rangeConfidence) / 2))
   }
 

@@ -1,21 +1,13 @@
 import { db } from './db';
-import { TenantContext } from './tenant-context';
+import { getCurrentUser } from './auth';
 import { getSubscriptionPlans } from './stripe';
 
-export enum UsageType {
-  OPPORTUNITY_MATCH = 'OPPORTUNITY_MATCH',
-  AI_QUERY = 'AI_QUERY',
-  DOCUMENT_PROCESSING = 'DOCUMENT_PROCESSING',
-  API_CALL = 'API_CALL',
-  EXPORT = 'EXPORT',
-  USER_SEAT = 'USER_SEAT',
-  MATCH_SCORE_CALCULATION = 'MATCH_SCORE_CALCULATION',
-  SAVED_FILTER = 'SAVED_FILTER',
-  SAVED_SEARCH = 'SAVED_SEARCH',
-}
+import { UsageType } from '@prisma/client';
+export { UsageType };
 
 export interface UsageTrackingOptions {
   organizationId: string;
+  userId?: string;
   usageType: UsageType;
   quantity?: number;
   resourceId?: string;
@@ -47,6 +39,7 @@ export class UsageTrackingService {
   static async trackUsage(options: UsageTrackingOptions): Promise<void> {
     const {
       organizationId,
+      userId,
       usageType,
       quantity = 1,
       resourceId,
@@ -54,6 +47,7 @@ export class UsageTrackingService {
       metadata,
     } = options;
 
+    if (!Number.isSafeInteger(quantity) || quantity < 1) throw new Error('Usage quantity must be a positive integer');
     // Get current billing period based on subscription
     const { periodStart, periodEnd } = await this.getBillingPeriod(organizationId);
 
@@ -81,7 +75,7 @@ export class UsageTrackingService {
         periodEnd,
         resourceId,
         resourceType,
-        metadata,
+        metadata: userId ? { ...metadata, userId } : metadata,
       }
     });
   }
@@ -112,30 +106,22 @@ export class UsageTrackingService {
     if (subscription?.limits) {
       try {
         // Handle both JSON and object formats
-        limits = typeof subscription.limits === 'string' 
-          ? JSON.parse(subscription.limits) 
+        limits = typeof subscription.limits === 'string'
+          ? JSON.parse(subscription.limits)
           : (subscription.limits as unknown) as UsageLimits;
       } catch (error) {
         console.warn('Failed to parse subscription limits:', error);
         // Fallback to STARTER plan limits
         const plans = await getSubscriptionPlans();
         limits = plans.STARTER?.limits || {
-          seats: 5,
-          documentsPerMonth: 10,
-          savedSearches: 1,
-          aiCreditsPerMonth: 100,
-          matchScoreCalculations: 100
+          seats: 0, documentsPerMonth: 0, savedSearches: 0, aiCreditsPerMonth: 0, matchScoreCalculations: 0
         };
       }
     } else {
       // Fallback to STARTER plan limits
       const plans = await getSubscriptionPlans();
       limits = plans.STARTER?.limits || {
-        seats: 5,
-        documentsPerMonth: 10,
-        savedSearches: 1,
-        aiCreditsPerMonth: 100,
-        matchScoreCalculations: 100
+        seats: 0, documentsPerMonth: 0, savedSearches: 0, aiCreditsPerMonth: 0, matchScoreCalculations: 0
       };
     }
 
@@ -143,14 +129,14 @@ export class UsageTrackingService {
     const limit = this.getLimitForUsageType(limits, usageType);
 
     // Get current usage for this billing period (always calculate, even for unlimited plans)
-    const { periodStart } = await this.getBillingPeriod(organizationId);
-    
+    const { periodStart, periodEnd } = await this.getBillingPeriod(organizationId);
+
     const currentUsageResult = await db.usageRecord.aggregate({
       where: {
         organizationId,
         usageType,
         createdAt: {
-          gte: periodStart
+          gte: periodStart, lt: periodEnd
         }
       },
       _sum: {
@@ -158,7 +144,7 @@ export class UsageTrackingService {
       }
     });
 
-    const currentUsage = currentUsageResult._sum.quantity || 0;
+    const currentUsage = currentUsageResult._sum?.quantity ?? 0;
 
     // If unlimited (-1), always allow but show actual usage
     if (limit === -1) {
@@ -211,7 +197,7 @@ export class UsageTrackingService {
         organizationId,
         createdAt: {
           gte: periodStart,
-          lte: periodEnd
+          lt: periodEnd
         }
       },
       select: {
@@ -239,7 +225,6 @@ export class UsageTrackingService {
 
   /**
    * Enforce usage limits before allowing an action
-   * Allows bypass for developer email (yourpersonalmarketer123@gmail.com) with warnings
    */
   static async enforceUsageLimit(
     organizationId: string,
@@ -247,57 +232,14 @@ export class UsageTrackingService {
     quantity = 1
   ): Promise<void> {
     const check = await this.checkUsageLimit(organizationId, usageType, quantity);
-    
+
     if (!check.allowed) {
-      const isDeveloper = await this.isDeveloperUser(organizationId);
-      const errorMessage = `Usage limit exceeded. Current usage: ${check.currentUsage}/${check.limit} for ${usageType}. Requested: ${quantity}, Remaining: ${check.remainingUsage}`;
-      
-      if (isDeveloper) {
-        console.warn('👨‍💻 [DEVELOPER BYPASS] Usage limit would be exceeded for regular users:', {
-          usageType,
-          currentUsage: check.currentUsage,
-          limit: check.limit,
-          requested: quantity,
-          remaining: check.remainingUsage,
-          percentUsed: check.percentUsed,
-          message: 'Action allowed for developer testing but would be blocked for regular users'
-        });
-        // Allow the action for developer but log the warning
-        return;
-      }
-      
+      const errorMessage = `Usage limit exceeded for ${usageType}. Remaining: ${check.remainingUsage}`;
       // For regular users, throw the error
       const error = new Error(errorMessage);
       (error as any).usageCheck = check;
       (error as any).code = 'USAGE_LIMIT_EXCEEDED';
       throw error;
-    }
-  }
-
-  /**
-   * Check if the current user is the developer (yourpersonalmarketer123@gmail.com)
-   */
-  private static async isDeveloperUser(organizationId: string): Promise<boolean> {
-    try {
-      // Get organization members to find users with developer email
-      const developerUser = await db.user.findFirst({
-        where: {
-          organizationId,
-          email: 'yourpersonalmarketer123@gmail.com'
-        }
-      });
-      
-      console.log('🔍 Developer user check:', {
-        organizationId,
-        developerEmail: 'yourpersonalmarketer123@gmail.com',
-        found: !!developerUser,
-        userId: developerUser?.id
-      });
-      
-      return !!developerUser;
-    } catch (error) {
-      console.warn('Error checking developer status:', error);
-      return false;
     }
   }
 
@@ -308,50 +250,28 @@ export class UsageTrackingService {
     organizationId: string,
     usageType: UsageType,
     quantity = 1
-  ): Promise<UsageCheck & { 
-    canProceed: boolean; 
-    warningMessage?: string; 
+  ): Promise<UsageCheck & {
+    canProceed: boolean;
+    warningMessage?: string;
     upgradeMessage?: string;
     isDeveloperOverride?: boolean;
   }> {
     const check = await this.checkUsageLimit(organizationId, usageType, quantity);
-    const isDeveloper = await this.isDeveloperUser(organizationId);
-    
-    console.log('📊 Usage limit check details:', {
-      organizationId,
-      usageType,
-      quantity,
-      isDeveloper,
-      currentUsage: check.currentUsage,
-      limit: check.limit,
-      allowed: check.allowed,
-      percentUsed: check.percentUsed
-    });
-    
     let warningMessage: string | undefined;
     let upgradeMessage: string | undefined;
-    let canProceed = check.allowed;
-    let isDeveloperOverride = false;
-
     if (!check.allowed) {
-      if (isDeveloper) {
-        canProceed = true;
-        isDeveloperOverride = true;
-        warningMessage = `Developer Mode: This action would exceed your ${usageType} limit in production (${check.currentUsage}/${check.limit})`;
-      } else {
-        warningMessage = `You've reached your ${usageType} limit (${check.currentUsage}/${check.limit})`;
-        upgradeMessage = `Upgrade your plan to get more ${usageType.toLowerCase().replace('_', ' ')} capacity`;
-      }
+      warningMessage = `You've reached your ${usageType} limit (${check.currentUsage}/${check.limit})`;
+      upgradeMessage = `Upgrade your plan to get more ${usageType.toLowerCase().replaceAll('_', ' ')} capacity`;
     } else if (check.percentUsed >= 80) {
       warningMessage = `You're approaching your ${usageType} limit (${check.currentUsage}/${check.limit} - ${check.percentUsed}% used)`;
     }
 
     return {
       ...check,
-      canProceed,
+      canProceed: check.allowed,
       warningMessage,
       upgradeMessage,
-      isDeveloperOverride
+      isDeveloperOverride: false
     };
   }
 
@@ -375,150 +295,39 @@ export class UsageTrackingService {
    * Enhanced to handle plan transitions gracefully by preserving usage continuity
    */
   static async getBillingPeriod(organizationId: string): Promise<{ periodStart: Date; periodEnd: Date }> {
-    try {
-      // Get current active subscription
-      const activeSubscription = await db.subscription.findFirst({
-        where: {
-          organizationId,
-          status: {
-            in: ['ACTIVE', 'TRIALING', 'PAST_DUE']
-          }
-        },
-        orderBy: {
-          createdAt: 'desc'
-        }
-      });
-
-      // Get recently canceled subscriptions that might have usage data
-      const recentCanceledSubscriptions = await db.subscription.findMany({
-        where: {
-          organizationId,
-          status: 'CANCELED',
-          canceledAt: {
-            gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) // Within last 30 days
-          }
-        },
-        orderBy: {
-          canceledAt: 'desc'
-        }
-      });
-
-      // ENHANCED LOGIC: Create a unified billing period that encompasses both old and new subscriptions
-      let periodStart: Date;
-      let periodEnd: Date;
-
-      if (activeSubscription?.currentPeriodStart && activeSubscription?.currentPeriodEnd) {
-        periodStart = new Date(activeSubscription.currentPeriodStart);
-        periodEnd = new Date(activeSubscription.currentPeriodEnd);
-
-        // CRITICAL FIX: Check if there are usage records that predate the current period
-        // This handles cases where a plan switch happened mid-period
-        const existingUsage = await db.usageRecord.findFirst({
-          where: {
-            organizationId,
-            createdAt: {
-              lt: periodStart
-            }
-          },
-          orderBy: {
-            createdAt: 'desc'
-          }
-        });
-
-        if (existingUsage) {
-          // Find the earliest usage record in the current billing cycle
-          const earliestUsageInCycle = await db.usageRecord.findFirst({
-            where: {
-              organizationId,
-              createdAt: {
-                gte: new Date(Date.now() - 31 * 24 * 60 * 60 * 1000) // Within last 31 days
-              }
-            },
-            orderBy: {
-              createdAt: 'asc'
-            }
-          });
-
-          if (earliestUsageInCycle) {
-            const usageDate = new Date(earliestUsageInCycle.createdAt);
-            // Extend period to include all usage from the current billing cycle
-            if (usageDate < periodStart) {
-              console.log(`🔄 Extending billing period start from ${periodStart.toISOString()} to ${usageDate.toISOString()} to preserve usage continuity`);
-              periodStart = usageDate;
-            }
-          }
-        }
-
-        // If there are recent cancellations, also check their periods
-        if (recentCanceledSubscriptions.length > 0) {
-          const oldestCanceled = recentCanceledSubscriptions[recentCanceledSubscriptions.length - 1];
-          if (oldestCanceled.currentPeriodStart) {
-            const oldPeriodStart = new Date(oldestCanceled.currentPeriodStart);
-            // Use the earlier start date to preserve usage continuity
-            if (oldPeriodStart < periodStart) {
-              console.log(`🔄 Extending billing period start from ${periodStart.toISOString()} to ${oldPeriodStart.toISOString()} to preserve usage data from canceled subscription`);
-              periodStart = oldPeriodStart;
-            }
-          }
-        }
-
-        return { periodStart, periodEnd };
-      }
-
-      // If no active subscription, use the most recent canceled subscription's period (if still valid)
-      if (recentCanceledSubscriptions.length > 0) {
-        const mostRecentCanceled = recentCanceledSubscriptions[0];
-        if (mostRecentCanceled.currentPeriodStart && mostRecentCanceled.currentPeriodEnd) {
-          const now = new Date();
-          const canceledPeriodEnd = new Date(mostRecentCanceled.currentPeriodEnd);
-          
-          // Use canceled subscription's period if it's still valid or recently expired
-          if (now <= canceledPeriodEnd || (now.getTime() - canceledPeriodEnd.getTime()) < 24 * 60 * 60 * 1000) {
-            console.log(`🔄 Using recently canceled subscription period for usage calculation`);
-            return {
-              periodStart: new Date(mostRecentCanceled.currentPeriodStart),
-              periodEnd: canceledPeriodEnd
-            };
-          }
-        }
-      }
-
-    } catch (error) {
-      console.warn('Error getting subscription billing period:', error);
-    }
-
-    // Final fallback to calendar month
+    const subscription = await db.subscription.findFirst({
+      where: { organizationId, status: { in: ['ACTIVE', 'TRIALING', 'PAST_DUE'] } }, orderBy: { createdAt: 'desc' }
+    });
     const now = new Date();
-    return {
-      periodStart: new Date(now.getFullYear(), now.getMonth(), 1),
-      periodEnd: new Date(now.getFullYear(), now.getMonth() + 1, 0)
-    };
+    if (subscription) {
+      const periodStart = new Date(subscription.currentPeriodStart);
+      const periodEnd = new Date(subscription.currentPeriodEnd);
+      if (!Number.isFinite(periodStart.getTime()) || !Number.isFinite(periodEnd.getTime()) || periodStart >= periodEnd || now < periodStart || now >= periodEnd) {
+        throw new Error('Subscription billing period must be synchronized before recording usage');
+      }
+      return { periodStart, periodEnd };
+    }
+    // Calendar periods use UTC and an exclusive next-month boundary.
+    return { periodStart: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)),
+      periodEnd: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1)) };
   }
 
   /**
    * Get usage limit for a specific usage type from limits object
    */
   private static getLimitForUsageType(limits: UsageLimits, usageType: UsageType): number {
-    switch (usageType) {
-      case UsageType.AI_QUERY:
-        return limits.aiCreditsPerMonth;
-      case UsageType.MATCH_SCORE_CALCULATION:
-        return limits.matchScoreCalculations;
-      case UsageType.SAVED_FILTER:
-        return limits.documentsPerMonth;
-      case UsageType.SAVED_SEARCH:
-        return limits.savedSearches;
-      case UsageType.USER_SEAT:
-        return limits.seats;
-      // These types typically don't have limits
-      case UsageType.OPPORTUNITY_MATCH:
-      case UsageType.DOCUMENT_PROCESSING:
-      case UsageType.API_CALL:
-      case UsageType.EXPORT:
-        return -1; // Unlimited
-      default:
-        return -1; // Unlimited for unknown types
-    }
+    const limitedTypes: Partial<Record<UsageType, number>> = {
+      AI_QUERY: limits.aiCreditsPerMonth,
+      AI_REQUESTS: limits.aiCreditsPerMonth,
+      MATCH_SCORE_CALCULATION: limits.matchScoreCalculations,
+      SAVED_FILTER: limits.documentsPerMonth,
+      DOCUMENT_PROCESSING: limits.documentsPerMonth,
+      SAVED_SEARCH: limits.savedSearches,
+      USER_SEAT: limits.seats,
+    };
+    if (!Object.hasOwn(limitedTypes, usageType)) return -1;
+    const limit = limitedTypes[usageType];
+    return typeof limit === 'number' && Number.isFinite(limit) && (limit === -1 || limit >= 0) ? limit : 0;
   }
 
   /**
@@ -593,7 +402,7 @@ export class UsageTrackingService {
           subscriptionId: oldSubscriptionId,
           createdAt: {
             gte: periodStart,
-            lte: periodEnd
+            lt: periodEnd
           }
         },
         data: {
@@ -603,7 +412,7 @@ export class UsageTrackingService {
       });
 
       console.log(`Successfully migrated ${updateResult.count} usage records from subscription ${oldSubscriptionId} to ${newSubscriptionId} for organization ${organizationId}`);
-      
+
       // Return the count for logging purposes
       return updateResult.count;
     } catch (error) {
@@ -632,7 +441,7 @@ export class UsageTrackingService {
           subscriptionId: currentSubscriptionId,
           createdAt: {
             gte: periodStart,
-            lte: periodEnd
+            lt: periodEnd
           }
         }
       });
@@ -677,14 +486,14 @@ export class UsageTrackingService {
 
       if (previousSubscription) {
         // Check if there's usage from the previous subscription in the current billing period
-        const { periodStart } = await this.getBillingPeriod(organizationId);
-        
+        const { periodStart, periodEnd } = await this.getBillingPeriod(organizationId);
+
         const previousUsage = await db.usageRecord.findMany({
           where: {
             organizationId,
             subscriptionId: previousSubscription.id,
             createdAt: {
-              gte: periodStart
+              gte: periodStart, lt: periodEnd
             }
           }
         });
@@ -714,19 +523,20 @@ export function withUsageTracking(
     resourceType?: string;
   }
 ) {
-  return function (handler: Function) {
+  return function (handler: (...args: any[]) => any) {
     return async function (req: any, ...args: any[]) {
       try {
         // Extract organization ID from request (assuming you have tenant context)
-        const tenantContext = new TenantContext(req.user);
-        const organizationId = await tenantContext.getOrganizationId();
+        const user = await getCurrentUser();
+        if (!user) throw new Error('Authenticated organization required for usage tracking');
+        const organizationId = user.organizationId;
 
         if (organizationId) {
           // Check usage limit before proceeding
           await UsageTrackingService.enforceUsageLimit(
             organizationId,
             usageType,
-            options?.quantity || 1
+            options?.quantity ?? 1
           );
 
           // Execute the handler
@@ -736,7 +546,7 @@ export function withUsageTracking(
           await UsageTrackingService.trackUsage({
             organizationId,
             usageType,
-            quantity: options?.quantity || 1,
+            quantity: options?.quantity ?? 1,
             resourceId: options?.resourceIdFromRequest?.(req),
             resourceType: options?.resourceType,
           });

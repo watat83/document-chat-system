@@ -1,5 +1,6 @@
 'use client'
 
+import { useClock } from '@/hooks/use-clock'
 import React from 'react'
 import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
@@ -230,9 +231,10 @@ export function CertificationBadge({
   expires,
   className
 }: CertificationBadgeProps) {
+  const now = useClock()
   const config = certificationConfig[cert]
   const isExpired = expires && expires < new Date()
-  const isExpiringSoon = expires && expires < new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+  const isExpiringSoon = expires && expires < new Date(now + 30 * 24 * 60 * 60 * 1000)
 
   return (
     <Badge

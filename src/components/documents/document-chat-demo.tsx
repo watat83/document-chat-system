@@ -68,13 +68,13 @@ export function DocumentChatDemo() {
             </p>
             <div className="flex flex-wrap gap-2 justify-center">
               <code className="px-2 py-1 bg-muted rounded text-xs">
-                "What are the requirements?"
+                &quot;What are the requirements?&quot;
               </code>
               <code className="px-2 py-1 bg-muted rounded text-xs">
-                "When is the deadline?"
+                &quot;When is the deadline?&quot;
               </code>
               <code className="px-2 py-1 bg-muted rounded text-xs">
-                "What's the budget?"
+                &quot;What&apos;s the budget?&quot;
               </code>
             </div>
           </div>

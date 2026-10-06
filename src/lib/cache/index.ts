@@ -1,25 +1,12 @@
-// Server-side only imports
-let cacheService: any;
-let usageTracker: any;
-
-// Only import on server-side
-if (typeof window === 'undefined') {
-  cacheService = require('./redis').default;
-  usageTracker = require('./usage-tracker').usageTracker;
-} else {
-  // Client-side fallback - no-op cache
-  cacheService = {
-    get: () => Promise.resolve(null),
-    set: () => Promise.resolve(false),
-    del: () => Promise.resolve(false),
-    exists: () => Promise.resolve(false),
-    flush: () => Promise.resolve(false),
-  };
-  usageTracker = {
-    trackCacheHit: () => Promise.resolve(),
-    trackCacheMiss: () => Promise.resolve(),
-  };
-}
+const clientCache = {
+  get: async (_key: string) => null,
+  set: async (_key: string, _value: string, _ttl?: number) => false,
+  del: async (_key: string) => false,
+  exists: async (_key: string) => false,
+  flush: async () => false,
+};
+async function getCacheService() { return typeof window === 'undefined' ? (await import('./redis')).default : clientCache; }
+async function getUsageTracker() { return typeof window === 'undefined' ? (await import('./usage-tracker')).usageTracker : { trackCacheHit: async (..._args: unknown[]) => {}, trackCacheMiss: async (..._args: unknown[]) => {} }; }
 
 export interface CacheOptions {
   ttl?: number;
@@ -51,15 +38,15 @@ class CacheManager {
 
   async get<T>(key: string, options: CacheOptions = {}): Promise<T | null> {
     const cacheKey = this.generateKey(key, options.prefix);
-    
+
     try {
-      const cached = await cacheService.get(cacheKey);
-      
+      const cached = await (await getCacheService()).get(cacheKey);
+
       if (cached) {
         const parsed = JSON.parse(cached);
         return parsed as T;
       }
-      
+
       return null;
     } catch (error) {
       console.error('Cache GET error:', error);
@@ -67,13 +54,14 @@ class CacheManager {
     }
   }
 
-  async set<T>(key: string, value: T, options: CacheOptions = {}): Promise<boolean> {
+  async set<T>(key: string, value: T, settings: CacheOptions | number = {}): Promise<boolean> {
+    const options = typeof settings === 'number' ? { ttl: settings } : settings;
     const cacheKey = this.generateKey(key, options.prefix);
-    const ttl = options.ttl || this.defaultTTL;
-    
+    const ttl = options.ttl ?? this.defaultTTL;
+
     try {
       const serialized = JSON.stringify(value);
-      return await cacheService.set(cacheKey, serialized, ttl);
+      return await (await getCacheService()).set(cacheKey, serialized, ttl);
     } catch (error) {
       console.error('Cache SET error:', error);
       return false;
@@ -86,35 +74,35 @@ class CacheManager {
     options: CacheOptions = {}
   ): Promise<CacheResult<T>> {
     const cacheKey = this.generateKey(key, options.prefix);
-    
+
     // Try to get from cache first
     const cached = await this.get<T>(key, options);
-    
+
     if (cached !== null) {
       // Cache hit - track usage
       if (options.userId && !options.skipBilling) {
-        await usageTracker.trackCacheHit(options.userId, key, options.organizationId);
+        await (await getUsageTracker()).trackCacheHit(options.userId, key, options.organizationId);
       }
-      
+
       return {
         data: cached,
         cached: true,
         key: cacheKey,
       };
     }
-    
+
     // Cache miss - fetch data
     try {
       const data = await fetcher();
-      
+
       // Store in cache
       await this.set(key, data, options);
-      
+
       // Track usage
       if (options.userId && !options.skipBilling) {
-        await usageTracker.trackCacheMiss(options.userId, key, options.organizationId);
+        await (await getUsageTracker()).trackCacheMiss(options.userId, key, options.organizationId);
       }
-      
+
       return {
         data,
         cached: false,
@@ -128,7 +116,7 @@ class CacheManager {
 
   async invalidate(key: string, options: CacheOptions = {}): Promise<boolean> {
     const cacheKey = this.generateKey(key, options.prefix);
-    return await cacheService.del(cacheKey);
+    return await (await getCacheService()).del(cacheKey);
   }
 
   // Alias for invalidate for better API consistency
@@ -140,24 +128,24 @@ class CacheManager {
     // This would require a more sophisticated implementation
     // For now, we'll implement a basic pattern-based invalidation
     let invalidated = 0;
-    
+
     for (const tag of tags) {
       const pattern = this.generateKey(`*:${tag}:*`);
       // Note: This is a simplified implementation
       // In production, you'd want to use Redis SCAN with patterns
       invalidated++;
     }
-    
+
     return invalidated;
   }
 
   async flush(): Promise<boolean> {
-    return await cacheService.flush();
+    return await (await getCacheService()).flush();
   }
 
   async exists(key: string, options: CacheOptions = {}): Promise<boolean> {
     const cacheKey = this.generateKey(key, options.prefix);
-    return await cacheService.exists(cacheKey);
+    return await (await getCacheService()).exists(cacheKey);
   }
 
   // Utility methods for common cache patterns

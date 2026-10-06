@@ -39,9 +39,7 @@ export async function POST(request: NextRequest) {
 
     // Rate limiting
     const rateLimitResult = await rateLimit(
-      `sam-sync:${userId}`,
-      3, // 3 requests
-      60 * 1000 // per minute
+      request, { maxRequests: 3, windowMs: 60 * 1000, keyGenerator: () => `sam-sync:${userId}` }
     )
 
     if (!rateLimitResult.success) {
@@ -57,10 +55,10 @@ export async function POST(request: NextRequest) {
 
     if (!validation.success) {
       return NextResponse.json(
-        { 
-          success: false, 
+        {
+          success: false,
           error: 'Invalid request data',
-          details: validation.error.errors 
+          details: validation.error.errors
         },
         { status: 400 }
       )
@@ -70,8 +68,7 @@ export async function POST(request: NextRequest) {
 
     // Get current user profile
     const user = await prisma.user.findUnique({
-      where: { clerkId: userId },
-      include: { profile: true }
+      where: { clerkId: userId, deletedAt: null, organization: { deletedAt: null } }
     })
 
     if (!user) {
@@ -81,7 +78,10 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    if (!user.profile) {
+    if (!['OWNER', 'ADMIN'].includes(user.role)) return NextResponse.json({ success: false, error: 'Organization administrator required' }, { status: 403 })
+    if (uei !== samData.ueiSAM) return NextResponse.json({ success: false, error: 'UEI does not match imported data' }, { status: 400 })
+    const profile = await prisma.profile.findFirst({ where: { organizationId: user.organizationId, deletedAt: null } })
+    if (!profile) {
       return NextResponse.json(
         { success: false, error: 'Profile not found' },
         { status: 404 }
@@ -99,36 +99,39 @@ export async function POST(request: NextRequest) {
 
     // Update profile with SAM.gov data
     const updatedProfile = await prisma.profile.update({
-      where: { id: user.profile.id },
+      where: { id: profile.id, organizationId: user.organizationId, deletedAt: null },
       data: {
         // Basic company information
         companyName: samData.entityName,
         uei: samData.ueiSAM,
         cageCode: samData.cageCode,
-        
+
         // Address information
         addressLine1: samData.addressLine1,
         city: samData.city,
         state: samData.stateOrProvince,
         zipCode: samData.zipCode,
-        
+
         // NAICS codes
-        primaryNaics: primaryNaics || user.profile.primaryNaics,
-        secondaryNaics: secondaryNaics.length > 0 ? secondaryNaics : user.profile.secondaryNaics,
-        
+        primaryNaics: primaryNaics || profile.primaryNaics,
+        secondaryNaics: secondaryNaics.length > 0 ? secondaryNaics : profile.secondaryNaics,
+
         // Entity type and business information
-        entityType: samData.entityType,
-        
+        businessType: samData.entityType,
+        updatedById: user.id,
+        samGovData: { ...samData, provenance: 'user_supplied', verified: false },
+        samGovSyncedAt: new Date(),
+
         // Certifications from business types
         certifications: {
-          ...((user.profile.certifications as any) || {}),
+          ...((profile.certifications as any) || {}),
           ...certifications,
           // Add SAM sync metadata
           _samSyncDate: new Date().toISOString(),
           _samRegistrationStatus: samData.registrationStatus,
           _samExpirationDate: samData.expirationDate
         },
-        
+
         // Update profile metadata
         updatedAt: new Date()
       }
@@ -136,10 +139,10 @@ export async function POST(request: NextRequest) {
 
     // Calculate new completeness score
     const completeness = calculateProfileCompleteness(updatedProfile)
-    
+
     // Update completeness
     await prisma.profile.update({
-      where: { id: updatedProfile.id },
+      where: { id: updatedProfile.id, organizationId: user.organizationId, deletedAt: null },
       data: { profileCompleteness: completeness }
     })
 
@@ -151,7 +154,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       data: responseProfile,
-      message: 'Profile successfully synchronized with SAM.gov data'
+      message: 'Profile updated with imported SAM.gov data'
     })
 
   } catch (error) {
@@ -166,10 +169,10 @@ export async function POST(request: NextRequest) {
 // Helper function to parse SAM business types into certifications
 function parseSAMCertifications(businessTypes: string[]) {
   const certifications: Record<string, boolean | any> = {}
-  
+
   for (const businessType of businessTypes) {
     const type = businessType.toLowerCase()
-    
+
     if (type.includes('small business')) {
       certifications.hasSmallBusiness = true
     }
@@ -195,7 +198,7 @@ function parseSAMCertifications(businessTypes: string[]) {
       certifications.hasSdb = true
     }
   }
-  
+
   return certifications
 }
 
@@ -217,16 +220,16 @@ function calculateProfileCompleteness(profile: any): number {
     { field: 'yearEstablished', weight: 2 },
     { field: 'employeeCount', weight: 2 },
     { field: 'annualRevenue', weight: 2 },
-    
+
     // Government identifiers (20% weight)
     { field: 'uei', weight: 5 },
     { field: 'cageCode', weight: 5 },
     { field: 'duns', weight: 3 },
     { field: 'primaryNaics', weight: 7 },
-    
+
     // Certifications (15% weight)
     { field: 'certifications', weight: 15 },
-    
+
     // Capabilities and preferences (25% weight)
     { field: 'coreCompetencies', weight: 8 },
     { field: 'pastPerformance', weight: 5 },
@@ -236,11 +239,11 @@ function calculateProfileCompleteness(profile: any): number {
   ]
 
   let completedWeight = 0
-  
+
   fields.forEach(({ field, weight }) => {
     const value = profile[field]
     let isComplete = false
-    
+
     if (field === 'certifications') {
       // Check if certifications object exists AND has certifications
       if (value && typeof value === 'object') {
@@ -249,10 +252,10 @@ function calculateProfileCompleteness(profile: any): number {
           const certifications = value.certifications || []
           const setAsides = value.setAsides || []
           isComplete = certifications.length > 0 || setAsides.length > 0
-        } 
+        }
         // Handle legacy structure: {has8a: true, hasHubZone: false, ...}
         else {
-          const hasActiveCertification = Object.entries(value).some(([key, val]) => 
+          const hasActiveCertification = Object.entries(value).some(([key, val]) =>
             key.startsWith('has') && val === true
           )
           isComplete = hasActiveCertification
@@ -288,12 +291,12 @@ function calculateProfileCompleteness(profile: any): number {
     } else {
       isComplete = value != null && value !== ''
     }
-    
+
     if (isComplete) {
       completedWeight += weight
     }
   })
-  
+
   return Math.min(100, completedWeight)
 }
 

@@ -1,4 +1,6 @@
 'use client';
+import Link from 'next/link';
+import { normalizeError } from '@/lib/errors/normalize-error';
 
 import { useState, useEffect } from 'react';
 import { useUser } from '@clerk/nextjs';
@@ -17,13 +19,13 @@ import { useCSRF } from '@/hooks/useCSRF';
 import { useRealtimeSubscription } from '@/hooks/useRealtimeSubscription';
 import { useNotify } from '@/contexts/notification-context';
 import { UsageWarning } from '@/components/ui/usage-warning';
-import { 
+import {
   Activity,
   AlertTriangle,
   BarChart3,
-  Calendar, 
+  Calendar,
   CheckCircle,
-  CreditCard, 
+  CreditCard,
   Crown,
   Download,
   FileText,
@@ -33,7 +35,7 @@ import {
   RefreshCw,
   Search,
   Settings,
-  TrendingUp, 
+  TrendingUp,
   Users,
   Zap
 } from 'lucide-react';
@@ -98,15 +100,15 @@ export function BillingDashboard() {
   const { user } = useUser();
   const { token: csrfToken, addToHeaders } = useCSRF();
   const notify = useNotify();
-  
+
   // Use real-time subscription hook for immediate updates
-  const { 
-    subscription, 
-    loading: subscriptionLoading, 
-    error: subscriptionError, 
+  const {
+    subscription,
+    loading: subscriptionLoading,
+    error: subscriptionError,
     refetch: refetchSubscription,
     invalidateCache,
-    lastUpdated 
+    lastUpdated
   } = useRealtimeSubscription({
     pollInterval: 300000, // Poll every 5 minutes (much less frequent)
     enableBackgroundSync: true,
@@ -120,7 +122,7 @@ export function BillingDashboard() {
   const [error, setError] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [updating, setUpdating] = useState(false);
-  
+
   // Usage warning state
   const [usageWarning, setUsageWarning] = useState<{
     message?: string
@@ -133,7 +135,7 @@ export function BillingDashboard() {
     try {
       // Check different usage types that are commonly at risk of limits
       const usageTypesToCheck = ['DOCUMENT_PROCESSING', 'AI_QUERY', 'EXPORT'];
-      
+
       for (const usageType of usageTypesToCheck) {
         const response = await fetch('/api/v1/billing/usage/check', {
           method: 'POST',
@@ -141,7 +143,7 @@ export function BillingDashboard() {
             'Content-Type': 'application/json',
           }),
           credentials: 'include',
-          body: JSON.stringify({ 
+          body: JSON.stringify({
             usageType,
             quantity: 1
           }),
@@ -159,7 +161,7 @@ export function BillingDashboard() {
           }
         }
       }
-      
+
       // If no warnings found, clear any existing warning
       setUsageWarning({});
     } catch (error) {
@@ -188,7 +190,7 @@ export function BillingDashboard() {
       try {
         setLoading(true);
         setError(null);
-        
+
         // Fetch usage data
         const usageResponse = await fetch('/api/v1/billing/usage', {
           headers: addToHeaders({
@@ -196,7 +198,7 @@ export function BillingDashboard() {
           }),
           credentials: 'include',
         });
-        
+
         if (usageResponse.ok) {
           const usageData = await usageResponse.json();
           setUsage(usageData.usage);
@@ -231,7 +233,7 @@ export function BillingDashboard() {
 
     try {
       notify.info('Creating Checkout', `Setting up your ${planType} subscription...`);
-      
+
       const response = await fetch('/api/v1/billing/subscription', {
         method: 'POST',
         headers: addToHeaders({
@@ -279,10 +281,10 @@ export function BillingDashboard() {
     // Show usage preservation confirmation
     const currentUsage = usage?.totals || {};
     const hasUsage = Object.values(currentUsage).some(value => (value as number) > 0);
-    
+
     if (hasUsage) {
       const confirmMessage = `You're switching from ${subscription?.planType} to ${newPlanType}.\n\nGood news! Your current usage data will be preserved:\n${Object.entries(currentUsage).map(([type, count]) => `• ${type}: ${count}`).join('\n')}\n\nDo you want to continue?`;
-      
+
       if (!confirm(confirmMessage)) {
         return;
       }
@@ -296,17 +298,17 @@ export function BillingDashboard() {
       notify.info('Updating Plan', `Switching to ${newPlanType} plan... Your usage data will be preserved.`);
       console.log('🔄 Starting subscription update to plan:', newPlanType);
       console.log('CSRF token available:', !!csrfToken);
-      
+
       const requestHeaders = addToHeaders({
         'Content-Type': 'application/json',
       });
       const requestBody = JSON.stringify({
         planType: newPlanType,
       });
-      
+
       console.log('Request headers:', requestHeaders);
       console.log('Request body:', requestBody);
-      
+
       let response;
       try {
         response = await fetch('/api/v1/billing/subscription', {
@@ -316,11 +318,12 @@ export function BillingDashboard() {
           body: requestBody,
         });
         console.log('✅ Fetch completed successfully');
-      } catch (fetchError) {
+      } catch (caughtFetcherror) {
+      const fetchError = normalizeError(caughtFetcherror);
         console.error('❌ Fetch failed:', fetchError);
         throw new Error(`Network request failed: ${fetchError.message || String(fetchError)}`);
       }
-      
+
       console.log('Response status:', response.status, response.statusText);
       console.log('Response OK?:', response.ok);
       console.log('Response headers:', Object.fromEntries(response.headers.entries()));
@@ -328,7 +331,7 @@ export function BillingDashboard() {
       if (!response.ok) {
         let errorData = null;
         let responseText = '';
-        
+
         try {
           responseText = await response.text();
           errorData = JSON.parse(responseText);
@@ -336,40 +339,40 @@ export function BillingDashboard() {
           console.error('Failed to parse error response:', parseError);
           console.error('Raw response text:', responseText);
         }
-        
+
         const errorMessage = errorData?.error || errorData?.message || `HTTP ${response.status}: ${response.statusText}`;
         const errorCode = errorData?.code;
-        
-        console.error('Subscription update error:', { 
+
+        console.error('Subscription update error:', {
           status: response.status,
           statusText: response.statusText,
-          errorMessage, 
-          errorCode, 
+          errorMessage,
+          errorCode,
           errorData,
-          responseText 
+          responseText
         });
-        
+
         // Handle specific error cases
         if (errorCode === 'SUBSCRIPTION_NOT_FOUND') {
           throw new Error('No active subscription found. Please create a subscription first by selecting a plan below.');
         }
-        
+
         if (errorCode === 'UNAUTHORIZED') {
           throw new Error('Please sign in to manage your subscription.');
         }
-        
+
         if (errorCode === 'ORGANIZATION_NOT_FOUND') {
           throw new Error('Organization setup incomplete. Please contact support.');
         }
-        
+
         if (errorCode === 'STRIPE_NOT_CONFIGURED') {
           throw new Error('Billing system not configured. Please contact support.');
         }
-        
+
         if (errorCode === 'SAME_PLAN_SELECTED') {
           throw new Error(errorMessage || 'You are already on this plan.');
         }
-        
+
         throw new Error(errorMessage);
       }
 
@@ -379,11 +382,11 @@ export function BillingDashboard() {
         const responseText = await response.text();
         console.log('📄 Response text (first 500 chars):', responseText.substring(0, 500));
         console.log('📄 Response text length:', responseText.length);
-        
+
         if (!responseText) {
           throw new Error('Empty response from server');
         }
-        
+
         console.log('🔄 Parsing JSON...');
         data = JSON.parse(responseText);
         console.log('✅ JSON parsed successfully:', data);
@@ -397,7 +400,7 @@ export function BillingDashboard() {
         });
         throw new Error(`Invalid response format from server: ${parseError instanceof Error ? parseError.message : String(parseError)}`);
       }
-      
+
       // If there's a checkout URL, redirect to complete the plan change
       if (data.checkoutUrl) {
         console.log('✅ Checkout session created, redirecting to Stripe:', data.checkoutUrl);
@@ -405,21 +408,21 @@ export function BillingDashboard() {
         window.location.href = data.checkoutUrl;
       } else {
         console.log('✅ Direct subscription update completed');
-        
+
         // IMMEDIATE UI UPDATE - fetch fresh data (no cache to invalidate)
         console.log('🚀 Performing immediate UI update...');
         notify.success('Plan Updated', 'Your subscription has been updated successfully!');
-        
+
         try {
           // Fetch fresh data immediately (no cache since caching is disabled)
           await refetchSubscription();
-          
+
           console.log('✅ Immediate UI update completed');
           notify.success('Update Complete', 'Your new plan is now active!');
-          
+
         } catch (refreshError) {
           console.warn('⚠️ Immediate refresh failed, performing background sync...', refreshError);
-          
+
           // Fallback to background sync if immediate refresh fails
           try {
             const syncResponse = await fetch('/api/v1/billing/sync', {
@@ -457,17 +460,17 @@ export function BillingDashboard() {
         keys: Object.keys(err || {}),
         values: Object.values(err || {})
       });
-      
+
       let errorMessage = 'Failed to update subscription';
-      
+
       if (err instanceof Error) {
         errorMessage = err.message || 'Unknown error occurred';
       } else if (typeof err === 'string') {
         errorMessage = err;
       } else if (err && typeof err === 'object') {
-        errorMessage = err.message || err.error || 'Unknown error occurred';
+        errorMessage = 'message' in err && typeof err.message === 'string' ? err.message : 'error' in err && typeof err.error === 'string' ? err.error : 'Unknown error occurred';
       }
-      
+
       setError(`Unable to update subscription: ${errorMessage}`);
       notify.error('Update Failed', errorMessage);
     } finally {
@@ -494,7 +497,7 @@ export function BillingDashboard() {
     try {
       notify.info('Canceling Subscription', 'Processing your cancellation request...');
       console.log('🔄 Canceling subscription...');
-      
+
       const response = await fetch('/api/v1/billing/subscription', {
         method: 'PATCH',
         headers: addToHeaders({
@@ -514,7 +517,7 @@ export function BillingDashboard() {
 
       console.log('✅ Subscription cancelled, syncing data...');
       notify.success('Subscription Canceled', 'Your subscription will end at the end of your current billing period.');
-      
+
       // Sync data from Stripe before updating UI
       try {
         const syncResponse = await fetch('/api/v1/billing/sync', {
@@ -553,7 +556,7 @@ export function BillingDashboard() {
     try {
       notify.info('Reactivating Subscription', 'Restoring your subscription...');
       console.log('🔄 Reactivating subscription...');
-      
+
       const response = await fetch('/api/v1/billing/subscription', {
         method: 'PATCH',
         headers: addToHeaders({
@@ -573,7 +576,7 @@ export function BillingDashboard() {
 
       console.log('✅ Subscription reactivated, syncing data...');
       notify.success('Subscription Reactivated', 'Your subscription is now active and will continue automatically.');
-      
+
       // Sync data from Stripe before updating UI
       try {
         const syncResponse = await fetch('/api/v1/billing/sync', {
@@ -630,7 +633,7 @@ export function BillingDashboard() {
         const errorData = await response.json().catch(() => null);
         const errorMessage = errorData?.error || errorData?.message || 'Failed to create portal session';
         const errorCode = errorData?.code;
-        
+
         // Handle specific error codes
         if (errorCode === 'PORTAL_NOT_CONFIGURED') {
           setError(
@@ -640,23 +643,23 @@ export function BillingDashboard() {
           );
           return;
         }
-        
+
         if (errorCode === 'NO_STRIPE_CUSTOMER') {
           setError('No billing account found. Please select a plan below to get started.');
           return;
         }
-        
+
         if (errorCode === 'STRIPE_CUSTOMER_NOT_FOUND') {
           setError('Billing account not found. Please contact support or select a plan below.');
           return;
         }
-        
+
         // Handle generic Stripe errors
         if (errorCode === 'STRIPE_ERROR') {
           setError('Unable to access billing portal. Please try again later or contact support.');
           return;
         }
-        
+
         // Fallback for other errors
         throw new Error(errorMessage);
       }
@@ -671,7 +674,7 @@ export function BillingDashboard() {
     } catch (err) {
       console.error('Error opening customer portal:', err);
       const errorMessage = err instanceof Error ? err.message : 'Failed to open customer portal';
-      
+
       // Set a user-friendly error message
       setError(`Unable to open billing portal: ${errorMessage}`);
       notify.error('Portal Error', errorMessage);
@@ -682,7 +685,7 @@ export function BillingDashboard() {
     try {
       console.log('🧪 Testing API connection...');
       setError(null);
-      
+
       const response = await fetch('/api/v1/billing/test', {
         method: 'POST',
         headers: addToHeaders({
@@ -697,7 +700,7 @@ export function BillingDashboard() {
 
       const data = await response.json();
       console.log('Test API result:', data);
-      
+
       if (response.ok) {
         alert('✅ API connection working! Check console for details.');
       } else {
@@ -720,10 +723,10 @@ export function BillingDashboard() {
     try {
       setSyncing(true);
       setError(null);
-      
+
       notify.info('Syncing Data', 'Fetching latest subscription data from Stripe...');
       console.log('Syncing subscription data from Stripe...');
-      
+
       const response = await fetch('/api/v1/billing/sync', {
         method: 'POST',
         headers: addToHeaders({
@@ -740,9 +743,9 @@ export function BillingDashboard() {
 
       const data = await response.json();
       console.log('Sync result:', data);
-      
+
       notify.success('Sync Complete', 'Subscription data has been updated successfully.');
-      
+
       // Refresh the page to show updated data
       window.location.reload();
     } catch (err) {
@@ -776,32 +779,32 @@ export function BillingDashboard() {
               <AlertTriangle className="h-16 w-16 text-red-500 mx-auto mb-4" />
               <h3 className="text-xl font-semibold text-foreground mb-2">Unable to Load Billing</h3>
               <p className="text-muted-foreground mb-6">{error}</p>
-              {error.includes('sign in') ? (
+              {error?.includes('sign in') ? (
                 <Button asChild size="lg" className="w-full">
-                  <a href="/sign-in">Sign In to Continue</a>
+                  <Link href={{ pathname: "/sign-in" }}>Sign In to Continue</Link>
                 </Button>
               ) : (
                 <div className="space-y-2">
-                  <Button 
-                    onClick={handleTestApi} 
-                    size="lg" 
+                  <Button
+                    onClick={handleTestApi}
+                    size="lg"
                     className="w-full bg-blue-600 hover:bg-blue-700"
                   >
                     🧪 Test API Connection
                   </Button>
-                  <Button 
-                    onClick={handleSyncSubscription} 
-                    size="lg" 
+                  <Button
+                    onClick={handleSyncSubscription}
+                    size="lg"
                     className="w-full"
                     disabled={syncing}
                   >
                     <RefreshCw className={`h-4 w-4 mr-2 ${syncing ? 'animate-spin' : ''}`} />
                     {syncing ? 'Syncing from Stripe...' : 'Sync from Stripe'}
                   </Button>
-                  <Button 
-                    onClick={() => window.location.reload()} 
-                    variant="outline" 
-                    size="lg" 
+                  <Button
+                    onClick={() => window.location.reload()}
+                    variant="outline"
+                    size="lg"
                     className="w-full"
                   >
                     Refresh Page
@@ -858,28 +861,28 @@ export function BillingDashboard() {
     day: 'numeric',
     year: 'numeric'
   });
-  
+
   // Enhanced trial detection - check both status and trial dates
   const isTrialing = (() => {
     // Direct trial status from Stripe
     if (subscription.status === 'TRIALING') {
       return true;
     }
-    
+
     // Check if subscription has trial dates and trial hasn't ended yet
     if (subscription.trialEnd) {
       const trialEndDate = new Date(subscription.trialEnd);
       const now = new Date();
       return now < trialEndDate; // Still in trial period
     }
-    
+
     return false;
   })();
-  
+
   // Only show as canceled if the subscription is actually canceled (status = CANCELED)
   const isCanceled = subscription.status === 'CANCELED';
   // Show cancellation for both ACTIVE and TRIALING subscriptions that are scheduled to cancel
-  const isScheduledForCancellation = subscription.cancelAtPeriodEnd && 
+  const isScheduledForCancellation = subscription.cancelAtPeriodEnd &&
     (subscription.status === 'ACTIVE' || subscription.status === 'TRIALING' || isTrialing);
 
   const getStatusColor = (status: string) => {
@@ -911,10 +914,10 @@ export function BillingDashboard() {
       progressColor: 'bg-blue-500'
     },
     {
-      name: 'Pages Processed',
+      name: 'Documents Processed',
       icon: FileText,
-      current: usage?.totals.SAVED_SEARCH || 0, // Will be updated to pages processed
-      limit: subscription?.limits?.savedSearches ?? 0, // Will be updated to pages limit
+      current: usage?.totals.DOCUMENT_PROCESSING || 0,
+      limit: subscription?.limits?.documentsPerMonth ?? 0,
       color: 'text-green-600',
       bgColor: 'bg-green-50',
       progressColor: 'bg-green-500'
@@ -964,14 +967,14 @@ export function BillingDashboard() {
                     🎉 Free Trial Active
                   </h3>
                   <p className="text-blue-700">
-                    You're enjoying all premium features at no cost. 
+                    You&apos;re enjoying all premium features at no cost.
                     <span className="font-medium"> Trial ends on {nextBillingDate}</span>
                   </p>
                 </div>
                 <div className="flex items-center space-x-4">
-                  <TrialCountdown 
-                    trialEnd={subscription.trialEnd || subscription.currentPeriodEnd} 
-                    size="medium" 
+                  <TrialCountdown
+                    trialEnd={subscription.trialEnd || subscription.currentPeriodEnd}
+                    size="medium"
                   />
                 </div>
               </div>
@@ -982,16 +985,16 @@ export function BillingDashboard() {
                 {formatCurrency(subscription.amount / 100)}
                 <span className="text-sm font-normal text-blue-600">/month</span>
               </div>
-              <div className="text-xs text-blue-600">You're saving during trial!</div>
+              <div className="text-xs text-blue-600">You&apos;re saving during trial!</div>
             </div>
           </div>
-          
+
           <div className="mt-4 pt-4 border-t border-blue-200">
             <div className="flex items-center justify-between">
               <div className="text-sm text-blue-700">
                 💡 <strong>Tip:</strong> No payment required until trial ends. Cancel anytime!
               </div>
-              <button 
+              <button
                 onClick={() => {
                   // Scroll to plans tab
                   const plansTab = document.querySelector('[value="plans"]');
@@ -1032,8 +1035,8 @@ export function BillingDashboard() {
 
       {isScheduledForCancellation && (
         <div className={`border rounded-xl p-6 ${
-          isTrialing 
-            ? 'bg-gradient-to-r from-orange-50 via-orange-50 to-red-50 border-orange-200' 
+          isTrialing
+            ? 'bg-gradient-to-r from-orange-50 via-orange-50 to-red-50 border-orange-200'
             : 'bg-gradient-to-r from-orange-50 via-orange-50 to-yellow-50 border-orange-200'
         }`}>
           <div className="flex items-start justify-between">
@@ -1053,15 +1056,15 @@ export function BillingDashboard() {
                   </p>
                 </div>
                 <div className="flex items-center space-x-4">
-                  <TrialCountdown 
-                    trialEnd={subscription.trialEnd || subscription.currentPeriodEnd} 
-                    size="medium" 
+                  <TrialCountdown
+                    trialEnd={subscription.trialEnd || subscription.currentPeriodEnd}
+                    size="medium"
                   />
                 </div>
               </div>
             </div>
             <div className="text-right space-y-2">
-              <button 
+              <button
                 onClick={handleReactivateSubscription}
                 disabled={updating}
                 className="bg-orange-600 hover:bg-orange-700 disabled:bg-orange-400 text-white px-6 py-3 rounded-lg font-medium transition-colors text-sm dark:text-white"
@@ -1073,16 +1076,16 @@ export function BillingDashboard() {
               </div>
             </div>
           </div>
-          
+
           <div className="mt-4 pt-4 border-t border-orange-200">
             <div className="text-sm text-orange-700">
-              <strong>Good news:</strong> You'll retain access to all premium features until {nextBillingDate}.
+              <strong>Good news:</strong> You&apos;ll retain access to all premium features until {nextBillingDate}.
               {(() => {
                 const endDate = new Date(subscription.currentPeriodEnd);
                 const now = new Date();
                 const diffTime = endDate.getTime() - now.getTime();
                 const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-                
+
                 if (diffDays === 1) {
                   return " That's tomorrow!";
                 } else if (diffDays > 0) {
@@ -1098,7 +1101,7 @@ export function BillingDashboard() {
 
       {/* Usage Warning */}
       {usageWarning.message && (
-        <UsageWarning 
+        <UsageWarning
           warning={usageWarning.message}
           upgradeMessage={usageWarning.upgradeMessage}
           isDeveloperOverride={usageWarning.isDeveloperOverride}
@@ -1148,7 +1151,7 @@ export function BillingDashboard() {
                           const now = new Date();
                           const diffTime = endDate.getTime() - now.getTime();
                           const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-                          
+
                           if (diffDays === 1) {
                             return "Tomorrow";
                           } else if (diffDays > 0) {
@@ -1162,25 +1165,25 @@ export function BillingDashboard() {
                   </div>
                 </div>
                 <div className="flex space-x-2">
-                  <Button 
-                    onClick={handleSyncSubscription} 
-                    variant="outline" 
+                  <Button
+                    onClick={handleSyncSubscription}
+                    variant="outline"
                     size="sm"
                     disabled={syncing || updating}
                   >
                     <RefreshCw className={`h-4 w-4 mr-2 ${syncing ? 'animate-spin' : ''}`} />
                     {syncing ? 'Syncing...' : updating ? 'Processing...' : 'Sync'}
                   </Button>
-                  <Button 
-                    onClick={handleManageSubscription} 
-                    variant="outline" 
+                  <Button
+                    onClick={handleManageSubscription}
+                    variant="outline"
                     size="sm"
                     disabled={updating || syncing}
                   >
                     <Settings className="h-4 w-4 mr-2" />
                     Manage
                   </Button>
-                  <Button 
+                  <Button
                     onClick={() => {
                       // Scroll to plans tab
                       const plansTab = document.querySelector('[value="plans"]');
@@ -1194,7 +1197,7 @@ export function BillingDashboard() {
                         }, 100);
                       }
                     }}
-                    variant="ghost" 
+                    variant="ghost"
                     size="sm"
                     className="text-blue-600 hover:text-blue-700"
                     disabled={updating || syncing}
@@ -1206,9 +1209,9 @@ export function BillingDashboard() {
                       Select a plan below to reactivate
                     </div>
                   ) : isScheduledForCancellation ? (
-                    <Button 
+                    <Button
                       onClick={handleReactivateSubscription}
-                      variant="ghost" 
+                      variant="ghost"
                       size="sm"
                       className="text-green-600 hover:text-green-700"
                       disabled={updating || syncing}
@@ -1216,9 +1219,9 @@ export function BillingDashboard() {
                       {updating ? 'Processing...' : 'Continue'}
                     </Button>
                   ) : (
-                    <Button 
+                    <Button
                       onClick={handleCancelSubscription}
-                      variant="ghost" 
+                      variant="ghost"
                       size="sm"
                       className="text-red-600 hover:text-red-700"
                       disabled={updating || syncing}
@@ -1272,7 +1275,7 @@ export function BillingDashboard() {
                               const now = new Date();
                               const diffTime = endDate.getTime() - now.getTime();
                               const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-                              
+
                               if (diffDays === 1) {
                                 return "ends tomorrow";
                               } else if (diffDays > 0) {
@@ -1285,7 +1288,7 @@ export function BillingDashboard() {
                               const now = new Date();
                               const diffTime = endDate.getTime() - now.getTime();
                               const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-                              
+
                               if (diffDays === 1) {
                                 return "ends tomorrow";
                               } else if (diffDays > 0) {
@@ -1346,10 +1349,10 @@ export function BillingDashboard() {
               {usageMetrics.map((metric) => {
                 const Icon = metric.icon;
                 const safeLimit = metric.limit ?? 0;
-                const percentage = safeLimit > 0 && safeLimit !== -1 
+                const percentage = safeLimit > 0 && safeLimit !== -1
                   ? Math.min((metric.current / safeLimit) * 100, 100)
                   : 0;
-                
+
                 return (
                   <Card key={metric.name} className="p-4">
                     <div className="flex items-center justify-between mb-3">
@@ -1370,8 +1373,8 @@ export function BillingDashboard() {
                     </div>
                     {safeLimit > 0 && safeLimit !== -1 && (
                       <div className="space-y-1">
-                        <Progress 
-                          value={percentage} 
+                        <Progress
+                          value={percentage}
                           className="h-2"
                           style={{
                             backgroundColor: '#f3f4f6'
@@ -1431,7 +1434,7 @@ export function BillingDashboard() {
               <code className="mt-1.5 text-[13px]">Billing History</code>
             </TabsTrigger>
           </TabsList>
-          
+
           <div className="flex items-center space-x-2">
             {lastUpdated && (
               <span className="text-xs text-muted-foreground">
@@ -1446,19 +1449,19 @@ export function BillingDashboard() {
             <h3 className="text-xl font-semibold text-foreground mb-2">Upgrade or Change Your Plan</h3>
             <p className="text-muted-foreground">Switch to a different plan that better fits your needs</p>
           </div>
-          
+
           {/* Usage Preservation Information */}
           {usage && Object.values(usage.totals || {}).some(value => (value as number) > 0) && (
             <Alert className="bg-green-50 border-green-200">
               <CheckCircle className="h-4 w-4 text-green-600" />
               <AlertDescription className="text-green-800">
-                <strong>Your usage data will be preserved</strong> when switching plans. 
+                <strong>Your usage data will be preserved</strong> when switching plans.
                 Current usage: {Object.entries(usage.totals || {}).map(([type, count]) => `${type}: ${count}`).join(', ')}
               </AlertDescription>
             </Alert>
           )}
-          
-          <PlanSelectionCards 
+
+          <PlanSelectionCards
             currentPlan={subscription.planType}
             onSelectPlan={handleUpdateSubscription}
             disabled={updating}

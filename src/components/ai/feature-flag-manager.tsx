@@ -252,7 +252,7 @@ export function FeatureFlagManager({ organizationId, demoMode = true }: { organi
   const [originalFlags, setOriginalFlags] = useState<FeatureFlag[]>(DEMO_FLAGS);
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
-  const [hasChanges, setHasChanges] = useState(false);
+  const hasChanges = flags.some((flag, index) => flag.value !== originalFlags[index]?.value);
   const [isSaving, setIsSaving] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
 
@@ -273,14 +273,6 @@ export function FeatureFlagManager({ organizationId, demoMode = true }: { organi
     return acc;
   }, {} as Record<string, FeatureFlag[]>);
 
-  // Check for changes
-  useEffect(() => {
-    const changed = flags.some((flag, index) => 
-      flag.value !== originalFlags[index]?.value
-    );
-    setHasChanges(changed);
-  }, [flags, originalFlags]);
-
   const updateFlag = (key: string, value: boolean | string | number) => {
     setFlags(prev => prev.map(flag => 
       flag.key === key ? { ...flag, value } : flag
@@ -289,7 +281,6 @@ export function FeatureFlagManager({ organizationId, demoMode = true }: { organi
 
   const resetFlags = () => {
     setFlags([...originalFlags]);
-    setHasChanges(false);
   };
 
   const saveFlags = async () => {
@@ -298,7 +289,6 @@ export function FeatureFlagManager({ organizationId, demoMode = true }: { organi
       // Simulate API call delay
       await new Promise(resolve => setTimeout(resolve, 1000));
       setOriginalFlags([...flags]);
-      setHasChanges(false);
       setIsSaving(false);
       return;
     }
@@ -323,7 +313,6 @@ export function FeatureFlagManager({ organizationId, demoMode = true }: { organi
       }
 
       setOriginalFlags([...flags]);
-      setHasChanges(false);
     } catch (error) {
       console.error('Failed to save feature flags:', error);
     } finally {

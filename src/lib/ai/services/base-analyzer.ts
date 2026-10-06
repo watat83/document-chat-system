@@ -26,7 +26,7 @@ export abstract class BaseAnalyzer {
     });
 
     console.log(`⏱️ [${this.getAnalyzerName()}] Starting ${operation} with ${timeoutMs}ms timeout...`);
-    
+
     try {
       const result = await Promise.race([promise, timeoutPromise]);
       clearTimeout(timeoutId!);
@@ -35,8 +35,8 @@ export abstract class BaseAnalyzer {
     } catch (error) {
       clearTimeout(timeoutId!);
       console.error(`❌ [${this.getAnalyzerName()}] ${operation} failed:`, {
-        errorName: error?.name,
-        errorMessage: error?.message,
+        errorName: error instanceof Error ? error.name : 'UnknownError',
+        errorMessage: error instanceof Error ? error.message : String(error),
         timeoutMs: timeoutMs
       });
       throw error;
@@ -88,7 +88,7 @@ export abstract class BaseAnalyzer {
     console.log(`🔍 [${this.getAnalyzerName()}] CHECKPOINT C: executeWithTimeout completed successfully`);
 
     console.log(`✅ [${this.getAnalyzerName()}] AI service responded with content length: ${result.content?.length || 0}`);
-    
+
     if (!result.content) {
       throw new Error('No response from AI service');
     }
@@ -109,18 +109,18 @@ export abstract class BaseAnalyzer {
       console.warn(`🔍 [${this.getAnalyzerName()}] Expected array but got ${typeof arr}, using defaults`);
       return defaultItems;
     }
-    
+
     const filtered = arr
       .filter(item => typeof item === 'string' && item.trim().length > 0)
       .map(item => item.trim())
       .slice(0, maxItems);
-    
+
     // Ensure we have at least minItems
     if (filtered.length < minItems && defaultItems.length > 0) {
       const needed = minItems - filtered.length;
       return [...filtered, ...defaultItems.slice(0, needed)];
     }
-    
+
     return filtered;
   }
 
@@ -128,23 +128,23 @@ export abstract class BaseAnalyzer {
    * Validate and clamp numeric scores
    */
   protected validateScore(score: any, defaultScore: number = 70, min: number = 0, max: number = 100): number {
-    console.log(`🔍 [${this.getAnalyzerName()}] validateScore called with:`, { 
-      score, 
-      scoreType: typeof score, 
-      defaultScore 
+    console.log(`🔍 [${this.getAnalyzerName()}] validateScore called with:`, {
+      score,
+      scoreType: typeof score,
+      defaultScore
     });
-    
+
     const numScore = Number(score);
-    console.log(`🔍 [${this.getAnalyzerName()}] Number conversion result:`, { 
-      numScore, 
-      isNaN: isNaN(numScore) 
+    console.log(`🔍 [${this.getAnalyzerName()}] Number conversion result:`, {
+      numScore,
+      isNaN: isNaN(numScore)
     });
-    
+
     if (isNaN(numScore)) {
       console.log(`🔍 [${this.getAnalyzerName()}] Score is NaN, returning default:`, defaultScore);
       return defaultScore;
     }
-    
+
     const finalScore = Math.max(min, Math.min(max, Math.round(numScore)));
     console.log(`🔍 [${this.getAnalyzerName()}] Final validated score:`, finalScore);
     return finalScore;
@@ -156,8 +156,8 @@ export abstract class BaseAnalyzer {
   protected validateSentiment(sentiment: any): 'positive' | 'negative' | 'neutral' {
     const validSentiments = ['positive', 'negative', 'neutral'] as const;
     const lowerSentiment = typeof sentiment === 'string' ? sentiment.toLowerCase() : '';
-    
-    return validSentiments.includes(lowerSentiment as any) 
+
+    return validSentiments.includes(lowerSentiment as any)
       ? lowerSentiment as 'positive' | 'negative' | 'neutral'
       : 'neutral';
   }
@@ -169,13 +169,13 @@ export abstract class BaseAnalyzer {
     try {
       console.log(`🔍 [${this.getAnalyzerName()}] Parsing response, length: ${response.length}`);
       console.log(`🔍 [${this.getAnalyzerName()}] Raw response preview:`, response.substring(0, 300) + '...');
-      
+
       // Try multiple extraction patterns for JSON
       let jsonMatch;
-      
+
       // Pattern 1: Standard JSON object (greedy match)
       jsonMatch = response.match(/\{[\s\S]*\}/);
-      
+
       // Pattern 2: If no match, try finding JSON between code blocks
       if (!jsonMatch) {
         jsonMatch = response.match(/```json\s*(\{[\s\S]*?\})\s*```/);
@@ -183,7 +183,7 @@ export abstract class BaseAnalyzer {
           jsonMatch[0] = jsonMatch[1]; // Use the captured group
         }
       }
-      
+
       // Pattern 3: Try finding JSON between any code blocks
       if (!jsonMatch) {
         jsonMatch = response.match(/```\s*(\{[\s\S]*?\})\s*```/);
@@ -191,7 +191,7 @@ export abstract class BaseAnalyzer {
           jsonMatch[0] = jsonMatch[1]; // Use the captured group
         }
       }
-      
+
       if (!jsonMatch) {
         console.error(`❌ [${this.getAnalyzerName()}] No JSON object found in response`);
         console.error(`❌ [${this.getAnalyzerName()}] Full response:`, response);
@@ -199,18 +199,18 @@ export abstract class BaseAnalyzer {
       }
 
       console.log(`🔍 [${this.getAnalyzerName()}] Found JSON match:`, jsonMatch[0].substring(0, 300) + (jsonMatch[0].length > 300 ? '...' : ''));
-      
+
       // Clean up the JSON string before parsing
       let cleanJson = jsonMatch[0].trim();
-      
+
       // Remove any trailing commas before closing braces/brackets
       cleanJson = cleanJson.replace(/,(\s*[}\]])/g, '$1');
-      
+
       const parsed = JSON.parse(cleanJson);
-      
+
       console.log(`✅ [${this.getAnalyzerName()}] Successfully parsed JSON with keys:`, Object.keys(parsed));
       console.log(`🔍 [${this.getAnalyzerName()}] Parsed data preview:`, JSON.stringify(parsed, null, 2).substring(0, 500) + '...');
-      
+
       return parsed;
 
     } catch (error) {
@@ -234,23 +234,23 @@ export abstract class BaseAnalyzer {
    */
   protected extractKeywords(text: string, maxKeywords: number = 20): string[] {
     const commonWords = new Set([
-      'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 
-      'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been', 'be', 
-      'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'should', 
-      'could', 'may', 'might', 'must', 'can', 'shall', 'this', 'that', 'these', 
+      'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of',
+      'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been', 'be',
+      'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'should',
+      'could', 'may', 'might', 'must', 'can', 'shall', 'this', 'that', 'these',
       'those', 'they', 'them', 'their', 'there', 'then', 'than', 'when', 'where'
     ]);
-    
+
     const words = text.toLowerCase()
       .split(/\W+/)
       .filter(word => word.length > 3 && !commonWords.has(word));
-    
+
     // Count word frequency
     const wordFreq = new Map<string, number>();
     words.forEach(word => {
       wordFreq.set(word, (wordFreq.get(word) || 0) + 1);
     });
-    
+
     // Sort by frequency and return top keywords
     return Array.from(wordFreq.entries())
       .sort((a, b) => b[1] - a[1])

@@ -98,7 +98,11 @@ export function SavedSearchModal({
   const notify = useNotify()
 
   // Reset form when modal opens/closes or editing search changes
-  useEffect(() => {
+  const [previousOpen, setPreviousOpen] = useState(false)
+  const [previousSearch, setPreviousSearch] = useState(editingSearch)
+  if (previousOpen !== isOpen || previousSearch !== editingSearch) {
+    setPreviousOpen(isOpen)
+    setPreviousSearch(editingSearch)
     if (isOpen) {
       if (editingSearch) {
         setFormData({
@@ -132,7 +136,7 @@ export function SavedSearchModal({
         setCustomCategory('')
       }
     }
-  }, [isOpen, editingSearch])
+  }
 
   // Count active filters
   const activeFilterCount = Object.values(currentFilters).filter(value => 

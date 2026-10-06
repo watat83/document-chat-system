@@ -181,7 +181,7 @@ export function ExcalidrawModal({
     setDiscardModalOpen(true)
   }
 
-  function ShowDiscardDialog(): JSX.Element {
+  function renderShowDiscardDialog(): JSX.Element {
     return (
       <Dialog open={discardModalOpen} onOpenChange={setDiscardModalOpen}>
         <DialogContent>
@@ -224,7 +224,7 @@ export function ExcalidrawModal({
         <div className="relative" role="dialog">
           <div className="h-full w-full" ref={excaliDrawModelRef} tabIndex={-1}>
             <div className="h-full w-full">
-              {discardModalOpen && <ShowDiscardDialog />}
+              {discardModalOpen && renderShowDiscardDialog()}
               <Excalidraw
                 onChange={onChange}
                 excalidrawAPI={excalidrawAPIRefCallback}

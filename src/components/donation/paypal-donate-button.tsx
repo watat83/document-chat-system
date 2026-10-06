@@ -45,7 +45,7 @@ export function PayPalDonateButton({
         <CardContent>
           <p className="text-sm text-muted-foreground mb-4">
             Your donations help us provide free AI-powered document analysis, chat,
-            and matching services to users who can't afford premium AI subscriptions.
+            and matching services to users who can&apos;t afford premium AI subscriptions.
             Every contribution makes a difference!
           </p>
           <Button

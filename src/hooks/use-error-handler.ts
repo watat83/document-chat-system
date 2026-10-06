@@ -61,7 +61,7 @@ interface ErrorNotificationOptions {
 
 /**
  * Enhanced Error Handler Hook
- * 
+ *
  * Provides comprehensive error handling with:
  * - Integration with notification system
  * - Error categorization and severity assessment
@@ -79,10 +79,10 @@ export function useErrorHandler(config: ErrorHandlerConfig = {}) {
   } = config
 
   const { error: showErrorNotification, warning: showWarningNotification, info: showInfoNotification } = useNotifications()
-  
+
   // Track notifications to prevent spam
   const notificationCountRef = useRef(0)
-  const lastResetRef = useRef(Date.now())
+  const lastResetRef = useRef(0)
 
   // Reset notification count every minute
   useEffect(() => {
@@ -99,7 +99,7 @@ export function useErrorHandler(config: ErrorHandlerConfig = {}) {
    */
   const categorizeError = useCallback((error: Error): ErrorCategory => {
     const message = error.message.toLowerCase()
-    
+
     if (message.includes('fetch') || message.includes('network') || message.includes('connection')) {
       return ErrorCategory.NETWORK
     }
@@ -127,7 +127,7 @@ export function useErrorHandler(config: ErrorHandlerConfig = {}) {
     if (message.includes('system') || message.includes('internal') || message.includes('server')) {
       return ErrorCategory.SYSTEM
     }
-    
+
     return ErrorCategory.UNKNOWN
   }, [])
 
@@ -136,24 +136,23 @@ export function useErrorHandler(config: ErrorHandlerConfig = {}) {
    */
   const assessSeverity = useCallback((error: Error, category: ErrorCategory): ErrorSeverity => {
     switch (category) {
-      case ErrorCategory.CRITICAL:
       case ErrorCategory.DATA_INTEGRITY:
         return ErrorSeverity.CRITICAL
-      
+
       case ErrorCategory.AUTHENTICATION:
       case ErrorCategory.AUTHORIZATION:
       case ErrorCategory.SYSTEM:
         return ErrorSeverity.HIGH
-      
+
       case ErrorCategory.NETWORK:
       case ErrorCategory.EXTERNAL_SERVICE:
       case ErrorCategory.PERFORMANCE:
         return ErrorSeverity.MEDIUM
-      
+
       case ErrorCategory.VALIDATION:
       case ErrorCategory.USER_INPUT:
         return ErrorSeverity.LOW
-      
+
       default:
         return ErrorSeverity.MEDIUM
     }
@@ -166,31 +165,31 @@ export function useErrorHandler(config: ErrorHandlerConfig = {}) {
     switch (category) {
       case ErrorCategory.NETWORK:
         return 'Connection problem. Please check your internet and try again.'
-      
+
       case ErrorCategory.AUTHENTICATION:
         return 'Your session has expired. Please sign in again.'
-      
+
       case ErrorCategory.AUTHORIZATION:
         return 'You don\'t have permission to perform this action.'
-      
+
       case ErrorCategory.VALIDATION:
         return 'Please check your input and try again.'
-      
+
       case ErrorCategory.PERFORMANCE:
         return 'The request is taking longer than expected. Please try again.'
-      
+
       case ErrorCategory.DATA_INTEGRITY:
         return 'Data validation failed. Please contact support.'
-      
+
       case ErrorCategory.EXTERNAL_SERVICE:
         return 'External service is temporarily unavailable. Please try again later.'
-      
+
       case ErrorCategory.USER_INPUT:
         return 'Invalid input provided. Please check and try again.'
-      
+
       case ErrorCategory.SYSTEM:
         return 'System error occurred. Our team has been notified.'
-      
+
       default:
         return 'An unexpected error occurred. Please try again or contact support.'
     }
@@ -206,16 +205,16 @@ export function useErrorHandler(config: ErrorHandlerConfig = {}) {
       case ErrorCategory.EXTERNAL_SERVICE:
       case ErrorCategory.SYSTEM:
         return true
-      
+
       case ErrorCategory.AUTHENTICATION:
       case ErrorCategory.AUTHORIZATION:
       case ErrorCategory.DATA_INTEGRITY:
         return false
-      
+
       case ErrorCategory.VALIDATION:
       case ErrorCategory.USER_INPUT:
         return false
-      
+
       default:
         return true
     }
@@ -227,7 +226,7 @@ export function useErrorHandler(config: ErrorHandlerConfig = {}) {
   const logError = useCallback((enhancedError: EnhancedError) => {
     if (!logToConsole) return
 
-    const logLevel = enhancedError.severity === ErrorSeverity.CRITICAL ? 'error' : 
+    const logLevel = enhancedError.severity === ErrorSeverity.CRITICAL ? 'error' :
                     enhancedError.severity === ErrorSeverity.HIGH ? 'error' :
                     enhancedError.severity === ErrorSeverity.MEDIUM ? 'warn' : 'log'
 
@@ -241,15 +240,15 @@ export function useErrorHandler(config: ErrorHandlerConfig = {}) {
       'Retryable': enhancedError.retryable,
       'Timestamp': enhancedError.timestamp?.toISOString(),
     })
-    
+
     if (enhancedError.technicalDetails) {
       console.log('Technical Details:', enhancedError.technicalDetails)
     }
-    
+
     if (enhancedError.stack) {
       console.log('Stack Trace:', enhancedError.stack)
     }
-    
+
     console.groupEnd()
   }, [logToConsole])
 
@@ -322,6 +321,35 @@ export function useErrorHandler(config: ErrorHandlerConfig = {}) {
   }, [trackMetrics])
 
   /**
+   * Get notification title based on error
+   */
+  const getNotificationTitle = useCallback((error: EnhancedError): string => {
+    switch (error.category) {
+      case ErrorCategory.NETWORK:
+        return 'Connection Issue'
+      case ErrorCategory.AUTHENTICATION:
+        return 'Authentication Required'
+      case ErrorCategory.AUTHORIZATION:
+        return 'Access Denied'
+      case ErrorCategory.VALIDATION:
+        return 'Input Error'
+      case ErrorCategory.PERFORMANCE:
+        return 'Performance Issue'
+      case ErrorCategory.DATA_INTEGRITY:
+        return 'Data Error'
+      case ErrorCategory.EXTERNAL_SERVICE:
+        return 'Service Unavailable'
+      case ErrorCategory.USER_INPUT:
+        return 'Invalid Input'
+      case ErrorCategory.SYSTEM:
+        return 'System Error'
+      default:
+        return error.feature ? `${error.feature} Error` : 'Error Occurred'
+    }
+  }, [])
+
+
+  /**
    * Show error notification to user
    */
   const showNotification = useCallback((
@@ -361,47 +389,19 @@ export function useErrorHandler(config: ErrorHandlerConfig = {}) {
       case ErrorSeverity.HIGH:
         showErrorNotification(title, message, notificationOptions)
         break
-      
+
       case ErrorSeverity.MEDIUM:
         showWarningNotification(title, message, notificationOptions)
         break
-      
+
       case ErrorSeverity.LOW:
         showInfoNotification(title, message, notificationOptions)
         break
-      
+
       default:
         showErrorNotification(title, message, notificationOptions)
     }
   }, [showNotifications, maxNotificationsPerMinute, showErrorNotification, showWarningNotification, showInfoNotification])
-
-  /**
-   * Get notification title based on error
-   */
-  const getNotificationTitle = useCallback((error: EnhancedError): string => {
-    switch (error.category) {
-      case ErrorCategory.NETWORK:
-        return 'Connection Issue'
-      case ErrorCategory.AUTHENTICATION:
-        return 'Authentication Required'
-      case ErrorCategory.AUTHORIZATION:
-        return 'Access Denied'
-      case ErrorCategory.VALIDATION:
-        return 'Input Error'
-      case ErrorCategory.PERFORMANCE:
-        return 'Performance Issue'
-      case ErrorCategory.DATA_INTEGRITY:
-        return 'Data Error'
-      case ErrorCategory.EXTERNAL_SERVICE:
-        return 'Service Unavailable'
-      case ErrorCategory.USER_INPUT:
-        return 'Invalid Input'
-      case ErrorCategory.SYSTEM:
-        return 'System Error'
-      default:
-        return error.feature ? `${error.feature} Error` : 'Error Occurred'
-    }
-  }, [])
 
   /**
    * Main error handling function
@@ -418,7 +418,7 @@ export function useErrorHandler(config: ErrorHandlerConfig = {}) {
   ) => {
     // Generate unique error ID
     const errorId = `err_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
-    
+
     // Categorize and assess the error
     const category = categorizeError(error)
     const severity = assessSeverity(error, category)
@@ -479,7 +479,7 @@ export function useErrorHandler(config: ErrorHandlerConfig = {}) {
     context?: { feature?: string; redirectToLogin?: boolean }
   ) => {
     const enhancedError = handleError(error, { feature: context?.feature })
-    
+
     // Optionally redirect to login
     if (context?.redirectToLogin) {
       setTimeout(() => {
@@ -497,7 +497,7 @@ export function useErrorHandler(config: ErrorHandlerConfig = {}) {
     error: Error,
     context?: { feature?: string; field?: string }
   ) => {
-    return handleError(error, { 
+    return handleError(error, {
       feature: context?.feature,
       metadata: { field: context?.field }
     })

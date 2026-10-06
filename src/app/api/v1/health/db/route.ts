@@ -46,8 +46,8 @@ interface DatabaseHealthMetrics {
   metrics: {
     totalUsers: number
     totalOrganizations: number
-    totalOpportunities: number
-    totalMatchScores: number
+    totalDocuments: number
+    totalFolders: number
     avgQueryTime: number
     uptime: number
   }
@@ -67,7 +67,7 @@ interface DatabaseHealthMetrics {
  *       - Data integrity checks
  *       - Row-Level Security (RLS) policy status
  *       - Key database metrics
- *       
+ *
  *       Include the header `x-detailed-health: true` for detailed metrics.
  *     tags:
  *       - Health
@@ -214,12 +214,12 @@ interface DatabaseHealthMetrics {
  */
 export async function GET() {
   const startTime = Date.now()
-  
+
   try {
     // Check if this is an authenticated request for detailed metrics
-    const headersList = headers()
+    const headersList = await headers()
     const isDetailed = headersList.get('x-detailed-health') === 'true'
-    
+
     const healthMetrics: DatabaseHealthMetrics = {
       status: 'healthy',
       timestamp: new Date().toISOString(),
@@ -227,8 +227,8 @@ export async function GET() {
         connectivity: { status: 'pass', responseTime: 0 },
         queryPerformance: { status: 'pass', simpleQueryTime: 0, complexQueryTime: 0 },
         connectionPool: { status: 'pass', details: { active: 0, idle: 0, total: 0 } },
-        dataIntegrity: { 
-          status: 'pass', 
+        dataIntegrity: {
+          status: 'pass',
           checks: { orphanedRecords: 0, referentialIntegrity: true, dataConsistency: true }
         },
         rlsPolicies: { status: 'pass', enabledTables: 0, totalPolicies: 0 }
@@ -236,8 +236,8 @@ export async function GET() {
       metrics: {
         totalUsers: 0,
         totalOrganizations: 0,
-        totalOpportunities: 0,
-        totalMatchScores: 0,
+        totalDocuments: 0,
+        totalFolders: 0,
         avgQueryTime: 0,
         uptime: 0
       },
@@ -309,21 +309,21 @@ export async function GET() {
           count: bigint
         }>>`
           SELECT state, count(*) as count
-          FROM pg_stat_activity 
+          FROM pg_stat_activity
           WHERE datname = current_database()
           GROUP BY state
         `
-        
+
         let active = 0, idle = 0
         poolStats.forEach(stat => {
           const count = Number(stat.count)
           if (stat.state === 'active') active = count
           else if (stat.state === 'idle') idle = count
         })
-        
+
         const total = active + idle
         healthMetrics.checks.connectionPool.details = { active, idle, total }
-        
+
         // Evaluate connection pool health
         if (total > 80) {
           healthMetrics.checks.connectionPool.status = 'warn'
@@ -346,22 +346,22 @@ export async function GET() {
       try {
         // Check for orphaned records
         const orphanedUsers = await prisma.$queryRaw<Array<{ count: bigint }>>`
-          SELECT COUNT(*) as count 
-          FROM users u 
-          LEFT JOIN organizations o ON u.organization_id = o.id 
+          SELECT COUNT(*) as count
+          FROM users u
+          LEFT JOIN organizations o ON u.organization_id = o.id
           WHERE o.id IS NULL
         `
-        
+
         const orphanedProfiles = await prisma.$queryRaw<Array<{ count: bigint }>>`
-          SELECT COUNT(*) as count 
-          FROM profiles p 
-          LEFT JOIN organizations o ON p.organization_id = o.id 
+          SELECT COUNT(*) as count
+          FROM profiles p
+          LEFT JOIN organizations o ON p.organization_id = o.id
           WHERE o.id IS NULL
         `
-        
+
         const orphanedCount = Number(orphanedUsers[0]?.count || 0) + Number(orphanedProfiles[0]?.count || 0)
         healthMetrics.checks.dataIntegrity.checks.orphanedRecords = orphanedCount
-        
+
         if (orphanedCount > 0) {
           healthMetrics.checks.dataIntegrity.status = 'fail'
           healthMetrics.status = 'unhealthy'
@@ -381,29 +381,29 @@ export async function GET() {
           tablename: string
           rowsecurity: boolean
         }>>`
-          SELECT tablename, rowsecurity 
-          FROM pg_tables 
-          WHERE schemaname = 'public' 
+          SELECT tablename, rowsecurity
+          FROM pg_tables
+          WHERE schemaname = 'public'
           AND tablename IN (
-            'organizations', 'users', 'profiles', 'opportunities', 
+            'organizations', 'users', 'profiles', 'opportunities',
             'match_scores', 'documents', 'pipelines'
           )
         `
-        
+
         const policies = await prisma.$queryRaw<Array<{
           policyname: string
         }>>`
-          SELECT policyname 
-          FROM pg_policies 
+          SELECT policyname
+          FROM pg_policies
           WHERE schemaname = 'public'
         `
-        
+
         const enabledTables = rlsStatus.filter(table => table.rowsecurity).length
         const totalPolicies = policies.length
-        
+
         healthMetrics.checks.rlsPolicies.enabledTables = enabledTables
         healthMetrics.checks.rlsPolicies.totalPolicies = totalPolicies
-        
+
         if (enabledTables < rlsStatus.length) {
           healthMetrics.checks.rlsPolicies.status = 'fail'
           healthMetrics.status = 'unhealthy'
@@ -443,7 +443,7 @@ export async function GET() {
     // 7. Final health assessment
     const hasFailures = Object.values(healthMetrics.checks).some(check => check.status === 'fail')
     const hasWarnings = Object.values(healthMetrics.checks).some(check => check.status === 'warn')
-    
+
     if (hasFailures) {
       healthMetrics.status = 'unhealthy'
     } else if (hasWarnings) {
@@ -451,14 +451,14 @@ export async function GET() {
     }
 
     // Return appropriate status code
-    const statusCode = healthMetrics.status === 'healthy' ? 200 : 
+    const statusCode = healthMetrics.status === 'healthy' ? 200 :
                       healthMetrics.status === 'degraded' ? 200 : 503
 
     return NextResponse.json(healthMetrics, { status: statusCode })
 
   } catch (error) {
     console.error('Database health check failed:', error)
-    
+
     return NextResponse.json({
       status: 'unhealthy',
       timestamp: new Date().toISOString(),

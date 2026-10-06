@@ -269,7 +269,7 @@ export class BillingService {
 }
 
 // Example API route integration
-export async function handleAPIRequest(request: Request, handler: Function) {
+export async function handleAPIRequest(request: Request, handler: (...args: any[]) => any) {
   const startTime = Date.now();
   const url = new URL(request.url);
   

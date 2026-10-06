@@ -1,5 +1,6 @@
 'use client'
 
+import { useMounted } from '@/hooks/use-mounted';
 import React from 'react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -66,18 +67,16 @@ export function Sidebar({
   showNavigation = true,
 }: SidebarProps) {
   const pathname = usePathname()
-  const [isClient, setIsClient] = React.useState(false)
+  const isClient = useMounted();
 
   // Ensure client-side hydration
-  React.useEffect(() => {
-    setIsClient(true)
-  }, [])
+
 
   const isCurrentPath = React.useCallback(
     (href: string) => {
       // During SSR, don't highlight any paths to prevent hydration mismatch
       if (!isClient) return false
-      
+
       if (href === '/dashboard') {
         return pathname === '/dashboard'
       }
@@ -149,14 +148,9 @@ export function Sidebar({
                           isCurrent && 'bg-muted'
                         )}
                       >
-                        <Link href={item.href} prefetch={true}>
+                        <Link href={{ pathname: item.href }} prefetch={true}>
                           <item.icon className="mr-2 h-4 w-4" />
                           {item.name}
-                          {item.badge && (
-                            <Badge variant="secondary" className="ml-auto">
-                              {item.badge}
-                            </Badge>
-                          )}
                         </Link>
                       </Button>
                     )
@@ -179,7 +173,7 @@ export function Sidebar({
                         variant={isCurrent ? 'secondary' : 'ghost'}
                         className="w-full justify-start"
                       >
-                        <Link href={item.href} prefetch={true}>
+                        <Link href={{ pathname: item.href }} prefetch={true}>
                           <item.icon className="mr-2 h-4 w-4" />
                           {item.name}
                         </Link>

@@ -1,7 +1,7 @@
 import { prisma } from '@/lib/db';
 import { TenantContext } from '@/lib/db/tenant-context';
 import { getOrganizationId } from '@/lib/auth/get-organization-id';
-import { AuditEventType, AuditCategory, AuditSeverity } from '@prisma/client';
+import { Prisma, AuditEventType, AuditCategory, AuditSeverity } from '@prisma/client';
 
 export interface AuditLogFilter {
   startDate?: Date;
@@ -44,16 +44,16 @@ export class AuditQueryService {
     if (this.organizationId) {
       return this.organizationId;
     }
-    
+
     if (!userId) {
       throw new Error('Organization ID or user ID is required for audit queries');
     }
-    
+
     const orgId = await getOrganizationId(userId);
     if (!orgId) {
       throw new Error('Unable to determine organization ID for user');
     }
-    
+
     return orgId;
   }
 
@@ -62,7 +62,7 @@ export class AuditQueryService {
     pagination: AuditLogPagination = { page: 1, limit: 50 }
   ): Promise<AuditLogResult> {
     const organizationId = await this.getOrganizationId(filter.userId);
-    
+
     // Convert Clerk user ID to internal user ID if needed
     let internalUserId: string | undefined;
     if (filter.userId) {
@@ -70,26 +70,27 @@ export class AuditQueryService {
         where: { clerkId: filter.userId },
         select: { id: true }
       });
-      internalUserId = user?.id;
+      if (!user) throw new Error("Audit user filter did not match a user");
+      internalUserId = user.id;
     }
-    
-    const where = {
+
+    const where: Prisma.AuditLogWhereInput = {
       organizationId,
       ...(filter.startDate && { createdAt: { gte: filter.startDate } }),
-      ...(filter.endDate && { 
-        createdAt: { 
+      ...(filter.endDate && {
+        createdAt: {
           ...(filter.startDate && { gte: filter.startDate }),
-          lte: filter.endDate 
-        } 
+          lte: filter.endDate
+        }
       }),
       ...(filter.eventTypes?.length && { eventType: { in: filter.eventTypes } }),
       ...(filter.categories?.length && { category: { in: filter.categories } }),
       ...(filter.severities?.length && { severity: { in: filter.severities } }),
       ...(internalUserId && { userId: internalUserId }),
       ...(filter.resourceId && { resourceId: filter.resourceId }),
-      ...(filter.resourceType && { resourceType: filter.resourceType }),
+      ...(filter.resourceType && { resource: filter.resourceType }),
       ...(filter.ipAddress && { ipAddress: filter.ipAddress }),
-      ...(filter.correlationId && { correlationId: filter.correlationId }),
+      ...(filter.correlationId && { requestId: filter.correlationId }),
       ...(filter.searchTerm && {
         OR: [
           { description: { contains: filter.searchTerm, mode: 'insensitive' } },
@@ -125,7 +126,7 @@ export class AuditQueryService {
 
   async getLogById(id: string, userId?: string): Promise<any | null> {
     const organizationId = await this.getOrganizationId(userId);
-    
+
     return prisma.auditLog.findFirst({
       where: {
         id,
@@ -136,10 +137,10 @@ export class AuditQueryService {
 
   async getLogsByCorrelationId(correlationId: string, userId?: string): Promise<any[]> {
     const organizationId = await this.getOrganizationId(userId);
-    
+
     return prisma.auditLog.findMany({
       where: {
-        correlationId,
+        requestId: correlationId,
         organizationId,
       },
       orderBy: { createdAt: 'asc' },
@@ -163,7 +164,7 @@ export class AuditQueryService {
       where: { clerkId: userId },
       select: { id: true }
     });
-    
+
     if (!user) {
       throw new Error('User not found');
     }
@@ -274,17 +275,17 @@ export class AuditQueryService {
     format: 'json' | 'csv' = 'json'
   ): Promise<{ data: string; filename: string; mimeType: string }> {
     const organizationId = await this.getOrganizationId(filter.userId);
-    
+
     // Get all logs matching filter (no pagination for export)
     const logs = await prisma.auditLog.findMany({
       where: {
         organizationId,
         ...(filter.startDate && { createdAt: { gte: filter.startDate } }),
-        ...(filter.endDate && { 
-          createdAt: { 
+        ...(filter.endDate && {
+          createdAt: {
             ...(filter.startDate && { gte: filter.startDate }),
-            lte: filter.endDate 
-          } 
+            lte: filter.endDate
+          }
         }),
         ...(filter.eventTypes?.length && { eventType: { in: filter.eventTypes } }),
         ...(filter.categories?.length && { category: { in: filter.categories } }),
@@ -294,13 +295,13 @@ export class AuditQueryService {
     });
 
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    
+
     if (format === 'csv') {
       const headers = [
         'Timestamp', 'Event Type', 'Category', 'Severity', 'Action',
         'Resource Type', 'Resource ID', 'Message', 'Description', 'IP Address'
       ];
-      
+
       const rows = logs.map(log => [
         log.createdAt.toISOString(),
         log.eventType,

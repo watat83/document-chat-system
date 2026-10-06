@@ -6,7 +6,7 @@ import { CheckCircle, Clock, AlertCircle, Loader2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 export interface ProcessingStatusProps {
-  status: 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED' | 'QUEUED'
+  status: 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED' | 'QUEUED' | 'PARTIAL' | 'CANCELLED'
   progress?: number // 0-100
   processingType?: 'basic' | 'full'
   variant?: 'compact' | 'detailed' | 'badge-only'
@@ -45,10 +45,12 @@ export function ProcessingStatus({
           badgeColor: 'bg-blue-500 text-white',
           animate: true
         }
+      case 'CANCELLED':
+      case 'PARTIAL':
       case 'FAILED':
         return {
           icon: AlertCircle,
-          label: 'Failed',
+          label: status === 'PARTIAL' ? 'Partially complete' : status === 'CANCELLED' ? 'Cancelled' : 'Failed',
           color: 'text-red-600',
           bgColor: 'bg-red-50',
           borderColor: 'border-red-200',
@@ -85,7 +87,7 @@ export function ProcessingStatus({
   // Badge-only variant for minimal space
   if (variant === 'badge-only') {
     return (
-      <Badge 
+      <Badge
         variant={config.badgeVariant}
         className={cn("text-xs", config.badgeColor, className)}
       >
@@ -114,7 +116,7 @@ export function ProcessingStatus({
             {status === 'PROCESSING' ? `${progress}%` : config.label}
           </span>
         </div>
-        
+
         {showProgress && status === 'PROCESSING' && (
           <div className="flex-1 min-w-0">
             <Progress value={progress} className="h-1" />
@@ -138,27 +140,27 @@ export function ProcessingStatus({
           config.color,
           config.animate && "animate-spin"
         )} />
-        
+
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <span className={cn("font-medium text-sm", config.color)}>
               {config.label}
             </span>
-            
+
             <Badge variant="outline" className="text-xs">
               {processingType === 'full' ? 'Full Analysis' : 'Basic Processing'}
             </Badge>
           </div>
-          
+
           {showProgress && status === 'PROCESSING' && (
             <div className="mt-2">
               <Progress value={progress} className="h-2" />
             </div>
           )}
-          
+
           {status === 'PROCESSING' && (
             <p className="text-xs text-muted-foreground mt-1">
-              {processingType === 'full' 
+              {processingType === 'full'
                 ? 'Performing comprehensive analysis including security, quality, and entity extraction'
                 : 'Extracting text content and identifying document structure'
               }
@@ -185,14 +187,14 @@ export function useDocumentStatus(documentId: string, pollingInterval = 5000) {
         if (!response.ok) {
           throw new Error('Failed to fetch status')
         }
-        
+
         const data = await response.json()
         setStatus({
           status: data.status,
           progress: data.processingProgress,
           processingType: data.analysis ? 'full' : 'basic'
         })
-        
+
         // Stop polling if processing is complete or failed
         if (data.status === 'COMPLETED' || data.status === 'FAILED') {
           clearInterval(intervalId)

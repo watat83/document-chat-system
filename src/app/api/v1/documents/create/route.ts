@@ -1,3 +1,4 @@
+import { serializeDocument } from '@/lib/documents/document-response';
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@clerk/nextjs/server'
 import { z } from 'zod'
@@ -169,14 +170,14 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json()
     console.log('📝 Received request body:', body)
-    
+
     const validation = createSchema.safeParse(body)
-    
+
     if (!validation.success) {
       console.error('❌ Validation failed:', validation.error.format())
       return NextResponse.json(
-        { 
-          error: 'Invalid request data', 
+        {
+          error: 'Invalid request data',
           details: validation.error.format(),
           receivedData: body
         },
@@ -199,6 +200,11 @@ export async function POST(request: NextRequest) {
         { error: 'Access denied to organization' },
         { status: 403 }
       )
+    }
+
+    if (folderId && folderId !== 'null') {
+      const folder = await prisma.folder.findFirst({ where: { id: folderId, organizationId } });
+      if (!folder) return NextResponse.json({ error: 'Target folder not found' }, { status: 404 });
     }
 
     // Create document creation request
@@ -224,58 +230,31 @@ export async function POST(request: NextRequest) {
       generateInitialContent: !content && !templateId
     })
 
-    // Enhance aiData with urgencyLevel and complexityScore (no metadata wrapper)
-    const enhancedAiData = {
-      ...document.aiData,
-      urgencyLevel: urgencyLevel || 'medium',
-      complexityScore: complexityScore || 5
-    }
-
-    // Save to database - following the same pattern as the update route
     const savedDocument = await prisma.document.create({
       data: {
-        id: document.id,
-        organizationId,
-        uploadedById: userOrg.id, // Use internal user ID, not Clerk ID
-        folderId: folderId === 'null' ? null : folderId, // Handle string 'null' from frontend
-        name: name, // Use provided name
-        uploadDate: new Date(),
-        lastModified: new Date(),
-        size: parseInt(document.size.replace(/[^0-9]/g, '') || '0'),
-        filePath: document.filePath,
-        mimeType: document.mimeType,
-        status: 'COMPLETED', // Created documents are immediately available
-        summary: document.aiData?.content?.summary,
-        aiData: enhancedAiData,
-        // Direct field mappings (no metadata field)
-        tags: tags || [],
-        documentType: type as any,
-        setAsideType: undefined, // Not provided in creation
-        naicsCodes: [], // Not provided in creation
-      }
-    })
-
+        id: document.id, organizationId, uploadedById: userOrg.id,
+        folderId: folderId === 'null' ? null : folderId,
+        name, uploadDate: new Date(), lastModified: new Date(), size: document.size,
+        filePath: document.filePath, mimeType: document.mimeType, isEditable: true,
+        extractedText: document.extractedText, summary: document.summary, tags: tags ?? [], documentType: type,
+        securityClassification: document.securityClassification, workflowStatus: document.workflowStatus,
+        content: JSON.parse(JSON.stringify(document.content)), processing: JSON.parse(JSON.stringify(document.processing)),
+        analysis: JSON.parse(JSON.stringify(document.analysis)), entities: JSON.parse(JSON.stringify(document.entities)),
+        sharing: JSON.parse(JSON.stringify(document.sharing)), revisions: JSON.parse(JSON.stringify(document.revisions)),
+        embeddings: JSON.parse(JSON.stringify(document.embeddings)),
+      },
+    });
     return NextResponse.json({
-      id: savedDocument.id,
-      name: savedDocument.name,
-      type: savedDocument.documentType,
-      content: savedDocument.aiData?.content?.extractedText || content || '',
-      isEditable: true,
-      status: 'draft',
-      createdAt: savedDocument.createdAt,
-      tags: savedDocument.tags,
-      urgencyLevel: enhancedAiData.urgencyLevel || 'medium',
-      complexityScore: enhancedAiData.complexityScore || 5,
-      templateUsed: templateId,
-      aiData: enhancedAiData
-    }, { status: 201 })
+      ...serializeDocument(savedDocument), document: serializeDocument(savedDocument),
+      urgencyLevel, complexityScore, templateUsed: templateId,
+    }, { status: 201 });
 
   } catch (error) {
     console.error('Document creation error:', error)
     return NextResponse.json(
-      { 
-        error: 'Document creation failed', 
-        details: error instanceof Error ? error.message : 'Unknown error' 
+      {
+        error: 'Document creation failed',
+        details: error instanceof Error ? error.message : 'Unknown error'
       },
       { status: 500 }
     )

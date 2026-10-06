@@ -4,7 +4,7 @@
  */
 
 import { prisma } from '@/lib/db';
-import { AuditCategory, AuditEventType, AuditSeverity } from '@prisma/client';
+import { AuditCategory, AuditEventType, AuditSeverity, SecurityIncidentType } from '@prisma/client';
 import { crudAuditLogger } from './crud-audit-logger';
 
 export interface SecurityEvent {
@@ -26,7 +26,7 @@ export interface SecurityRule {
   description: string;
   enabled: boolean;
   severity: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
-  condition: (event: any) => boolean;
+  condition: (event: SecurityEvent) => boolean;
   action: 'LOG' | 'ALERT' | 'BLOCK' | 'THROTTLE';
 }
 
@@ -38,7 +38,7 @@ export class SecurityMonitor {
       description: 'Detects multiple failed login attempts from same IP',
       enabled: true,
       severity: 'HIGH',
-      condition: (event) => event.type === 'failed_login' && event.count >= 5,
+      condition: (event) => event.metadata.eventType === 'failed_login' && Number(event.metadata.count) >= 5,
       action: 'ALERT'
     },
     {
@@ -47,7 +47,7 @@ export class SecurityMonitor {
       description: 'Detects unusually high API call frequency',
       enabled: true,
       severity: 'MEDIUM',
-      condition: (event) => event.type === 'api_call' && event.rate > 100,
+      condition: (event) => event.metadata.eventType === 'api_call' && Number(event.metadata.rate) > 100,
       action: 'THROTTLE'
     },
     {
@@ -56,7 +56,7 @@ export class SecurityMonitor {
       description: 'Detects attempts to access data from different organization',
       enabled: true,
       severity: 'CRITICAL',
-      condition: (event) => event.type === 'data_access' && event.crossTenant === true,
+      condition: (event) => event.metadata.crossTenant === true,
       action: 'BLOCK'
     },
     {
@@ -65,7 +65,7 @@ export class SecurityMonitor {
       description: 'Detects abnormally high document downloads',
       enabled: true,
       severity: 'MEDIUM',
-      condition: (event) => event.type === 'document_download' && event.count > 50,
+      condition: (event) => event.metadata.eventType === 'document_download' && Number(event.metadata.count) > 50,
       action: 'ALERT'
     },
     {
@@ -74,7 +74,7 @@ export class SecurityMonitor {
       description: 'Detects attempts to access admin functions by non-admin users',
       enabled: true,
       severity: 'CRITICAL',
-      condition: (event) => event.type === 'admin_access' && event.userRole !== 'ADMIN' && event.userRole !== 'OWNER',
+      condition: (event) => event.metadata.eventType === 'admin_access' && event.metadata.userRole !== 'ADMIN' && event.metadata.userRole !== 'OWNER',
       action: 'BLOCK'
     }
   ];
@@ -85,7 +85,7 @@ export class SecurityMonitor {
   static async monitorEvent(event: SecurityEvent): Promise<void> {
     try {
       // Apply security rules to the event
-      const triggeredRules = this.rules.filter(rule => 
+      const triggeredRules = this.rules.filter(rule =>
         rule.enabled && rule.condition(event)
       );
 
@@ -97,7 +97,7 @@ export class SecurityMonitor {
       await this.logSecurityEvent(event);
 
       // Check for patterns and anomalies
-      await this.detectAnomalies(event);
+      if (event.type !== 'ANOMALOUS_USAGE') await this.detectAnomalies(event);
 
     } catch (error) {
       console.error('Security monitoring error:', error);
@@ -163,24 +163,25 @@ export class SecurityMonitor {
 
     // Store alert in database for admin dashboard
     try {
-      await prisma.securityAlert.create({
+      await prisma.securityIncident.create({
         data: {
-          id: `alert_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
           organizationId: violation.event.organizationId,
-          ruleId: violation.ruleId,
-          ruleName: violation.ruleName,
+          incidentType: SecurityIncidentType.SUSPICIOUS_ACTIVITY,
           severity: violation.severity,
-          eventType: violation.event.type,
+          title: violation.ruleName,
           description: violation.event.description,
           source: violation.event.source,
-          userId: violation.event.userId,
-          ipAddress: violation.event.ipAddress,
-          metadata: violation.event.metadata,
-          acknowledged: false,
-          createdAt: new Date()
+          affectedSystems: [violation.event.source],
+          investigatedBy: [],
+          relatedLogIds: [],
+          tags: [violation.ruleId, violation.event.type],
+          attachments: JSON.parse(JSON.stringify({
+            userId: violation.event.userId,
+            ipAddress: violation.event.ipAddress,
+            metadata: violation.event.metadata,
+            requestedAction: violation.action,
+          })),
         }
-      }).catch(error => {
-        console.warn('Could not store security alert (table may not exist):', error);
       });
     } catch (error) {
       console.warn('Security alert storage failed:', error);
@@ -191,7 +192,7 @@ export class SecurityMonitor {
    * Block access for security violations
    */
   private static async blockAccess(event: SecurityEvent): Promise<void> {
-    console.error('🛑 ACCESS BLOCKED:', {
+    console.error('Security violation requires access enforcement:', {
       type: event.type,
       organization: event.organizationId,
       user: event.userId,
@@ -209,7 +210,7 @@ export class SecurityMonitor {
    * Throttle access for rate limit violations
    */
   private static async throttleAccess(event: SecurityEvent): Promise<void> {
-    console.warn('⏱️ ACCESS THROTTLED:', {
+    console.warn('Security violation requires rate enforcement:', {
       type: event.type,
       organization: event.organizationId,
       user: event.userId,
@@ -245,8 +246,8 @@ export class SecurityMonitor {
       },
       AuditCategory.SECURITY,
       AuditEventType.SECURITY_VIOLATION,
-      event.severity === 'CRITICAL' ? AuditSeverity.HIGH :
-      event.severity === 'HIGH' ? AuditSeverity.MEDIUM : AuditSeverity.LOW
+      event.severity === 'CRITICAL' ? AuditSeverity.CRITICAL :
+      event.severity === 'HIGH' ? AuditSeverity.ERROR : event.severity === 'MEDIUM' ? AuditSeverity.WARN : AuditSeverity.INFO
     );
   }
 
@@ -274,7 +275,8 @@ export class SecurityMonitor {
 
       // Analyze patterns
       const eventCounts = recentEvents.reduce((acc, log) => {
-        const eventType = log.metadata?.securityEventType as string || 'unknown';
+        const metadata = log.metadata;
+        const eventType = metadata && typeof metadata === 'object' && !Array.isArray(metadata) && typeof metadata.securityEventType === 'string' ? metadata.securityEventType : 'unknown';
         acc[eventType] = (acc[eventType] || 0) + 1;
         return acc;
       }, {} as Record<string, number>);
@@ -282,14 +284,14 @@ export class SecurityMonitor {
       // Detect anomalies
       const anomalies = Object.entries(eventCounts).filter(([type, count]) => {
         // Define thresholds for different event types
-        const thresholds = {
+        const thresholds: Record<string, number> = {
           'failed_login': 10,
           'api_call': 200,
           'data_access': 100,
           'document_download': 30,
           'admin_access': 5
         };
-        
+
         return count > (thresholds[type] || 20);
       });
 
@@ -339,14 +341,14 @@ export class SecurityMonitor {
       });
 
       // Get security alerts
-      const securityAlerts = await prisma.securityAlert.findMany({
+      const securityAlerts = await prisma.securityIncident.findMany({
         where: {
           organizationId,
-          createdAt: {
+          detectedAt: {
             gte: windowStart
           }
         },
-        orderBy: { createdAt: 'desc' },
+        orderBy: { detectedAt: 'desc' },
         take: 20
       }).catch(() => []);
 
@@ -374,7 +376,7 @@ export class SecurityMonitor {
         alerts: {
           total: securityAlerts.length,
           bySeverity: alertCounts,
-          unacknowledged: securityAlerts.filter(a => !a.acknowledged).length,
+          unacknowledged: securityAlerts.filter(a => a.status === 'DETECTED').length,
           recent: securityAlerts.slice(0, 10)
         },
         rules: {
@@ -496,4 +498,3 @@ export class SecurityMonitor {
 }
 
 // Export security monitoring utilities
-export type { SecurityEvent, SecurityRule };

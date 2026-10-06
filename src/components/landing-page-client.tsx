@@ -135,10 +135,10 @@ export function LandingPageClient() {
             Tech Stack
           </Link>
           <ThemeToggle />
-          <Link href="/sign-in">
+          <Link href="/sign-in/">
             <Button variant="outline" size="sm">Sign In</Button>
           </Link>
-          <Link href="/sign-up">
+          <Link href="/sign-up/">
             <Button size="sm">Get Started</Button>
           </Link>
           <Link
@@ -223,10 +223,10 @@ export function LandingPageClient() {
               </Button>
             </Link>
             <div className="flex gap-2 pt-2 border-t">
-              <Link href="/sign-in" className="flex-1" onClick={() => setMobileMenuOpen(false)}>
+              <Link href="/sign-in/" className="flex-1" onClick={() => setMobileMenuOpen(false)}>
                 <Button variant="outline" size="sm" className="w-full">Sign In</Button>
               </Link>
-              <Link href="/sign-up" className="flex-1" onClick={() => setMobileMenuOpen(false)}>
+              <Link href="/sign-up/" className="flex-1" onClick={() => setMobileMenuOpen(false)}>
                 <Button size="sm" className="w-full">Get Started</Button>
               </Link>
             </div>
@@ -256,7 +256,7 @@ export function LandingPageClient() {
               </p>
             </div>
             <div className="flex flex-col sm:flex-row gap-4 w-full max-w-3xl mx-auto">
-              <Link href="/sign-up" className="flex-1">
+              <Link href="/sign-up/" className="flex-1">
                 <Button size="lg" className="w-full">
                   <Sparkles className="mr-2 h-5 w-5" />
                   Start Chatting for Free
@@ -341,7 +341,7 @@ export function LandingPageClient() {
                 </div>
                 <CardTitle>Knowledge Management</CardTitle>
                 <CardDescription>
-                  Build searchable knowledge bases, research libraries, and personal "second brains" with AI-powered recall
+                  Build searchable knowledge bases, research libraries, and personal &quot;second brains&quot; with AI-powered recall
                 </CardDescription>
               </CardHeader>
             </Card>
@@ -1323,7 +1323,7 @@ export function LandingPageClient() {
               <CardContent>
                 <p className="text-gray-600 dark:text-gray-400">
                   Yes! The optional Stripe integration lets you create subscription plans, set usage limits,
-                  and charge users for your deployment. It's completely optional - you can also run it for free without any billing features.
+                  and charge users for your deployment. It&apos;s completely optional - you can also run it for free without any billing features.
                 </p>
               </CardContent>
             </Card>
@@ -1356,7 +1356,7 @@ export function LandingPageClient() {
               </p>
             </div>
             <div className="flex flex-col sm:flex-row gap-4 w-full max-w-2xl">
-              <Link href="/sign-up" className="flex-1">
+              <Link href="/sign-up/" className="flex-1">
                 <Button size="lg" variant="secondary" className="w-full">
                   <Sparkles className="mr-2 h-5 w-5" />
                   Start Free Trial

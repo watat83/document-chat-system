@@ -52,7 +52,7 @@ const AUDIO_EXTENSION_MAP: Record<string, string> = {
   'wma': 'audio/x-ms-wma'
 }
 
-// Archive extension to MIME type mapping  
+// Archive extension to MIME type mapping
 const ARCHIVE_EXTENSION_MAP: Record<string, string> = {
   'zip': 'application/zip',
   'rar': 'application/x-rar-compressed',
@@ -106,12 +106,12 @@ export function validateFile(file: File, maxSizeBytes: number = 50 * 1024 * 1024
   const fileName = file.name
   const fileSize = file.size
   const detectedMimeType = file.type
-  
+
   // Extract file extension
   const extensionMatch = fileName.toLowerCase().match(/\.([^.]+)$/)
   const fileExtension = extensionMatch ? extensionMatch[1] : ''
-  
-  
+
+
   // Check file size first
   if (fileSize > maxSizeBytes) {
     return {
@@ -124,7 +124,7 @@ export function validateFile(file: File, maxSizeBytes: number = 50 * 1024 * 1024
       error: `File too large: ${(fileSize / 1024 / 1024).toFixed(1)}MB. Maximum allowed: ${(maxSizeBytes / 1024 / 1024).toFixed(0)}MB`
     }
   }
-  
+
   // Method 1: Try MIME type validation first
   if (detectedMimeType && ALLOWED_FILE_TYPES.includes(detectedMimeType as any)) {
     return {
@@ -136,14 +136,14 @@ export function validateFile(file: File, maxSizeBytes: number = 50 * 1024 * 1024
       validationMethod: 'mime-type'
     }
   }
-  
+
   // Method 2: Extension-based fallback validation
   if (fileExtension && fileExtension in ALL_EXTENSION_MAP) {
     const correctedMimeType = ALL_EXTENSION_MAP[fileExtension]
-    
+
     // Check if the corrected MIME type is allowed
     if (ALLOWED_FILE_TYPES.includes(correctedMimeType as any)) {
-      
+
       return {
         isValid: true,
         detectedMimeType,
@@ -155,12 +155,12 @@ export function validateFile(file: File, maxSizeBytes: number = 50 * 1024 * 1024
       }
     }
   }
-  
+
   // Method 3: Special case for video files with empty/unknown MIME types
   if (!detectedMimeType || detectedMimeType === '') {
     if (fileExtension && fileExtension in VIDEO_EXTENSION_MAP) {
       const correctedMimeType = VIDEO_EXTENSION_MAP[fileExtension]
-      
+
       return {
         isValid: true,
         detectedMimeType: '',
@@ -172,9 +172,9 @@ export function validateFile(file: File, maxSizeBytes: number = 50 * 1024 * 1024
       }
     }
   }
-  
+
   // Validation failed
-  
+
   return {
     isValid: false,
     detectedMimeType,
@@ -199,8 +199,8 @@ export function getEffectiveMimeType(validationResult: FileValidationResult): st
 export function isVideoFile(file: File): boolean {
   const extension = file.name.toLowerCase().match(/\.([^.]+)$/)?.[1]
   return (
-    file.type.startsWith('video/') || 
-    (extension && extension in VIDEO_EXTENSION_MAP)
+    file.type.startsWith('video/') ||
+    (!!extension && extension in VIDEO_EXTENSION_MAP)
   )
 }
 

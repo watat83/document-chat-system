@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react'
 import { FileText, Download } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import DOMPurify from 'isomorphic-dompurify'
 import { marked } from 'marked'
 
 interface MarkdownViewerProps {
@@ -19,23 +20,21 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({ file, fileName, 
 
   useEffect(() => {
     const reader = new FileReader()
-    
+
     reader.onload = async (e) => {
       try {
         const markdownText = e.target?.result as string
         setContent(markdownText)
-        
+
         // Configure marked options for security
         marked.setOptions({
           breaks: true,
           gfm: true,
-          headerIds: false,
-          mangle: false
         })
-        
+
         // Render markdown to HTML
         const html = await marked(markdownText)
-        setRenderedHtml(html)
+        setRenderedHtml(DOMPurify.sanitize(html))
         setLoading(false)
       } catch {
         setError('Failed to read or render markdown content')
@@ -89,7 +88,7 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({ file, fileName, 
 
       {/* Content */}
       <div className="flex-1 overflow-auto p-4 bg-background">
-        <div 
+        <div
           className="prose prose-sm max-w-none dark:prose-invert"
           dangerouslySetInnerHTML={{ __html: renderedHtml }}
         />

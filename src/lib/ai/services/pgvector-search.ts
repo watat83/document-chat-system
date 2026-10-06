@@ -1,6 +1,6 @@
 /**
  * PostgreSQL pgvector Search Service
- * 
+ *
  * Provides fallback vector search capabilities using PostgreSQL's pgvector extension
  * when Pinecone is unavailable. Implements the same interface as VectorSearchService.
  */
@@ -40,6 +40,7 @@ export class PgVectorSearchService {
     filters: SearchFilters,
     options: SearchOptions = {}
   ): Promise<SearchResult[]> {
+    if (filters.documentIds && filters.documentIds.length === 0) return [];
     console.log('🔍 [pgvector] Starting similarity search:', { query, filters, options })
 
     const {
@@ -65,6 +66,10 @@ export class PgVectorSearchService {
         paramIndex++
       }
 
+      if (filters.documentIds) {
+        whereConditions.push(`document_id = ANY($${paramIndex})`);
+        queryParams.push(filters.documentIds); paramIndex++;
+      }
       if (filters.documentTypes?.length) {
         whereConditions.push(`metadata->>'documentType' = ANY($${paramIndex})`)
         queryParams.push(filters.documentTypes)
@@ -85,7 +90,7 @@ export class PgVectorSearchService {
 
       // Build the similarity search query
       const searchQuery = `
-        SELECT 
+        SELECT
           id,
           document_id,
           chunk_index,
@@ -105,7 +110,7 @@ export class PgVectorSearchService {
       )
 
       console.log('🔍 [pgvector] Executing similarity search query')
-      
+
       // Execute the query using raw SQL for vector operations
       const rawResults = await prisma.$queryRawUnsafe(
         searchQuery,
@@ -123,8 +128,9 @@ export class PgVectorSearchService {
 
         // Get full chunk content from document embeddings
         try {
-          const document = await this.getDocumentWithEmbeddings(row.document_id)
-          const chunkData = document?.embeddings?.chunks?.find(
+          const document = await this.getDocumentWithEmbeddings(row.document_id, filters.organizationId)
+          if (!document) continue;
+          const chunkData = (document.embeddings as any)?.chunks?.find(
             (c: any) => c.chunkIndex === row.chunk_index
           )
           if (chunkData?.content) {
@@ -132,7 +138,7 @@ export class PgVectorSearchService {
             console.log(
               `✅ [pgvector] Retrieved full chunk content (${fullChunkText.length} chars) for chunk ${row.chunk_index}`
             )
-          }
+          } else { continue; }
         } catch (error) {
           console.warn(
             `⚠️ [pgvector] Could not retrieve full chunk content for ${row.document_id}:${row.chunk_index}:`,
@@ -140,6 +146,7 @@ export class PgVectorSearchService {
           )
         }
 
+        if (!fullChunkText) continue;
         results.push({
           documentId: row.document_id,
           documentTitle: metadata.documentTitle || 'Unknown Document',
@@ -147,7 +154,7 @@ export class PgVectorSearchService {
           chunkIndex: row.chunk_index,
           chunkText: fullChunkText,
           score: row.similarity_score,
-          metadata: metadata,
+          metadata: { ...metadata, source: 'pgvector' },
           highlights: this.extractHighlights(query, fullChunkText),
         })
       }
@@ -184,7 +191,7 @@ export class PgVectorSearchService {
         select: { embeddings: true }
       })
 
-      const embeddings = documentRecord?.embeddings as DocumentEmbeddings
+      const embeddings = documentRecord?.embeddings as unknown as DocumentEmbeddings
       if (!embeddings?.chunks) {
         throw new Error('No embeddings found in document to store in pgvector')
       }
@@ -212,7 +219,7 @@ export class PgVectorSearchService {
             documentTitle: document.name,
             documentType: document.documentType,
             tags: document.tags || [],
-            naicsCodes: document.naicsCodes || [],
+            naicsCodes: [],
             keywords: chunk.keywords,
             createdAt: new Date().toISOString(),
           } as PgVectorMetadata
@@ -233,13 +240,13 @@ export class PgVectorSearchService {
 
       // Batch insert into pgvector table
       console.log(`📡 [pgvector] Inserting ${insertData.length} vectors into database`)
-      
+
       // Use raw SQL for efficient batch insert with vector type
       const insertQuery = `
         INSERT INTO document_vectors (document_id, chunk_index, organization_id, embedding, metadata)
         VALUES ${insertData.map((_, i) => `($${i * 5 + 1}, $${i * 5 + 2}, $${i * 5 + 3}, $${i * 5 + 4}::vector, $${i * 5 + 5})`).join(', ')}
-        ON CONFLICT (document_id, chunk_index) 
-        DO UPDATE SET 
+        ON CONFLICT (document_id, chunk_index)
+        DO UPDATE SET
           embedding = EXCLUDED.embedding,
           metadata = EXCLUDED.metadata,
           updated_at = NOW()
@@ -273,8 +280,8 @@ export class PgVectorSearchService {
 
     try {
       const result = await prisma.$executeRaw`
-        DELETE FROM document_vectors 
-        WHERE document_id = ${documentId} 
+        DELETE FROM document_vectors
+        WHERE document_id = ${documentId}
         AND organization_id = ${organizationId}
       `
 
@@ -383,10 +390,10 @@ export class PgVectorSearchService {
   /**
    * Get document with embeddings from database
    */
-  private async getDocumentWithEmbeddings(documentId: string) {
+  private async getDocumentWithEmbeddings(documentId: string, organizationId: string) {
     try {
       const document = await prisma.document.findUnique({
-        where: { id: documentId },
+        where: { id: documentId, organizationId, deletedAt: null },
         select: {
           id: true,
           embeddings: true,
@@ -438,7 +445,7 @@ export class PgVectorSearchService {
   async getIndexStats(): Promise<any> {
     try {
       const stats = await prisma.$queryRaw`
-        SELECT 
+        SELECT
           COUNT(*) as total_vectors,
           COUNT(DISTINCT organization_id) as organizations,
           COUNT(DISTINCT document_id) as documents,

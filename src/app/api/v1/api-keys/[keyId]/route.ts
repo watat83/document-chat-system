@@ -1,6 +1,6 @@
 /**
  * Individual API Key Management Endpoint
- * 
+ *
  * GET /api/api-keys/[keyId] - Get API key details
  * PATCH /api/api-keys/[keyId] - Update API key
  * DELETE /api/api-keys/[keyId] - Revoke API key
@@ -19,9 +19,9 @@ import { crudAuditLogger } from '@/lib/audit/crud-audit-logger';
 const prisma = new PrismaClient();
 
 interface RouteParams {
-  params: {
+  params: Promise<{
     keyId: string;
-  };
+  }>;
 }
 
 /**
@@ -99,7 +99,8 @@ interface RouteParams {
  *       500:
  *         $ref: '#/components/responses/InternalServerError'
  */
-export async function GET(request: NextRequest, { params }: RouteParams) {
+export async function GET(request: NextRequest, props: RouteParams) {
+  const params = await props.params;
   try {
     // Check authentication
     const { userId } = await auth();
@@ -140,7 +141,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     await UsageTrackingService.trackUsage({
       userId: user.id,
       organizationId: user.organizationId,
-      type: 'API_KEY_VIEW',
+      usageType: UsageType.API_CALL,
+      resourceType: 'api_key_view',
       metadata: {
         keyId,
         keyName: apiKey.name,
@@ -172,8 +174,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
           method: 'GET',
           organizationId: user.organizationId,
           userAgent: request.headers.get('user-agent'),
-          ipAddress: request.headers.get('x-forwarded-for') || 
-                    request.headers.get('x-real-ip') || 
+          ipAddress: request.headers.get('x-forwarded-for') ||
+                    request.headers.get('x-real-ip') ||
                     'unknown',
           action: 'api_key_detail_access'
         }
@@ -192,12 +194,12 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
   } catch (error) {
     console.error('Failed to get API key details:', error);
-    
+
     return NextResponse.json(
-      { 
+      {
         error: 'Failed to get API key details',
-        details: process.env.NODE_ENV === 'development' 
-          ? (error as Error).message 
+        details: process.env.NODE_ENV === 'development'
+          ? (error as Error).message
           : undefined
       },
       { status: 500 }
@@ -243,7 +245,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
  *       500:
  *         $ref: '#/components/responses/InternalServerError'
  */
-export async function DELETE(request: NextRequest, { params }: RouteParams) {
+export async function DELETE(request: NextRequest, props: RouteParams) {
+  const params = await props.params;
   try {
     // Validate CSRF token
     const csrfValidation = await validateCSRFInAPIRoute(request);
@@ -320,8 +323,8 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
           method: 'DELETE',
           organizationId: user.organizationId,
           userAgent: request.headers.get('user-agent'),
-          ipAddress: request.headers.get('x-forwarded-for') || 
-                    request.headers.get('x-real-ip') || 
+          ipAddress: request.headers.get('x-forwarded-for') ||
+                    request.headers.get('x-real-ip') ||
                     'unknown',
           securityLevel: 'CRITICAL',
           action: 'api_key_revocation'
@@ -335,7 +338,8 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     await UsageTrackingService.trackUsage({
       userId: user.id,
       organizationId: user.organizationId,
-      type: 'API_KEY_REVOCATION',
+      usageType: UsageType.API_CALL,
+      resourceType: 'api_key_revocation',
       metadata: {
         keyId,
         endpoint: `/api/api-keys/${keyId}`
@@ -349,12 +353,12 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
 
   } catch (error) {
     console.error('Failed to revoke API key:', error);
-    
+
     return NextResponse.json(
-      { 
+      {
         error: 'Failed to revoke API key',
-        details: process.env.NODE_ENV === 'development' 
-          ? (error as Error).message 
+        details: process.env.NODE_ENV === 'development'
+          ? (error as Error).message
           : undefined
       },
       { status: 500 }

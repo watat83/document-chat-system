@@ -48,17 +48,18 @@ export function useABTest(options: UseABTestOptions): UseABTestReturn {
         testId: testId,
         createdAt: new Date()
       };
-      setVariant(demoVariant);
-      setIsLoading(false);
-      if (onVariantAssigned) {
-        onVariantAssigned(demoVariant);
-      }
-      return;
+      const timeout = window.setTimeout(() => {
+        setVariant(demoVariant);
+        setIsLoading(false);
+        onVariantAssigned?.(demoVariant);
+      }, 0);
+
+      return () => window.clearTimeout(timeout);
     }
 
     if (!userId) {
-      setIsLoading(false);
-      return;
+      const timeout = window.setTimeout(() => setIsLoading(false), 0);
+      return () => window.clearTimeout(timeout);
     }
 
     let isMounted = true;
@@ -124,11 +125,14 @@ export function useABTest(options: UseABTestOptions): UseABTestReturn {
       }
     };
 
-    fetchVariant();
+    const timeout = window.setTimeout(() => {
+      void fetchVariant();
+    }, 0);
 
     // Cleanup function to prevent state updates on unmounted component
     return () => {
       isMounted = false;
+      window.clearTimeout(timeout);
     };
   }, [testId, userId, organizationId]); // Removed onVariantAssigned from deps to prevent loops
 
@@ -261,8 +265,8 @@ export function useABTest(options: UseABTestOptions): UseABTestReturn {
           userSatisfaction: 85
         }
       ];
-      setMetrics(demoMetrics);
-      return;
+      const timeout = window.setTimeout(() => setMetrics(demoMetrics), 0);
+      return () => window.clearTimeout(timeout);
     }
 
     // Only set up real API calls if not in demo mode
@@ -313,9 +317,14 @@ export function useABTest(options: UseABTestOptions): UseABTestReturn {
       }
     };
 
-    fetchMetrics();
+    const timeout = window.setTimeout(() => {
+      void fetchMetrics();
+    }, 0);
     const interval = setInterval(fetchMetrics, 30000);
-    return () => clearInterval(interval);
+    return () => {
+      window.clearTimeout(timeout);
+      clearInterval(interval);
+    };
   }, [testId, demoMode]);
 
   return {
@@ -481,7 +490,11 @@ export function useABTestManager(demoMode: boolean = false) {
   }, [demoMode]);
 
   useEffect(() => {
-    fetchTests();
+    const timeout = window.setTimeout(() => {
+      void fetchTests();
+    }, 0);
+
+    return () => window.clearTimeout(timeout);
   }, [fetchTests]);
 
   return {

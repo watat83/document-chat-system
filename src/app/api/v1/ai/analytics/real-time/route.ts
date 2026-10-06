@@ -265,15 +265,15 @@ export async function GET(request: NextRequest) {
     }
 
     // Apply rate limiting
-    const rateLimitResult = await rateLimit(request, 'ai-analytics-real-time', {
+    const rateLimitResult = await rateLimit(request, {
       windowMs: 60 * 1000, // 1 minute
-      max: 120, // 120 requests per minute for real-time data
-    });
+      maxRequests: 120, // 120 requests per minute for real-time data
+    }, 'ai-analytics-real-time');
 
     if (!rateLimitResult.success) {
       return NextResponse.json(
         { error: 'Rate limit exceeded' },
-        { 
+        {
           status: 429,
           headers: {
             'X-RateLimit-Limit': rateLimitResult.limit.toString(),
@@ -286,13 +286,13 @@ export async function GET(request: NextRequest) {
 
     // Parse and validate query parameters
     const url = new URL(request.url);
-    const queryParams = Object.fromEntries(url.searchParams.entries());
-    
+    const queryParams: Record<string, unknown> = Object.fromEntries(url.searchParams.entries());
+
     // Handle array parameters
     if (queryParams.providers && typeof queryParams.providers === 'string') {
       queryParams.providers = queryParams.providers.split(',').map(p => p.trim());
     }
-    
+
     // Handle boolean parameters
     if (queryParams.includeQuality !== undefined) {
       queryParams.includeQuality = queryParams.includeQuality === 'true';
@@ -306,7 +306,7 @@ export async function GET(request: NextRequest) {
     // Calculate date range
     const endDate = new Date();
     const startDate = new Date();
-    
+
     switch (validatedQuery.timeRange) {
       case '1h':
         startDate.setHours(startDate.getHours() - 1);
@@ -387,7 +387,7 @@ export async function GET(request: NextRequest) {
           resolved: false,
         });
       }
-      
+
       if (provider.circuitState === 'OPEN') {
         alerts.push({
           type: 'error',
@@ -414,7 +414,7 @@ export async function GET(request: NextRequest) {
 
     // Sort alerts by severity and timestamp
     alerts.sort((a, b) => {
-      const severityOrder = { error: 0, warning: 1, info: 2 };
+      const severityOrder: Record<string, number> = { error: 0, warning: 1, info: 2 };
       const severityDiff = severityOrder[a.type] - severityOrder[b.type];
       if (severityDiff !== 0) return severityDiff;
       return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
@@ -429,27 +429,20 @@ export async function GET(request: NextRequest) {
       routingAnalysis: dashboardData.routingAnalysis,
       alerts: alerts.slice(0, 10), // Limit to 10 most recent/important alerts
       timestamp: currentTime.toISOString(),
+      ...(validatedQuery.includeQuality && { qualityMetrics: dashboardData.qualityMetrics }),
+      ...(validatedQuery.includeUsagePatterns && { usagePatterns: dashboardData.usagePatterns }),
     };
-
-    // Add optional data based on query parameters
-    if (validatedQuery.includeQuality) {
-      response.qualityMetrics = dashboardData.qualityMetrics;
-    }
-
-    if (validatedQuery.includeUsagePatterns) {
-      response.usagePatterns = dashboardData.usagePatterns;
-    }
 
     return NextResponse.json(response);
 
   } catch (error) {
     console.error('Error in real-time analytics API:', error);
-    
+
     if (error instanceof z.ZodError) {
       return NextResponse.json(
-        { 
+        {
           error: 'Invalid request parameters',
-          details: error.errors 
+          details: error.errors
         },
         { status: 400 }
       );
@@ -593,15 +586,15 @@ export async function POST(request: NextRequest) {
     }
 
     // Apply rate limiting
-    const rateLimitResult = await rateLimit(request, 'ai-metrics-record', {
+    const rateLimitResult = await rateLimit(request, {
       windowMs: 60 * 1000, // 1 minute
-      max: 1000, // 1000 metrics per minute
-    });
+      maxRequests: 1000, // 1000 metrics per minute
+    }, 'ai-metrics-record');
 
     if (!rateLimitResult.success) {
       return NextResponse.json(
         { error: 'Rate limit exceeded' },
-        { 
+        {
           status: 429,
           headers: {
             'X-RateLimit-Limit': rateLimitResult.limit.toString(),
@@ -642,7 +635,7 @@ export async function POST(request: NextRequest) {
 
     // Update provider status for each provider
     const providerUpdates = new Map();
-    
+
     for (const metric of metricsData) {
       if (!providerUpdates.has(metric.provider)) {
         providerUpdates.set(metric.provider, {
@@ -653,11 +646,11 @@ export async function POST(request: NextRequest) {
           totalLatency: 0,
         });
       }
-      
+
       const update = providerUpdates.get(metric.provider);
       update.totalCount++;
       update.totalLatency += metric.latency;
-      
+
       if (metric.success) {
         update.successCount++;
       } else {
@@ -669,7 +662,7 @@ export async function POST(request: NextRequest) {
     for (const [provider, data] of providerUpdates) {
       const successRate = (data.successCount / data.totalCount) * 100;
       const avgLatency = data.totalLatency / data.totalCount;
-      
+
       await providerStatusService.updateProviderStatus({
         provider,
         isHealthy: successRate > 90,
@@ -690,12 +683,12 @@ export async function POST(request: NextRequest) {
 
   } catch (error) {
     console.error('Error recording metrics:', error);
-    
+
     if (error instanceof z.ZodError) {
       return NextResponse.json(
-        { 
+        {
           error: 'Invalid request data',
-          details: error.errors 
+          details: error.errors
         },
         { status: 400 }
       );

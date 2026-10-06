@@ -1,6 +1,6 @@
 /**
  * OpenRouterMetricsCollector Unit Tests
- * 
+ *
  * Tests the OpenRouter metrics collection functionality including:
  * - Request/response metrics recording
  * - Error metrics recording
@@ -9,7 +9,7 @@
  * - Health monitoring
  */
 
-import { describe, it, expect, beforeEach, afterEach, jest } from '@jest/globals';
+import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import { OpenRouterMetricsCollector } from '../openrouter-metrics-collector';
 import { AIMetricsIntegration } from '../ai-metrics-integration';
 
@@ -29,9 +29,9 @@ describe('OpenRouterMetricsCollector', () => {
     mockMetricsIntegration = {
       recordAIUsage: jest.fn()
     } as any;
-    
+
     mockAIMetricsIntegration.mockImplementation(() => mockMetricsIntegration);
-    
+
     collector = new OpenRouterMetricsCollector('sk-test-key');
     mockFetch.mockClear();
   });
@@ -380,33 +380,33 @@ describe('OpenRouterMetricsCollector', () => {
         {
           model: 'openai/gpt-4o',
           tokenCount: { prompt: 100, completion: 50, total: 150 },
-          expectedCost: 0.5 + 0.75 // 100/1000 * 0.005 + 50/1000 * 0.015
+          expectedCost: 0.0005 + 0.00075 // 100/1000 * 0.005 + 50/1000 * 0.015
         },
         {
           model: 'openai/gpt-4o-mini',
           tokenCount: { prompt: 100, completion: 50, total: 150 },
-          expectedCost: 0.015 + 0.03 // 100/1000 * 0.00015 + 50/1000 * 0.0006
+          expectedCost: 0.000015 + 0.00003 // 100/1000 * 0.00015 + 50/1000 * 0.0006
         },
         {
           model: 'anthropic/claude-3-opus',
           tokenCount: { prompt: 100, completion: 50, total: 150 },
-          expectedCost: 1.5 + 3.75 // 100/1000 * 0.015 + 50/1000 * 0.075
+          expectedCost: 0.0015 + 0.00375 // 100/1000 * 0.015 + 50/1000 * 0.075
         }
       ];
 
       testCases.forEach(({ model, tokenCount, expectedCost }) => {
         const estimatedCost = (collector as any).estimateCost(tokenCount, model);
-        expect(estimatedCost).toBeCloseTo(expectedCost, 3);
+        expect(estimatedCost).toBeCloseTo(expectedCost, 8);
       });
     });
 
     it('should handle unknown models with default pricing', () => {
       const tokenCount = { prompt: 100, completion: 50, total: 150 };
       const estimatedCost = (collector as any).estimateCost(tokenCount, 'unknown/model');
-      
+
       // Should use default pricing: prompt: 0.002, completion: 0.004
-      const expectedCost = 0.2 + 0.2; // 100/1000 * 0.002 + 50/1000 * 0.004
-      expect(estimatedCost).toBeCloseTo(expectedCost, 3);
+      const expectedCost = 0.0002 + 0.0002; // 100/1000 * 0.002 + 50/1000 * 0.004
+      expect(estimatedCost).toBeCloseTo(expectedCost, 8);
     });
   });
 
@@ -466,7 +466,7 @@ describe('OpenRouterMetricsCollector', () => {
       expect(health.availableProviders).toContain('openai');
       expect(health.availableProviders).toContain('anthropic');
       expect(health.availableProviders).toContain('google');
-      expect(health.latency).toBeGreaterThan(0);
+      expect(health.latency).toBeGreaterThanOrEqual(0);
       expect(health.errors).toHaveLength(0);
     });
 

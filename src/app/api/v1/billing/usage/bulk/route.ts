@@ -3,19 +3,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { createErrorResponse, handleApiError } from '@/lib/api-errors';
 import { z } from 'zod';
+import { UsageType } from '@prisma/client';
 
 const bulkUsageSchema = z.object({
   usageRecords: z.array(z.object({
-    usageType: z.enum([
-      'OPPORTUNITY_MATCH',
-      'AI_QUERY',
-      'DOCUMENT_PROCESSING',
-      'API_CALL',
-      'EXPORT',
-      'USER_SEAT',
-      'MATCH_SCORE_CALCULATION',
-      'SAVED_FILTER'
-    ]),
+    usageType: z.nativeEnum(UsageType),
     quantity: z.number().int().positive().default(1),
     resourceId: z.string().optional(),
     resourceType: z.string().optional(),
@@ -104,7 +96,7 @@ export async function POST(request: NextRequest) {
       where: { clerkId: user.id },
       select: { organizationId: true }
     });
-    
+
     if (!dbUser?.organizationId) {
       return createErrorResponse('Organization not found', 404, 'ORGANIZATION_NOT_FOUND');
     }
@@ -139,7 +131,7 @@ export async function POST(request: NextRequest) {
         const currentUsage = await db.usageRecord.aggregate({
           where: {
             organizationId: dbUser.organizationId,
-            usageType,
+            usageType: z.nativeEnum(UsageType).parse(usageType),
             createdAt: {
               gte: monthStart
             }
@@ -149,8 +141,8 @@ export async function POST(request: NextRequest) {
           }
         });
 
-        const currentTotal = (currentUsage._sum.quantity || 0) + quantity;
-        
+        const currentTotal = (currentUsage._sum?.quantity ?? 0) + quantity;
+
         // Check specific limits
         let limitExceeded = false;
         if (usageType === 'OPPORTUNITY_MATCH' && limits.matchesPerMonth > 0) {

@@ -51,10 +51,10 @@ import type {
   SelectedItems,
   DOCUMENT_OPERATIONS,
   FOLDER_OPERATIONS,
-  DocumentType,
 } from '@/types/documents'
 
 import {
+  DocumentType,
   ProcessingStatus,
   SecurityClassification,
   WorkflowStatus
@@ -171,7 +171,7 @@ interface AISlice {
   selectedModel: string | null
   loading: boolean
   error: string | null
-  
+
   // Search functionality
   search: {
     query: string
@@ -182,7 +182,7 @@ interface AISlice {
     isSearching: boolean
     debounceTimer: NodeJS.Timeout | null
   }
-  
+
   // Real-time performance data
   modelPerformance: Record<string, {
     averageLatency: number
@@ -192,20 +192,20 @@ interface AISlice {
     lastUpdated: string
     sampleSize: number
   }>
-  
+
   // Real-time pricing
   realTimePricing: Record<string, {
     prompt: number
     completion: number
     lastUpdated: string
   }>
-  
+
   // Provider status
   providerStatus: Record<string, {
     status: 'online' | 'degraded' | 'offline'
     lastChecked: string
   }>
-  
+
   // Usage tracking
   currentUsage: {
     tokensUsed: number
@@ -213,7 +213,7 @@ interface AISlice {
     totalCost: number
     resetAt: string
   }
-  
+
   // Feature toggles
   features: {
     openRouterEnabled: boolean
@@ -221,10 +221,10 @@ interface AISlice {
     realTimeMetrics: boolean
     advancedSettings: boolean
   }
-  
+
   // PDF processing configuration
   pdfEngine: 'pdf-text' | 'mistral-ocr' | 'native'
-  
+
   // Actions
   setModels: (models: ModelInfo[]) => void
   setSelectedModel: (modelId: string | null) => void
@@ -240,7 +240,7 @@ interface AISlice {
   clearError: () => void
   setLoading: (loading: boolean) => void
   setError: (error: string | null) => void
-  
+
   // Search actions
   setSearchQuery: (query: string) => void
   setSelectedTier: (tier: 'all' | 'fast' | 'balanced' | 'powerful') => void
@@ -333,7 +333,7 @@ interface DocumentChatSystemStore {
 
   // AI Integration slice
   ai: AISlice
-  
+
   // Future slices (will be implemented in respective phases)
   government?: any // Phase 3: Government APIs
   analytics?: any // Phase 4: Enterprise features
@@ -412,11 +412,11 @@ const createDocumentsSlice = (set: any, get: any): DocumentsSlice => ({
       folders: folders.map((f: Folder) => ({ id: f.id, name: f.name, parentId: f.parentId })),
       timestamp: new Date().toISOString()
     })
-    
+
     set((state: DocumentChatSystemStore) => {
       state.documents.folders = folders
     })
-    
+
     console.log('✅ [DOCUMENTS STORE] setFolders completed - New state:', {
       totalFolders: get().documents.folders.length,
       currentFolderId: get().documents.currentFolderId,
@@ -431,11 +431,11 @@ const createDocumentsSlice = (set: any, get: any): DocumentsSlice => ({
       documents: documents.map((d: any) => ({ id: d.id, name: d.name, folderId: d.folderId })),
       timestamp: new Date().toISOString()
     })
-    
+
     set((state: DocumentChatSystemStore) => {
       state.documents.documents = documents
     })
-    
+
     console.log('✅ [DOCUMENTS STORE] setDocuments completed - New state:', {
       totalDocuments: get().documents.documents.length,
       currentFolderId: get().documents.currentFolderId,
@@ -451,11 +451,11 @@ const createDocumentsSlice = (set: any, get: any): DocumentsSlice => ({
       newFolderId: id,
       timestamp: new Date().toISOString()
     })
-    
+
     set((state: DocumentChatSystemStore) => {
       state.documents.currentFolderId = id
     })
-    
+
     const currentState = get().documents
     console.log('✅ [DOCUMENTS STORE] setCurrentFolderId completed - New state:', {
       currentFolderId: currentState.currentFolderId,
@@ -470,7 +470,7 @@ const createDocumentsSlice = (set: any, get: any): DocumentsSlice => ({
       loading,
       timestamp: new Date().toISOString()
     })
-    
+
     set((state: DocumentChatSystemStore) => {
       state.documents.loading = loading
     })
@@ -482,7 +482,7 @@ const createDocumentsSlice = (set: any, get: any): DocumentsSlice => ({
       error,
       timestamp: new Date().toISOString()
     })
-    
+
     set((state: DocumentChatSystemStore) => {
       state.documents.error = error
     })
@@ -493,7 +493,7 @@ const createDocumentsSlice = (set: any, get: any): DocumentsSlice => ({
       action: 'CLEAR_ERROR',
       timestamp: new Date().toISOString()
     })
-    
+
     set((state: DocumentChatSystemStore) => {
       state.documents.error = null
     })
@@ -502,7 +502,7 @@ const createDocumentsSlice = (set: any, get: any): DocumentsSlice => ({
   // Folder operations
   createFolder: async (input: FolderCreateInput): Promise<TreeOperationResult<Folder>> => {
     const state = get() as DocumentChatSystemStore
-    
+
     console.log('📁➕ [DOCUMENTS STORE] createFolder called:', {
       action: 'CREATE_FOLDER',
       input,
@@ -513,7 +513,7 @@ const createDocumentsSlice = (set: any, get: any): DocumentsSlice => ({
       },
       timestamp: new Date().toISOString()
     })
-    
+
     try {
       // STEP 1: Client-side validation - check for duplicate names in same parent
       const existingFolder = state.documents.folders.find(
@@ -579,21 +579,21 @@ const createDocumentsSlice = (set: any, get: any): DocumentsSlice => ({
         color: apiResult.folder.color || null,
         organizationId: apiResult.folder.organizationId || input.organizationId,
         createdById: apiResult.folder.createdById || 'current_user',
-        
+
         // Hierarchy
         path: apiResult.folder.path || [],
         level: apiResult.folder.level || 0,
-        
+
         // Folder properties
         icon: apiResult.folder.icon || null,
         folderType: apiResult.folder.folderType || null,
         isSystemFolder: apiResult.folder.isSystemFolder || false,
         isPublic: apiResult.folder.isPublic || false,
         isProtected: apiResult.folder.isProtected || false,
-        
+
         // Metadata
         metadata: apiResult.folder.metadata || null,
-        
+
         // Timestamps
         createdAt: apiResult.folder.createdAt,
         updatedAt: apiResult.folder.updatedAt,
@@ -604,7 +604,7 @@ const createDocumentsSlice = (set: any, get: any): DocumentsSlice => ({
       set((state: DocumentChatSystemStore) => {
         state.documents.folders.push(newFolder)
       })
-      
+
       console.log('✅ [DOCUMENTS STORE] createFolder success - folder created and persisted:', {
         newFolder: { id: newFolder.id, name: newFolder.name, parentId: newFolder.parentId },
         apiData: apiResult.folder,
@@ -623,8 +623,8 @@ const createDocumentsSlice = (set: any, get: any): DocumentsSlice => ({
         timestamp: new Date().toISOString(),
         success: true,
         afterState: newFolder,
-        metadata: { 
-          parentId: input.parentId, 
+        metadata: {
+          parentId: input.parentId,
           name: input.name,
           apiResult: apiResult,
           persisted: true
@@ -655,14 +655,14 @@ const createDocumentsSlice = (set: any, get: any): DocumentsSlice => ({
 
   updateFolder: async (folderId: string, updates: FolderUpdateInput): Promise<TreeOperationResult<Folder>> => {
     const state = get() as DocumentChatSystemStore
-    
+
     console.log('📁✏️ [DOCUMENTS STORE] updateFolder called:', {
       action: 'UPDATE_FOLDER',
       folderId,
       updates,
       timestamp: new Date().toISOString()
     })
-    
+
     try {
       // STEP 1: Find folder in local state for validation
       const folderIndex = state.documents.folders.findIndex((f) => f.id === folderId)
@@ -710,21 +710,21 @@ const createDocumentsSlice = (set: any, get: any): DocumentsSlice => ({
         color: apiResult.folder.color || null,
         organizationId: apiResult.folder.organizationId,
         createdById: apiResult.folder.createdById || 'current_user',
-        
+
         // Hierarchy
         path: apiResult.folder.path || [],
         level: apiResult.folder.level || 0,
-        
+
         // Folder properties
         icon: apiResult.folder.icon || null,
         folderType: apiResult.folder.folderType || null,
         isSystemFolder: apiResult.folder.isSystemFolder || false,
         isPublic: apiResult.folder.isPublic || false,
         isProtected: apiResult.folder.isProtected || false,
-        
+
         // Metadata
         metadata: apiResult.folder.metadata || null,
-        
+
         // Timestamps
         createdAt: apiResult.folder.createdAt,
         updatedAt: apiResult.folder.updatedAt,
@@ -752,7 +752,7 @@ const createDocumentsSlice = (set: any, get: any): DocumentsSlice => ({
         success: true,
         beforeState,
         afterState: updatedFolder,
-        metadata: { 
+        metadata: {
           updates,
           apiResult: apiResult,
           persisted: true
@@ -778,13 +778,13 @@ const createDocumentsSlice = (set: any, get: any): DocumentsSlice => ({
 
   deleteFolder: async (folderId: string): Promise<TreeOperationResult<void>> => {
     const state = get() as DocumentChatSystemStore
-    
+
     console.log('📁🗑️ [DOCUMENTS STORE] deleteFolder called:', {
       action: 'DELETE_FOLDER',
       folderId,
       timestamp: new Date().toISOString()
     })
-    
+
     try {
       // STEP 1: Find folder in local state for validation
       const folder = state.documents.folders.find((f) => f.id === folderId)
@@ -802,7 +802,7 @@ const createDocumentsSlice = (set: any, get: any): DocumentsSlice => ({
       // Check for children (local validation)
       const hasChildren = state.documents.folders.some((f) => f.parentId === folderId)
       const hasDocuments = state.documents.documents.some((d) => d.folderId === folderId)
-      
+
       if (hasChildren || hasDocuments) {
         console.log('❌ [DOCUMENTS STORE] deleteFolder failed - folder contains items:', {
           folderId,
@@ -813,13 +813,13 @@ const createDocumentsSlice = (set: any, get: any): DocumentsSlice => ({
       }
 
       console.log(`🗑️ Starting optimistic delete for folder: ${folder.name} (${folderId})`)
-      
+
       // STEP 3: Optimistic UI update - remove from store immediately
       const folderBackup = { ...folder } // Create backup for rollback
       set((state: DocumentChatSystemStore) => {
         state.documents.folders = state.documents.folders.filter((f) => f.id !== folderId)
       })
-      
+
       try {
         // STEP 4: Call DELETE API to remove from database
         console.log(`🌐 Calling DELETE API for folder: ${folderId}`)
@@ -827,15 +827,15 @@ const createDocumentsSlice = (set: any, get: any): DocumentsSlice => ({
           method: 'DELETE',
           credentials: 'include'
         })
-        
+
         if (!response.ok) {
           const errorData = await response.json().catch(() => ({ error: 'Unknown error' }))
           throw new Error(`API Error ${response.status}: ${errorData.error || response.statusText}`)
         }
-        
+
         const result = await response.json()
         console.log(`✅ Folder deleted successfully from backend:`, result)
-        
+
         // STEP 5: Log successful operation
         const log: TreeOperationLog = {
           id: `log_${Date.now()}`,
@@ -845,27 +845,27 @@ const createDocumentsSlice = (set: any, get: any): DocumentsSlice => ({
           timestamp: new Date().toISOString(),
           success: true,
           beforeState: folderBackup,
-          metadata: { 
+          metadata: {
             deletedFolderId: folderId,
             apiResult: result,
             persisted: true
           },
         }
         state.documents._logOperation(log)
-        
+
         return state.documents._createSuccessResult(undefined, 'DELETE_FOLDER')
-        
+
       } catch (apiError) {
         // STEP 6: Rollback - restore folder to store if API call failed
         console.error(`❌ DELETE API failed, rolling back:`, apiError)
-        
+
         set((state: DocumentChatSystemStore) => {
           // Add the folder back to its original position
           state.documents.folders = [...state.documents.folders, folderBackup]
           // Set error message for user notification
           state.documents.error = `Failed to delete "${folder.name}": ${apiError instanceof Error ? apiError.message : 'Unknown error'}`
         })
-        
+
         // Log failed operation
         const log: TreeOperationLog = {
           id: `log_${Date.now()}`,
@@ -875,35 +875,35 @@ const createDocumentsSlice = (set: any, get: any): DocumentsSlice => ({
           timestamp: new Date().toISOString(),
           success: false,
           beforeState: folderBackup,
-          metadata: { 
+          metadata: {
             deletedFolderId: folderId,
             error: apiError instanceof Error ? apiError.message : 'Unknown error',
             rolledBack: true
           },
         }
         state.documents._logOperation(log)
-        
+
         throw apiError // Re-throw to indicate failure to the calling component
       }
-      
+
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error'
       console.error(`💥 Delete folder operation failed:`, error)
-      
+
       return state.documents._createErrorResult<void>(errorMessage, 'DELETE_FOLDER')
     }
   },
 
   moveFolder: async (folderId: string, newParentId: string | null): Promise<TreeOperationResult<Folder>> => {
     const state = get() as DocumentChatSystemStore
-    
+
     console.log('📁🚚 [DOCUMENTS STORE] moveFolder called:', {
       action: 'MOVE_FOLDER',
       folderId,
       newParentId,
       timestamp: new Date().toISOString()
     })
-    
+
     try {
       // STEP 1: Find folder in local state for validation
       const folderIndex = state.documents.folders.findIndex((f) => f.id === folderId)
@@ -936,8 +936,8 @@ const createDocumentsSlice = (set: any, get: any): DocumentsSlice => ({
           'Content-Type': 'application/json',
         },
         credentials: 'include',
-        body: JSON.stringify({ 
-          parentId: newParentId 
+        body: JSON.stringify({
+          parentId: newParentId
         }),
       })
 
@@ -962,21 +962,21 @@ const createDocumentsSlice = (set: any, get: any): DocumentsSlice => ({
         color: apiResult.folder.color || null,
         organizationId: apiResult.folder.organizationId,
         createdById: apiResult.folder.createdById || 'current_user',
-        
+
         // Hierarchy
         path: apiResult.folder.path || [],
         level: apiResult.folder.level || 0,
-        
+
         // Folder properties
         icon: apiResult.folder.icon || null,
         folderType: apiResult.folder.folderType || null,
         isSystemFolder: apiResult.folder.isSystemFolder || false,
         isPublic: apiResult.folder.isPublic || false,
         isProtected: apiResult.folder.isProtected || false,
-        
+
         // Metadata
         metadata: apiResult.folder.metadata || null,
-        
+
         // Timestamps
         createdAt: apiResult.folder.createdAt,
         updatedAt: apiResult.folder.updatedAt,
@@ -1004,8 +1004,8 @@ const createDocumentsSlice = (set: any, get: any): DocumentsSlice => ({
         success: true,
         beforeState: folder,
         afterState: updatedFolder,
-        metadata: { 
-          newParentId, 
+        metadata: {
+          newParentId,
           oldParentId: folder.parentId,
           apiResult: apiResult,
           persisted: true
@@ -1032,10 +1032,10 @@ const createDocumentsSlice = (set: any, get: any): DocumentsSlice => ({
   // Document operations
   createDocument: async (input: DocumentCreateInput): Promise<TreeOperationResult<Document>> => {
     const state = get() as DocumentChatSystemStore
-    
+
     try {
       const fileType = getFileTypeFromMimeType(input.file.type, input.file.name)
-      
+
       // SECURITY: This function should NOT be used in production
       // It's only for testing/development purposes
       if (process.env.NODE_ENV === 'production') {
@@ -1046,9 +1046,9 @@ const createDocumentsSlice = (set: any, get: any): DocumentsSlice => ({
         // Core fields
         id: `doc_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
         organizationId: input.organizationId,
-        uploadedById: input.uploadedById || 'test_user', // Must be provided in real implementation
+        uploadedById: 'test_user', // Must be provided in real implementation
         folderId: input.folderId,
-        
+
         // File information
         name: input.file.name,
         size: input.file.size,
@@ -1056,46 +1056,44 @@ const createDocumentsSlice = (set: any, get: any): DocumentsSlice => ({
         filePath: `/uploads/${input.file.name}`,
         uploadDate: new Date().toISOString(),
         lastModified: new Date().toISOString(),
-        
+
         // Computed fields (needed for UI)
         type: fileType,
-        
+
         // Document classification - Default to OTHER, not file type
         documentType: input.documentType || DocumentType.OTHER,
         securityClassification: input.securityClassification || SecurityClassification.INTERNAL,
         workflowStatus: input.workflowStatus || WorkflowStatus.DRAFT,
-        
+
         // Extracted content
         extractedText: '',
         summary: '',
-        
+
         // User metadata
         description: input.description || null,
         tags: input.tags || [],
-        setAsideType: input.setAsideType || null,
-        naicsCodes: input.naicsCodes || [],
         isEditable: true,
-        
+
         // JSON fields (empty by default)
         content: { sections: [], tables: [], images: [] },
         embeddings: { documentId: '', documentTitle: '', organizationNamespace: '', chunks: [], model: '', dimensions: 0, totalChunks: 0, lastProcessed: '' },
         entities: { entities: [] },
         sharing: { permissions: [], share: null, shareViews: [], comments: [] },
         revisions: { revisions: [] },
-        processing: { 
-          currentStatus: ProcessingStatus.PENDING, 
-          progress: 0, 
-          currentStep: null, 
-          estimatedCompletion: null, 
-          events: [] 
+        processing: {
+          currentStatus: ProcessingStatus.PENDING,
+          progress: 0,
+          currentStep: null,
+          estimatedCompletion: null,
+          events: []
         },
         analysis: { contract: null, compliance: null },
-        
+
         // Timestamps
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         deletedAt: null,
-        
+
         // Client-side only
         originalFile: input.file
       }
@@ -1131,7 +1129,7 @@ const createDocumentsSlice = (set: any, get: any): DocumentsSlice => ({
 
   updateDocument: async (documentId: string, updates: DocumentUpdateInput): Promise<TreeOperationResult<Document>> => {
     const state = get() as DocumentChatSystemStore
-    
+
     try {
       const documentIndex = state.documents.documents.findIndex((d) => d.id === documentId)
       if (documentIndex === -1) {
@@ -1177,7 +1175,7 @@ const createDocumentsSlice = (set: any, get: any): DocumentsSlice => ({
 
   moveDocument: async (documentId: string, newFolderId: string | null): Promise<TreeOperationResult<Document>> => {
     const state = get() as DocumentChatSystemStore
-    
+
     try {
       const documentIndex = state.documents.documents.findIndex((d) => d.id === documentId)
       if (documentIndex === -1) {
@@ -1186,18 +1184,18 @@ const createDocumentsSlice = (set: any, get: any): DocumentsSlice => ({
 
       const originalDocument = state.documents.documents[documentIndex]
       console.log(`📂 Moving document: ${originalDocument.name} to folder: ${newFolderId || 'root'}`)
-      
+
       // STEP 1: Optimistic UI update
       const optimisticDocument: Document = {
         ...originalDocument,
         folderId: newFolderId,
         lastModified: new Date().toISOString(),
       }
-      
+
       set((state: DocumentChatSystemStore) => {
         state.documents.documents[documentIndex] = optimisticDocument
       })
-      
+
       try {
         // STEP 2: Call PUT API to update in database
         console.log(`🌐 Calling PUT API to move document: ${documentId}`)
@@ -1211,15 +1209,15 @@ const createDocumentsSlice = (set: any, get: any): DocumentsSlice => ({
             folderId: newFolderId
           }),
         })
-        
+
         if (!response.ok) {
           const errorData = await response.json().catch(() => ({ error: 'Unknown error' }))
           throw new Error(`API Error ${response.status}: ${errorData.error || response.statusText}`)
         }
-        
+
         const result = await response.json()
         console.log(`✅ Document moved successfully via API:`, result)
-        
+
         // STEP 3: Update with server response (in case server modified anything)
         if (result.success && result.document) {
           set((state: DocumentChatSystemStore) => {
@@ -1229,7 +1227,7 @@ const createDocumentsSlice = (set: any, get: any): DocumentsSlice => ({
             }
           })
         }
-        
+
         // STEP 4: Log successful operation
         const log: TreeOperationLog = {
           id: `log_${Date.now()}`,
@@ -1247,18 +1245,18 @@ const createDocumentsSlice = (set: any, get: any): DocumentsSlice => ({
           }
         }
         state.documents._logOperation(log)
-        
+
         return state.documents._createSuccessResult(result.document || optimisticDocument, 'MOVE_DOCUMENT')
-        
+
       } catch (apiError) {
         // STEP 5: Rollback on API failure
         console.error(`❌ API call failed, rolling back document move:`, apiError)
         set((state: DocumentChatSystemStore) => {
           state.documents.documents[documentIndex] = originalDocument
         })
-        
+
         const errorMessage = apiError instanceof Error ? apiError.message : 'Failed to move document'
-        
+
         // Log failed operation
         const log: TreeOperationLog = {
           id: `log_${Date.now()}`,
@@ -1277,7 +1275,7 @@ const createDocumentsSlice = (set: any, get: any): DocumentsSlice => ({
           }
         }
         state.documents._logOperation(log)
-        
+
         throw apiError
       }
 
@@ -1293,21 +1291,21 @@ const createDocumentsSlice = (set: any, get: any): DocumentsSlice => ({
 
   deleteDocument: async (documentId: string): Promise<TreeOperationResult<void>> => {
     const state = get() as DocumentChatSystemStore
-    
+
     try {
       const document = state.documents.documents.find((d) => d.id === documentId)
       if (!document) {
         return state.documents._createErrorResult<void>('Document not found', 'DELETE_DOCUMENT')
       }
-      
+
       console.log(`🗑️  Starting optimistic delete for: ${document.name} (${documentId})`)
-      
+
       // STEP 1: Optimistic UI update - remove from store immediately
       const documentBackup = { ...document } // Create backup for rollback
       set((state: DocumentChatSystemStore) => {
         state.documents.documents = state.documents.documents.filter((d) => d.id !== documentId)
       })
-      
+
       try {
         // STEP 2: Call DELETE API to remove from Supabase storage and Prisma
         console.log(`🌐 Calling DELETE API for document: ${documentId}`)
@@ -1315,15 +1313,15 @@ const createDocumentsSlice = (set: any, get: any): DocumentsSlice => ({
           method: 'DELETE',
           credentials: 'include'
         })
-        
+
         if (!response.ok) {
           const errorData = await response.json().catch(() => ({ error: 'Unknown error' }))
           throw new Error(`API Error ${response.status}: ${errorData.error || response.statusText}`)
         }
-        
+
         const result = await response.json()
         console.log(`✅ Document deleted successfully from backend:`, result)
-        
+
         // STEP 3: Log successful operation
         const log: TreeOperationLog = {
           id: `log_${Date.now()}`,
@@ -1333,26 +1331,26 @@ const createDocumentsSlice = (set: any, get: any): DocumentsSlice => ({
           timestamp: new Date().toISOString(),
           success: true,
           beforeState: documentBackup,
-          metadata: { 
+          metadata: {
             deletedDocumentId: documentId,
             apiResult: result
           },
         }
         state.documents._logOperation(log)
-        
+
         return state.documents._createSuccessResult(undefined, 'DELETE_DOCUMENT')
-        
+
       } catch (apiError) {
         // STEP 4: Rollback - restore document to store if API call failed
         console.error(`❌ DELETE API failed, rolling back:`, apiError)
-        
+
         set((state: DocumentChatSystemStore) => {
           // Add the document back to its original position
           state.documents.documents = [...state.documents.documents, documentBackup]
           // Set error message for user notification
           state.documents.error = `Failed to delete "${document.name}": ${apiError instanceof Error ? apiError.message : 'Unknown error'}`
         })
-        
+
         // Log failed operation
         const log: TreeOperationLog = {
           id: `log_${Date.now()}`,
@@ -1362,21 +1360,21 @@ const createDocumentsSlice = (set: any, get: any): DocumentsSlice => ({
           timestamp: new Date().toISOString(),
           success: false,
           beforeState: documentBackup,
-          metadata: { 
+          metadata: {
             deletedDocumentId: documentId,
             error: apiError instanceof Error ? apiError.message : 'Unknown error',
             rolledBack: true
           },
         }
         state.documents._logOperation(log)
-        
+
         throw apiError // Re-throw to indicate failure to the calling component
       }
-      
+
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error'
       console.error(`💥 Delete operation failed:`, error)
-      
+
       return state.documents._createErrorResult<void>(errorMessage, 'DELETE_DOCUMENT')
     }
   },
@@ -1390,11 +1388,11 @@ const createDocumentsSlice = (set: any, get: any): DocumentsSlice => ({
       newFolderId: folderId,
       timestamp: new Date().toISOString()
     })
-    
+
     set((state: DocumentChatSystemStore) => {
       state.documents.currentFolderId = folderId
     })
-    
+
     // Update URL using pushState to avoid page refresh
     if (typeof window !== 'undefined') {
       try {
@@ -1409,7 +1407,7 @@ const createDocumentsSlice = (set: any, get: any): DocumentsSlice => ({
         console.warn('Navigation failed:', error)
       }
     }
-    
+
     const newState = get().documents
     const targetFolder = folderId ? newState.folders.find((f: Folder) => f.id === folderId) : null
     console.log('✅ [DOCUMENTS STORE] navigateToFolder completed:', {
@@ -1472,7 +1470,7 @@ const createDocumentsSlice = (set: any, get: any): DocumentsSlice => ({
       totalDocuments: state.documents.documents.length,
       timestamp: new Date().toISOString()
     })
-    
+
     if (!query.trim()) {
       console.log('🧹 [DOCUMENTS STORE] searchDocuments - empty query, returning empty results')
       return []
@@ -1602,7 +1600,7 @@ const createDocumentsSlice = (set: any, get: any): DocumentsSlice => ({
   // Bulk operations
   bulkDeleteDocuments: async (documentIds: string[]): Promise<TreeOperationResult<void>> => {
     const state = get() as DocumentChatSystemStore
-    
+
     try {
       // Update state
       set((state: DocumentChatSystemStore) => {
@@ -1632,7 +1630,7 @@ const createDocumentsSlice = (set: any, get: any): DocumentsSlice => ({
 
   bulkMoveDocuments: async (documentIds: string[], folderId: string | null): Promise<TreeOperationResult<void>> => {
     const state = get() as DocumentChatSystemStore
-    
+
     try {
       // Update state
       set((state: DocumentChatSystemStore) => {
@@ -1668,7 +1666,7 @@ const createDocumentsSlice = (set: any, get: any): DocumentsSlice => ({
 
   bulkDeleteFolders: async (folderIds: string[]): Promise<TreeOperationResult<void>> => {
     const state = get() as DocumentChatSystemStore
-    
+
     try {
       // Check for protected folders
       const protectedFolders = state.documents.folders.filter(
@@ -1706,7 +1704,7 @@ const createDocumentsSlice = (set: any, get: any): DocumentsSlice => ({
 
   bulkMoveFolders: async (folderIds: string[], parentId: string | null): Promise<TreeOperationResult<void>> => {
     const state = get() as DocumentChatSystemStore
-    
+
     try {
       // Update state
       set((state: DocumentChatSystemStore) => {
@@ -1743,12 +1741,12 @@ const createDocumentsSlice = (set: any, get: any): DocumentsSlice => ({
   // API methods for loading data
   loadFolders: async (): Promise<TreeOperationResult<Folder[]>> => {
     const state = get() as DocumentChatSystemStore
-    
+
     console.log('📁📥 [DOCUMENTS STORE] loadFolders called:', {
       action: 'LOAD_FOLDERS',
       timestamp: new Date().toISOString()
     })
-    
+
     try {
       // Set loading state
       set((state: DocumentChatSystemStore) => {
@@ -1818,7 +1816,7 @@ const createDocumentsSlice = (set: any, get: any): DocumentsSlice => ({
         entityId: 'bulk',
         timestamp: new Date().toISOString(),
         success: true,
-        metadata: { 
+        metadata: {
           loadedCount: folders.length,
           apiResult: { success: apiResult.success, count: apiResult.count }
         },
@@ -1832,12 +1830,12 @@ const createDocumentsSlice = (set: any, get: any): DocumentsSlice => ({
         error: errorMessage,
         timestamp: new Date().toISOString()
       })
-      
+
       set((state: DocumentChatSystemStore) => {
         state.documents.loading = false
         state.documents.error = errorMessage
       })
-      
+
       return state.documents._createErrorResult<Folder[]>(errorMessage, 'LOAD_FOLDERS')
     }
   },
@@ -1887,7 +1885,7 @@ export const useDocumentChatSystemStore = create<DocumentChatSystemStore>()(
     devtools(
       immer((set, get) => {
         const documentsSlice = createDocumentsSlice(set, get)
-        
+
         return {
           // ==========================================
           // DOCUMENTS SLICE - FULLY IMPLEMENTED
@@ -2117,14 +2115,14 @@ export const useDocumentChatSystemStore = create<DocumentChatSystemStore>()(
                 createdAt: new Date(),
                 isRead: false,
               }
-              
+
               set((state: DocumentChatSystemStore) => {
                 state.notifications.items = [notification, ...state.notifications.items]
                 if (!notification.isRead) {
                   state.notifications.unreadCount = state.notifications.unreadCount + 1
                 }
               })
-              
+
               // Auto-dismiss after 5 seconds for success messages
               if (options.type === 'success') {
                 setTimeout(() => {
@@ -2187,23 +2185,23 @@ export const useDocumentChatSystemStore = create<DocumentChatSystemStore>()(
               realTimeMetrics: true,
               advancedSettings: false
             },
-            
+
             pdfEngine: 'pdf-text',
-            
+
             setModels: (models) => {
               set((state: DocumentChatSystemStore) => {
                 state.ai.models = models
                 console.log('🤖 AI Store: Models updated:', models.length)
               })
             },
-            
+
             setSelectedModel: (modelId) => {
               set((state: DocumentChatSystemStore) => {
                 state.ai.selectedModel = modelId
                 console.log('🤖 AI Store: Selected model:', modelId)
               })
             },
-            
+
             updateModelPerformance: (modelId, performance) => {
               set((state: DocumentChatSystemStore) => {
                 state.ai.modelPerformance[modelId] = {
@@ -2214,7 +2212,7 @@ export const useDocumentChatSystemStore = create<DocumentChatSystemStore>()(
                 console.log('🤖 AI Store: Performance updated for:', modelId)
               })
             },
-            
+
             updateRealTimePricing: (modelId, pricing) => {
               set((state: DocumentChatSystemStore) => {
                 state.ai.realTimePricing[modelId] = {
@@ -2224,7 +2222,7 @@ export const useDocumentChatSystemStore = create<DocumentChatSystemStore>()(
                 console.log('🤖 AI Store: Pricing updated for:', modelId)
               })
             },
-            
+
             updateProviderStatus: (providerId, status) => {
               set((state: DocumentChatSystemStore) => {
                 state.ai.providerStatus[providerId] = {
@@ -2234,7 +2232,7 @@ export const useDocumentChatSystemStore = create<DocumentChatSystemStore>()(
                 console.log('🤖 AI Store: Provider status updated:', providerId, status)
               })
             },
-            
+
             trackUsage: (usage) => {
               set((state: DocumentChatSystemStore) => {
                 state.ai.currentUsage.tokensUsed += usage.tokens
@@ -2243,7 +2241,7 @@ export const useDocumentChatSystemStore = create<DocumentChatSystemStore>()(
                 console.log('🤖 AI Store: Usage tracked:', usage)
               })
             },
-            
+
             resetUsage: () => {
               set((state: DocumentChatSystemStore) => {
                 state.ai.currentUsage = {
@@ -2255,27 +2253,27 @@ export const useDocumentChatSystemStore = create<DocumentChatSystemStore>()(
                 console.log('🤖 AI Store: Usage reset')
               })
             },
-            
+
             toggleFeature: (feature, enabled) => {
               set((state: DocumentChatSystemStore) => {
                 state.ai.features[feature] = enabled
                 console.log('🤖 AI Store: Feature toggled:', feature, enabled)
               })
             },
-            
+
             setPdfEngine: (engine) => {
               set((state: DocumentChatSystemStore) => {
                 state.ai.pdfEngine = engine
                 console.log('🤖 AI Store: PDF engine set:', engine)
               })
             },
-            
+
             refreshModels: async () => {
               set((state: DocumentChatSystemStore) => {
                 state.ai.loading = true
                 state.ai.error = null
               })
-              
+
               try {
                 console.log('🚀 Fetching models from all providers in parallel...')
 
@@ -2291,14 +2289,14 @@ export const useDocumentChatSystemStore = create<DocumentChatSystemStore>()(
                 if (!response.ok) {
                   throw new Error(`Failed to fetch models: ${response.status} ${response.statusText}`);
                 }
-                
+
                 const data = await response.json();
                 console.log(`📊 Loaded ${data.totalModels} models in ${data.loadingTime}ms`);
                 console.log('🔍 Raw API Response:', data);
-                
+
                 // Combine all models from all providers
                 const allModels: ModelInfo[] = [];
-                
+
                 // Transform OpenRouter models
                 if (data.openrouter && Array.isArray(data.openrouter)) {
                   const openrouterModels = data.openrouter.map((model: any) => ({
@@ -2319,11 +2317,11 @@ export const useDocumentChatSystemStore = create<DocumentChatSystemStore>()(
                   allModels.push(...openrouterModels);
                   console.log(`🔗 OpenRouter: Loaded ${openrouterModels.length} text generation models`);
                 }
-                
+
                 // Transform ImageRouter models (when available)
                 if (data.imagerouter && Array.isArray(data.imagerouter)) {
                   console.log(`🎨 ImageRouter: Raw models data:`, data.imagerouter);
-                  
+
                   const imagerouterModels = data.imagerouter.map((model: any) => ({
                     name: model.id || model.name,
                     provider: 'imagerouter',
@@ -2345,7 +2343,7 @@ export const useDocumentChatSystemStore = create<DocumentChatSystemStore>()(
                 } else {
                   console.warn('⚠️ ImageRouter: No models data received or not array:', data.imagerouter);
                 }
-                
+
                 set((state: DocumentChatSystemStore) => {
                   state.ai.models = allModels
                   state.ai.search.filteredModels = allModels
@@ -2355,14 +2353,14 @@ export const useDocumentChatSystemStore = create<DocumentChatSystemStore>()(
                     state.ai.selectedModel = textModel ? textModel.name : allModels[0].name
                   }
                 })
-                
+
                 // Rebuild search index with new models
                 get().ai.buildSearchIndex()
-                
+
                 // Count models by provider for detailed logging
                 const openrouterCount = allModels.filter(m => m.provider === 'openrouter').length;
                 const imagerouterCount = allModels.filter(m => m.provider === 'imagerouter').length;
-                
+
                 console.log(`🤖 AI Store: Models refreshed with ${allModels.length} models from all providers (${data.loadingTime}ms)`);
                 console.log(`📊 Provider breakdown: OpenRouter: ${openrouterCount}, ImageRouter: ${imagerouterCount}`);
                 console.log(`🔍 AI Search: Built search index with ${get().ai.search.searchIndex.size} terms for ${allModels.length} models`);
@@ -2370,11 +2368,11 @@ export const useDocumentChatSystemStore = create<DocumentChatSystemStore>()(
                 // Report error to registry
                 try {
                   const { reportError } = await import('@/lib/errors/error-registry')
-                  const errorMessage = error instanceof Error ? error.message : 
-                                     typeof error === 'string' ? error : 
+                  const errorMessage = error instanceof Error ? error.message :
+                                     typeof error === 'string' ? error :
                                      'Failed to fetch models (unknown error)'
                   const errorToReport = error instanceof Error ? error : new Error(errorMessage)
-                  
+
                   reportError(errorToReport, {
                     source: 'api',
                     feature: 'ai-models',
@@ -2388,14 +2386,14 @@ export const useDocumentChatSystemStore = create<DocumentChatSystemStore>()(
                 } catch (reportError) {
                   console.warn('Failed to report error:', reportError)
                 }
-                
+
                 console.warn('Failed to load OpenRouter models, using fallback:', error);
-                
+
                 // Update store with error state
                 set((state: DocumentChatSystemStore) => {
                   state.ai.error = 'Unable to load AI models. Using fallback models.'
                 })
-                
+
                 // Fallback to minimal set on error
                 const fallbackModels: ModelInfo[] = [
                   {
@@ -2411,7 +2409,7 @@ export const useDocumentChatSystemStore = create<DocumentChatSystemStore>()(
                     features: ['chat', 'completion', 'reasoning']
                   }
                 ];
-                
+
                 set((state: DocumentChatSystemStore) => {
                   state.ai.models = fallbackModels
                   state.ai.search.filteredModels = fallbackModels
@@ -2420,7 +2418,7 @@ export const useDocumentChatSystemStore = create<DocumentChatSystemStore>()(
                   }
                   state.ai.error = error instanceof Error ? error.message : 'Failed to refresh models'
                 })
-                
+
                 // Rebuild search index with fallback models
                 get().ai.buildSearchIndex()
               } finally {
@@ -2429,15 +2427,15 @@ export const useDocumentChatSystemStore = create<DocumentChatSystemStore>()(
                 })
               }
             },
-            
+
             forceRefreshModels: async () => {
               console.log('🔄 Force refreshing models from all providers...');
-              
+
               set((state: DocumentChatSystemStore) => {
                 state.ai.loading = true
                 state.ai.error = null
               })
-              
+
               try {
                 // Use the parallel force refresh endpoint
                 const response = await fetch('/api/v1/ai/models/all', {
@@ -2446,17 +2444,17 @@ export const useDocumentChatSystemStore = create<DocumentChatSystemStore>()(
                     'Content-Type': 'application/json',
                   },
                 });
-                
+
                 if (!response.ok) {
                   throw new Error(`Failed to force refresh models: ${response.status} ${response.statusText}`);
                 }
-                
+
                 const result = await response.json();
                 console.log(`🔄 Force refresh completed: ${result.totalModels} models in ${result.loadingTime}ms`);
-                
+
                 // After force refresh, load the new models
                 return get().ai.refreshModels()
-                
+
               } catch (error) {
                 console.error('Failed to force refresh models:', error);
                 set((state: DocumentChatSystemStore) => {
@@ -2466,25 +2464,25 @@ export const useDocumentChatSystemStore = create<DocumentChatSystemStore>()(
                 throw error
               }
             },
-            
+
             setLoading: (loading) => {
               set((state: DocumentChatSystemStore) => {
                 state.ai.loading = loading
               })
             },
-            
+
             setError: (error) => {
               set((state: DocumentChatSystemStore) => {
                 state.ai.error = error
               })
             },
-            
+
             clearError: () => {
               set((state: DocumentChatSystemStore) => {
                 state.ai.error = null
               })
             },
-            
+
             // Search functionality
             setSearchQuery: (query: string) => {
               set((state: DocumentChatSystemStore) => {
@@ -2492,65 +2490,65 @@ export const useDocumentChatSystemStore = create<DocumentChatSystemStore>()(
               })
               get().ai.performSearch()
             },
-            
+
             setSelectedTier: (tier: 'all' | 'fast' | 'balanced' | 'powerful') => {
               set((state: DocumentChatSystemStore) => {
                 state.ai.search.selectedTier = tier
               })
               get().ai.performSearch(true) // Immediate search for filters
             },
-            
+
             setSelectedCapabilities: (capabilities: string[]) => {
               set((state: DocumentChatSystemStore) => {
                 state.ai.search.selectedCapabilities = capabilities
               })
               get().ai.performSearch(true) // Immediate search for filters
             },
-            
+
             toggleCapability: (capability: string) => {
               const currentCapabilities = get().ai.search.selectedCapabilities
               const newCapabilities = currentCapabilities.includes(capability)
                 ? currentCapabilities.filter(c => c !== capability)
                 : [...currentCapabilities, capability]
-              
+
               set((state: DocumentChatSystemStore) => {
                 state.ai.search.selectedCapabilities = newCapabilities
               })
               get().ai.performSearch(true) // Immediate search for filters
             },
-            
+
             performSearch: (immediate = false) => {
               const state = get()
               const { query, selectedTier, selectedCapabilities, debounceTimer } = state.ai.search
-              
+
               // Clear existing debounce timer
               if (debounceTimer) {
                 clearTimeout(debounceTimer)
               }
-              
+
               const executeSearch = () => {
                 set((state: DocumentChatSystemStore) => {
                   state.ai.search.isSearching = true
                 })
-                
+
                 try {
                   const models = get().ai.models
                   const normalizedQuery = query.toLowerCase().trim()
-                  
+
                   let filteredModels = models
-                  
+
                   // Apply search query filter
                   if (normalizedQuery) {
                     const searchIndex = get().ai.search.searchIndex
-                    
+
                     // Use search index for performance
                     const indexedResults = searchIndex.get(normalizedQuery) || []
-                    
+
                     if (indexedResults.length > 0) {
                       filteredModels = indexedResults
                     } else {
                       // Fallback to regular search if not in index
-                      filteredModels = models.filter(model => 
+                      filteredModels = models.filter(model =>
                         model.displayName.toLowerCase().includes(normalizedQuery) ||
                         model.description.toLowerCase().includes(normalizedQuery) ||
                         model.name.toLowerCase().includes(normalizedQuery) ||
@@ -2558,25 +2556,25 @@ export const useDocumentChatSystemStore = create<DocumentChatSystemStore>()(
                       )
                     }
                   }
-                  
+
                   // Apply tier filter
                   if (selectedTier !== 'all') {
                     filteredModels = filteredModels.filter(model => model.tier === selectedTier)
                   }
-                  
+
                   // Apply capabilities filter
                   if (selectedCapabilities.length > 0) {
-                    filteredModels = filteredModels.filter(model => 
+                    filteredModels = filteredModels.filter(model =>
                       selectedCapabilities.every(cap => model.features.includes(cap))
                     )
                   }
-                  
+
                   set((state: DocumentChatSystemStore) => {
                     state.ai.search.filteredModels = filteredModels
                     state.ai.search.isSearching = false
                     state.ai.search.debounceTimer = null
                   })
-                  
+
                   console.log('🔍 AI Search: Filtered', filteredModels.length, 'models from', models.length)
                 } catch (error) {
                   console.error('Search error:', error)
@@ -2586,7 +2584,7 @@ export const useDocumentChatSystemStore = create<DocumentChatSystemStore>()(
                   })
                 }
               }
-              
+
               if (immediate) {
                 executeSearch()
               } else {
@@ -2597,13 +2595,13 @@ export const useDocumentChatSystemStore = create<DocumentChatSystemStore>()(
                 })
               }
             },
-            
+
             clearSearch: () => {
               const { debounceTimer } = get().ai.search
               if (debounceTimer) {
                 clearTimeout(debounceTimer)
               }
-              
+
               set((state: DocumentChatSystemStore) => {
                 state.ai.search.query = ''
                 state.ai.search.selectedTier = 'all'
@@ -2613,11 +2611,11 @@ export const useDocumentChatSystemStore = create<DocumentChatSystemStore>()(
                 state.ai.search.debounceTimer = null
               })
             },
-            
+
             buildSearchIndex: () => {
               const models = get().ai.models
               const searchIndex = new Map<string, ModelInfo[]>()
-              
+
               // Build search index for common search terms
               models.forEach(model => {
                 const searchableText = [
@@ -2626,11 +2624,11 @@ export const useDocumentChatSystemStore = create<DocumentChatSystemStore>()(
                   model.name.toLowerCase(),
                   ...model.features.map(f => f.toLowerCase())
                 ].join(' ')
-                
+
                 // Extract individual words and 2-3 character combinations
                 const words = searchableText.split(/\s+/)
                 const terms = new Set<string>()
-                
+
                 words.forEach(word => {
                   if (word.length >= 2) {
                     terms.add(word)
@@ -2640,7 +2638,7 @@ export const useDocumentChatSystemStore = create<DocumentChatSystemStore>()(
                     }
                   }
                 })
-                
+
                 // Add to search index
                 terms.forEach(term => {
                   if (!searchIndex.has(term)) {
@@ -2649,11 +2647,11 @@ export const useDocumentChatSystemStore = create<DocumentChatSystemStore>()(
                   searchIndex.get(term)!.push(model)
                 })
               })
-              
+
               set((state: DocumentChatSystemStore) => {
                 state.ai.search.searchIndex = searchIndex
               })
-              
+
               console.log('🔍 AI Search: Built search index with', searchIndex.size, 'terms for', models.length, 'models')
             }
           },
@@ -2685,12 +2683,12 @@ export const useDocumentChatSystemStore = create<DocumentChatSystemStore>()(
                   folderDetails: initialData.folders.map((f: Folder) => ({ id: f.id, name: f.name, parentId: f.parentId })),
                   documentDetails: initialData.documents.map((d: Document) => ({ id: d.id, name: d.name, folderId: d.folderId, type: d.documentType }))
                 })
-                
+
                 state.documents.folders = initialData.folders
                 state.documents.documents = initialData.documents
                 state.documents.loading = false
                 state.documents.error = null
-                
+
                 console.log('✅ [STORE INIT] Documents store initialized successfully - Final state:', {
                   totalFolders: state.documents.folders.length,
                   totalDocuments: state.documents.documents.length,
@@ -2713,7 +2711,7 @@ export const useDocumentChatSystemStore = create<DocumentChatSystemStore>()(
                 state.organization.current = initialData.organization
               }
             })
-            
+
             // Log complete store state after initialization
             const finalState = get()
             console.log('🎯 [STORE INIT] Complete Store State After Initialization:', {
@@ -2747,7 +2745,7 @@ export const useDocumentChatSystemStore = create<DocumentChatSystemStore>()(
               state.documents.operationLogs = []
               state.documents.searchQuery = ''
               state.documents.searchResults = []
-              
+
               // Reset other slices
               state.user = {
                 currentUser: null,
@@ -2817,27 +2815,27 @@ export const useTree = () => {
         filters: documents.filters
       },
       completeData: {
-        folders: documents.folders.map((f: Folder) => ({ 
-          id: f.id, 
-          name: f.name, 
-          parentId: f.parentId, 
+        folders: documents.folders.map((f: Folder) => ({
+          id: f.id,
+          name: f.name,
+          parentId: f.parentId,
           color: f.color,
           createdAt: f.createdAt,
           isProtected: f.isProtected
         })),
-        documents: documents.documents.map((d: Document) => ({ 
-          id: d.id, 
-          name: d.name, 
-          folderId: d.folderId, 
+        documents: documents.documents.map((d: Document) => ({
+          id: d.id,
+          name: d.name,
+          folderId: d.folderId,
           type: d.documentType,
           size: d.size,
           uploadDate: d.uploadDate,
           tags: d.tags?.length || 0
         })),
-        searchResults: documents.searchResults.map((d: Document) => ({ 
-          id: d.id, 
-          name: d.name, 
-          folderId: d.folderId 
+        searchResults: documents.searchResults.map((d: Document) => ({
+          id: d.id,
+          name: d.name,
+          folderId: d.folderId
         })),
         recentOperations: documents.operationLogs.slice(-3).map(log => ({
           operation: log.operation,
@@ -2850,10 +2848,10 @@ export const useTree = () => {
       timestamp: new Date().toISOString()
     })
   }, [
-    documents.folders.length, 
-    documents.documents.length, 
-    documents.currentFolderId, 
-    documents.loading, 
+    documents.folders.length,
+    documents.documents.length,
+    documents.currentFolderId,
+    documents.loading,
     documents.error,
     documents.searchQuery,
     documents.searchResults.length,

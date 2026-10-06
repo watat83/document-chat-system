@@ -165,7 +165,7 @@ export const FolderDeleteConfirmationModal: React.FC<FolderDeleteConfirmationMod
                     Before you delete
                   </h4>
                   <ul className="text-sm text-amber-700 space-y-1">
-                    <li>• Make sure you don't need this folder structure</li>
+                    <li>• Make sure you don&apos;t need this folder structure</li>
                     <li>• Check if any workflows depend on this folder</li>
                     <li>• This action cannot be undone</li>
                     {!isEmpty && (

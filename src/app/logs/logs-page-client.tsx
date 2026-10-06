@@ -220,11 +220,11 @@ export function LogsPageClient() {
     }
   };
 
-  const getSeverityColor = (severity: AuditSeverity) => {
+  const getSeverityColor = (severity: AuditSeverity): 'destructive' | 'secondary' | 'default' => {
     switch (severity) {
       case AuditSeverity.CRITICAL: return 'destructive';
       case AuditSeverity.ERROR: return 'destructive';
-      case AuditSeverity.WARNING: return 'secondary';
+      case AuditSeverity.WARN: return 'secondary';
       case AuditSeverity.INFO: return 'default';
       default: return 'default';
     }

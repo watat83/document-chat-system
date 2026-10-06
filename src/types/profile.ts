@@ -3,14 +3,25 @@
  * Replaces 'any' types with proper type safety for JSON fields
  */
 
-import type { UserCertification } from './certifications'
-import type { 
-  BusinessType, 
-  EmployeeCount, 
-  AnnualRevenue, 
-  CustomerType,
-  SecurityClearanceLevel 
-} from './global-enums'
+export interface UserCertification {
+  id?: string;
+  certificationId: string;
+  certificationNumber?: string;
+  obtainedDate: string;
+  expirationDate?: string;
+  status: string;
+  verificationStatus: string;
+  documentUrl?: string;
+  isActivated: boolean;
+}
+
+type BusinessType = 'Corporation' | 'LLC' | 'Partnership' | 'Sole Proprietorship' | 'Non-Profit' | 'Government Entity' | 'Other';
+type EmployeeCount = '1-5' | '6-10' | '11-25' | '26-50' | '51-100' | '101-250' | '251-500' | '501-1000' | '1000+';
+type AnnualRevenue = 'Less than $100K' | '$100K - $500K' | '$500K - $1M' | '$1M - $5M' | '$5M - $10M' | '$10M - $25M' | '$25M - $50M' | '$50M - $100M' | '$100M+';
+type CustomerType = string;
+type SecurityClearanceLevel = 'None' | 'Public Trust' | 'Secret' | 'Top Secret' | 'TS/SCI' | 'Not Required';
+
+export type Profile = EnhancedProfile;
 
 // =============================================
 // PROFILE ENUMS WITH UI DISPLAY
@@ -18,7 +29,7 @@ import type {
 
 export enum BrandVoice {
   PROFESSIONAL = 'PROFESSIONAL',
-  FRIENDLY = 'FRIENDLY', 
+  FRIENDLY = 'FRIENDLY',
   TECHNICAL = 'TECHNICAL',
   AUTHORITATIVE = 'AUTHORITATIVE',
   CREATIVE = 'CREATIVE',
@@ -36,14 +47,14 @@ export enum BrandTone {
 
 export enum GeographicPreferenceType {
   PREFERRED = 'PREFERRED',
-  WILLING = 'WILLING', 
+  WILLING = 'WILLING',
   AVOID = 'AVOID'
 }
 
 export enum TravelWillingness {
   NONE = 'NONE',
   LOCAL = 'LOCAL',
-  REGIONAL = 'REGIONAL', 
+  REGIONAL = 'REGIONAL',
   NATIONAL = 'NATIONAL',
   INTERNATIONAL = 'INTERNATIONAL'
 }
@@ -62,13 +73,13 @@ export const BRAND_VOICE_DISPLAY = {
     description: 'Polished, corporate, and business-focused communication'
   },
   [BrandVoice.FRIENDLY]: {
-    label: 'Friendly', 
+    label: 'Friendly',
     emoji: '😊',
     description: 'Approachable, warm, and personable communication style'
   },
   [BrandVoice.TECHNICAL]: {
     label: 'Technical',
-    emoji: '⚙️', 
+    emoji: '⚙️',
     description: 'Detail-oriented, precise, and expertise-driven communication'
   },
   [BrandVoice.AUTHORITATIVE]: {
@@ -134,7 +145,7 @@ export const GEOGRAPHIC_PREFERENCE_TYPE_DISPLAY = {
   },
   [GeographicPreferenceType.AVOID]: {
     label: 'Avoid',
-    emoji: '❌', 
+    emoji: '❌',
     description: 'Locations to exclude from opportunities'
   }
 } as const
@@ -151,7 +162,7 @@ export const TRAVEL_WILLINGNESS_DISPLAY = {
     description: 'Within city/metro area (under 50 miles)'
   },
   [TravelWillingness.REGIONAL]: {
-    label: 'Regional Travel', 
+    label: 'Regional Travel',
     emoji: '🚌',
     description: 'Within state/region (50-300 miles)'
   },
@@ -181,7 +192,7 @@ export const GOVERNMENT_LEVEL_DISPLAY = {
     examples: ['State Transportation Departments', 'State Health Agencies', 'State Education Departments']
   },
   [OrganizationLevel.LOCAL]: {
-    label: 'Local Government', 
+    label: 'Local Government',
     emoji: '🏘️',
     description: 'Cities, counties, municipalities, and local authorities',
     examples: ['City Councils', 'County Governments', 'School Districts', 'Public Utilities']
@@ -200,7 +211,7 @@ export function getBrandVoiceDisplay(voice: BrandVoice | string) {
 export function getBrandToneDisplay(tone: BrandTone | string) {
   return BRAND_TONE_DISPLAY[tone as BrandTone] || {
     label: tone,
-    emoji: '❓', 
+    emoji: '❓',
     description: 'Custom communication tone'
   }
 }
@@ -241,7 +252,7 @@ export const BRAND_TONE_OPTIONS = Object.entries(BRAND_TONE_DISPLAY).map(([value
   value: value as BrandTone,
   label: display.label,
   emoji: display.emoji,
-  description: display.description  
+  description: display.description
 }))
 
 export const GEOGRAPHIC_PREFERENCE_TYPE_OPTIONS = Object.entries(GEOGRAPHIC_PREFERENCE_TYPE_DISPLAY).map(([value, display]) => ({
@@ -253,7 +264,7 @@ export const GEOGRAPHIC_PREFERENCE_TYPE_OPTIONS = Object.entries(GEOGRAPHIC_PREF
 
 export const TRAVEL_WILLINGNESS_OPTIONS = Object.entries(TRAVEL_WILLINGNESS_DISPLAY).map(([value, display]) => ({
   value: value as TravelWillingness,
-  label: display.label, 
+  label: display.label,
   emoji: display.emoji,
   description: display.description
 }))
@@ -374,7 +385,7 @@ export interface KeyProject {
   contractId?: string // Future: Contract/Grant ID for fetching from government systems
   name?: string // Alternative field name used in some contexts
   completionYear?: number // Alternative field name used in some contexts
-  
+
   // Enhanced fields for better profile enrichment and match scoring
   agency?: string // Government agency served (e.g., "Department of Defense", "GSA")
   naicsCode?: string // Primary NAICS code for this project
@@ -383,7 +394,7 @@ export interface KeyProject {
   contractType?: string // Contract type (FFP, CPFF, T&M, etc.)
   setAsideType?: string // Set-aside designation if applicable
   securityClearanceRequired?: string // Security clearance level required
-  
+
   // Geographic information
   performanceLocation?: {
     city?: string
@@ -392,17 +403,17 @@ export interface KeyProject {
     zipCode?: string
     isRemote?: boolean // Was work performed remotely
   }
-  
+
   // Contract details
   contractDuration?: string // Contract duration (1 year, 2 years, etc.)
   primeContractor?: boolean // Was this a prime contract (vs subcontract)
   subcontractorRole?: string // Role if subcontractor
   teamSize?: number // Size of team working on project
-  
+
   // Performance metrics
   customerSatisfactionRating?: number // 1-5 rating if available
   awardFeeEarned?: number // Award fee earned if applicable
-  
+
   // Key achievements
   keyAchievements?: string[] // Bullet points of major achievements
   technologiesUsed?: string[] // Technologies, tools, methodologies used
@@ -457,24 +468,24 @@ export interface ProfileEmbeddings {
   profileId: string // Reference to the source profile
   companyName: string // Human-readable company name
   organizationNamespace: string // Unique organization identifier (business name or organizationId)
-  
+
   // Profile content chunks - minimal data stored in DB
   chunks: {
     id: string // Unique chunk ID (e.g., "profile123_chunk_0")
     chunkIndex: number // Sequential chunk number
     vectorId: string // Pinecone vector ID reference
-    
+
     // Text position for attribution
     startChar: number // Start position in original text
     endChar: number // End position in original text
-    
+
     // Content type for this chunk
     contentType: 'basic_info' | 'capabilities' | 'certifications' | 'past_performance' | 'naics' | 'combined' // Type of profile data in this chunk
-    
+
     // Optional: Key terms for hybrid search
     keywords?: string[] // Main keywords from this chunk
   }[]
-  
+
   // Processing metadata
   model: string // Embedding model used (e.g., "text-embedding-3-small")
   dimensions: number // Vector dimensions (e.g., 1536)

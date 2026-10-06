@@ -45,7 +45,7 @@ export function Breadcrumbs({
     if (onItemClick) {
       onItemClick(item.id)
     } else if (item.href) {
-      window.location.href = item.href
+      window.location.assign(item.href)
     }
   }
 

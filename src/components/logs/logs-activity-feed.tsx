@@ -3,12 +3,12 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { 
-  Dialog, 
-  DialogContent, 
-  DialogHeader, 
-  DialogTitle, 
-  DialogTrigger 
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger
 } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
@@ -26,9 +26,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { 
-  Eye, 
-  Clock, 
+import {
+  Eye,
+  Clock,
   MoreHorizontal,
   MapPin,
   Monitor,
@@ -61,7 +61,7 @@ interface LogsActivityFeedProps {
   hasNext: boolean;
   onLoadMore: () => void;
   getCategoryIcon: (category: AuditCategory) => React.ReactNode;
-  getSeverityColor: (severity: AuditSeverity) => string;
+  getSeverityColor: (severity: AuditSeverity) => React.ComponentProps<typeof Badge>['variant'];
   // Pagination props
   currentPage?: number;
   totalPages?: number;
@@ -108,13 +108,13 @@ export function LogsActivityFeed({
 
   const getTimeLabel = (createdAt: string) => {
     const date = new Date(createdAt);
-    
+
     // Check for invalid date
     if (isNaN(date.getTime())) {
       console.warn('Invalid date value:', createdAt);
       return 'Unknown Date';
     }
-    
+
     if (isToday(date)) return 'Today';
     if (isYesterday(date)) return 'Yesterday';
     return format(date, 'MMM dd, yyyy');
@@ -331,7 +331,7 @@ export function LogsActivityFeed({
                     Showing {Math.min((currentPage - 1) * pageSize + 1, totalCount)} to {Math.min(currentPage * pageSize, totalCount)} of {totalCount} entries
                   </span>
                 </div>
-                
+
                 {onPageSizeChange && (
                   <div className="flex items-center gap-2 text-sm">
                     <span className="text-muted-foreground">Show:</span>
@@ -352,7 +352,7 @@ export function LogsActivityFeed({
                   </div>
                 )}
               </div>
-              
+
               {totalPages > 1 && (
                 <div className="flex items-center gap-2">
                   <Button
@@ -364,7 +364,7 @@ export function LogsActivityFeed({
                     <ChevronLeft className="h-4 w-4" />
                     Previous
                   </Button>
-                  
+
                   <div className="flex items-center gap-1">
                   {/* Show page numbers */}
                   {(() => {
@@ -372,12 +372,12 @@ export function LogsActivityFeed({
                     const maxVisible = 5;
                     let startPage = Math.max(1, currentPage - Math.floor(maxVisible / 2));
                     let endPage = Math.min(totalPages, startPage + maxVisible - 1);
-                    
+
                     // Adjust start if we're near the end
                     if (endPage - startPage + 1 < maxVisible) {
                       startPage = Math.max(1, endPage - maxVisible + 1);
                     }
-                    
+
                     // First page + ellipsis
                     if (startPage > 1) {
                       pages.push(
@@ -400,7 +400,7 @@ export function LogsActivityFeed({
                         );
                       }
                     }
-                    
+
                     // Visible page numbers
                     for (let i = startPage; i <= endPage; i++) {
                       pages.push(
@@ -416,7 +416,7 @@ export function LogsActivityFeed({
                         </Button>
                       );
                     }
-                    
+
                     // Last page + ellipsis
                     if (endPage < totalPages) {
                       if (endPage < totalPages - 1) {
@@ -439,11 +439,11 @@ export function LogsActivityFeed({
                         </Button>
                       );
                     }
-                    
+
                     return pages;
                   })()}
                 </div>
-                
+
                   <Button
                     variant="outline"
                     size="sm"
@@ -459,7 +459,7 @@ export function LogsActivityFeed({
           </CardContent>
         </Card>
       )}
-      
+
       {/* Fallback to load more for backward compatibility */}
       {!onPageChange && hasNext && (
         <div className="text-center">

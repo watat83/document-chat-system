@@ -1,3 +1,4 @@
+import { normalizeError } from '@/lib/errors/normalize-error';
 import { BaseAnalyzer } from './base-analyzer'
 import { DocumentType } from '@/types/documents'
 import { DocumentPromptLibrary } from '@/lib/ai/prompts/document-prompts'
@@ -66,10 +67,11 @@ export class DocumentContentAnalyzer extends BaseAnalyzer {
         keyPointsCount: analysis.keyPoints?.length || 0,
         sentiment: analysis.sentiment
       });
-      
+
       return { success: true, analysis }
 
-    } catch (error) {
+    } catch (caughtError) {
+      const error = normalizeError(caughtError);
       console.error('Content analysis error:', error)
       console.error('❌ [CONTENT ANALYZER] LLM analysis required - no fallbacks permitted')
       return { success: false, error: error instanceof Error ? error.message : 'Content analysis failed' }
@@ -80,9 +82,9 @@ export class DocumentContentAnalyzer extends BaseAnalyzer {
     try {
       console.log(`🔍 [CONTENT ANALYZER] Parsing response of length: ${response.length}`);
       console.log(`🔍 [CONTENT ANALYZER] Response preview:`, response.substring(0, 300) + '...');
-      
+
       const parsed = this.parseJsonResponse(response)
-      
+
       console.log(`🔍 [CONTENT ANALYZER] Raw parsed values:`, {
         qualityScore: parsed.qualityScore,
         qualityScoreType: typeof parsed.qualityScore,
@@ -92,14 +94,14 @@ export class DocumentContentAnalyzer extends BaseAnalyzer {
         keyPointsLength: parsed.keyPoints?.length,
         sentiment: parsed.sentiment
       });
-      
+
       // Validate that we have the required fields before processing
       if (parsed.qualityScore === undefined || parsed.readabilityScore === undefined) {
         console.error('❌ [CONTENT ANALYZER] Missing required scores in parsed response');
         console.error('❌ [CONTENT ANALYZER] Available keys:', Object.keys(parsed));
         throw new Error('Missing required quality or readability scores in AI response');
       }
-      
+
       const result = {
         summary: parsed.summary || ResponseValidators.generateSummary(originalText),
         keyPoints: ResponseValidators.validateStringArray(parsed.keyPoints, 5, 10),
@@ -128,10 +130,11 @@ export class DocumentContentAnalyzer extends BaseAnalyzer {
 
       return result
 
-    } catch (error) {
+    } catch (caughtError) {
+      const error = normalizeError(caughtError);
       console.error('❌ [CONTENT ANALYZER] Failed to parse content analysis:', error)
       console.error('❌ [CONTENT ANALYZER] Response that failed to parse:', response.substring(0, 500));
-      
+
       // Instead of throwing, return meaningful error info for debugging
       throw new Error(`Content analysis parsing failed: ${error.message}. Response preview: ${response.substring(0, 200)}`);
     }

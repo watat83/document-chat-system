@@ -46,11 +46,11 @@ export class DatabaseSecurity {
   static validatePagination(limit: number, offset: number): { limit: number; offset: number } {
     const safeLimit = Math.min(Math.max(limit, 1), 100) // Between 1 and 100
     const safeOffset = Math.max(offset, 0) // Non-negative
-    
+
     if (safeOffset > 100000) {
       throw new Error('Offset too large for security reasons')
     }
-    
+
     return { limit: safeLimit, offset: safeOffset }
   }
 
@@ -71,33 +71,8 @@ export class DatabaseSecurity {
   }
 }
 
-// Enhanced query logging for security monitoring - using $extends for Prisma v5+
-const dbWithLogging = app.nodeEnv === 'development' ? baseDb.$extends({
-  query: {
-    $allModels: {
-      async $allOperations({ operation, model, args, query }) {
-        const start = Date.now()
-        const result = await query(args)
-        const duration = Date.now() - start
-        
-        // Log slow queries for performance monitoring
-        if (duration > 1000) {
-          console.warn(`Slow query detected: ${model}.${operation} took ${duration}ms`)
-        }
-        
-        // Log potentially suspicious queries
-        if (operation === 'findMany' && args?.take && args.take > 1000) {
-          console.warn(`Large query detected: ${model}.${operation} requesting ${args.take} records`)
-        }
-        
-        return result
-      }
-    }
-  }
-}) : baseDb
-
 // Export the db with or without logging
-export const db = dbWithLogging
+export const db = baseDb
 export const prisma = db
 
 // Graceful shutdown handling - only add listeners once

@@ -131,19 +131,27 @@ export function CreateDocumentModal({
   // Load templates when modal opens
   useEffect(() => {
     if (isOpen) {
-      loadTemplates()
-      setSelectedFolderId(currentFolderId || null)
+      const timeout = window.setTimeout(() => {
+        void loadTemplates()
+        setSelectedFolderId(currentFolderId || null)
+      }, 0)
+
+      return () => window.clearTimeout(timeout)
     }
   }, [isOpen, currentFolderId])
 
   // Handle initial file from drag & drop
   useEffect(() => {
     if (initialFile && isOpen) {
-      handleFileSelect(initialFile)
+      const timeout = window.setTimeout(() => {
+        void handleFileSelect(initialFile)
+      }, 0)
+
+      return () => window.clearTimeout(timeout)
     }
   }, [initialFile, isOpen])
 
-  const loadTemplates = async () => {
+  async function loadTemplates() {
     setLoadingTemplates(true)
     try {
       const response = await fetch('/api/v1/documents/create')
@@ -192,7 +200,7 @@ export function CreateDocumentModal({
   }
 
   // File upload handlers
-  const handleFileSelect = (file: File) => {
+  function handleFileSelect(file: File) {
     // Validate file using the file manager
     const validation = fileOps.validateFile(file)
     setFileValidation(validation)
@@ -462,7 +470,7 @@ export function CreateDocumentModal({
                 </DropdownMenuContent>
               </DropdownMenu>
               <p className="text-xs text-muted-foreground">
-                Choose where to create this document. The document will be placed in the selected folder when you click "Create Document".
+                Choose where to create this document. The document will be placed in the selected folder when you click &quot;Create Document&quot;.
               </p>
             </div>
 

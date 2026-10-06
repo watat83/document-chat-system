@@ -1,4 +1,6 @@
 'use client';
+import { useDocumentFile } from '@/hooks/use-document-file';
+import { useObjectURL } from '@/hooks/use-object-url';
 
 import React, { useEffect, useState, useCallback } from 'react';
 import { FileImage, AlertTriangle } from 'lucide-react';
@@ -28,83 +30,12 @@ export function AuthenticatedImage({
   onError,
   style
 }: AuthenticatedImageProps) {
-  const [imageUrl, setImageUrl] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
-  const [errorType, setErrorType] = useState<'network' | 'missing' | 'auth' | 'unknown'>('unknown');
-
-  const fetchAuthenticatedImage = useCallback(async () => {
-    if (!document?.id) {
-      setError(true);
-      setLoading(false);
-      return;
-    }
-
-    // For newly uploaded files, use the original file object
-    if (document.originalFile && isValidFile(document.originalFile)) {
-      const url = URL.createObjectURL(document.originalFile);
-      setImageUrl(url);
-      setLoading(false);
-      return;
-    }
-
-    // For persisted files, fetch with authentication
-    try {
-      const response = await fetch(`/api/v1/documents/${document.id}/download`, {
-        credentials: 'include'
-      });
-      
-      if (response.ok) {
-        const blob = await response.blob();
-        
-        if (blob.type.startsWith('image/')) {
-          const url = URL.createObjectURL(blob);
-          setImageUrl(url);
-          setError(false);
-        } else {
-          setError(true);
-          setErrorType('missing'); // Server returned non-image content (likely error)
-        }
-      } else {
-        setError(true);
-        // Determine error type based on status code
-        if (response.status === 401 || response.status === 403) {
-          setErrorType('auth');
-        } else if (response.status === 404) {
-          setErrorType('missing');
-        } else if (response.status >= 500) {
-          setErrorType('network');
-        } else {
-          setErrorType('unknown');
-        }
-      }
-    } catch (err) {
-      setError(true);
-      setErrorType('network'); // Network/connection issues
-    } finally {
-      setLoading(false);
-    }
-  }, [document]);
-
-  useEffect(() => {
-    fetchAuthenticatedImage();
-
-    // Cleanup blob URL on unmount
-    return () => {
-      if (imageUrl) {
-        URL.revokeObjectURL(imageUrl);
-      }
-    };
-  }, [fetchAuthenticatedImage]);
-
-  // Cleanup old URLs when new ones are created
-  useEffect(() => {
-    return () => {
-      if (imageUrl) {
-        URL.revokeObjectURL(imageUrl);
-      }
-    };
-  }, [imageUrl]);
+  const { fetchedFile, loading, error: fetchError, status } = useDocumentFile(document);
+  const validImage = fetchedFile && fetchedFile.type.startsWith('image/') ? fetchedFile : null;
+  const imageUrl = useObjectURL(validImage);
+  const [failedImageUrl, setFailedImageUrl] = useState<string | null>(null);
+  const error = Boolean(fetchError || fetchedFile && !validImage || imageUrl && failedImageUrl === imageUrl);
+  const errorType = status === 401 || status === 403 ? 'auth' : status === 404 || fetchedFile && !validImage ? 'missing' : fetchError ? 'network' : 'unknown';
 
   if (loading) {
     return (
@@ -170,7 +101,7 @@ export function AuthenticatedImage({
       style={style}
       onLoad={onLoad}
       onError={(e) => {
-        setError(true);
+        setFailedImageUrl(imageUrl);
         onError?.(e);
       }}
     />

@@ -10,14 +10,14 @@ import { useNetworkStatus, NetworkQuality } from '@/hooks/use-network-status'
 export interface GlobalErrorState {
   // Current errors
   activeErrors: EnhancedError[]
-  
+
   // Error history
   errorHistory: EnhancedError[]
   maxHistorySize: number
-  
+
   // Error correlation
   correlatedErrors: Record<string, EnhancedError[]>
-  
+
   // System health
   systemHealth: {
     overallStatus: 'healthy' | 'degraded' | 'critical'
@@ -26,7 +26,7 @@ export interface GlobalErrorState {
     errorRate: number
     lastHealthCheck: Date
   }
-  
+
   // Recovery state
   recoveryState: {
     isRecovering: boolean
@@ -34,7 +34,7 @@ export interface GlobalErrorState {
     activeRecoveryTasks: string[]
     lastRecoveryAttempt: Date | null
   }
-  
+
   // Error patterns
   errorPatterns: {
     frequentErrors: Record<string, number>
@@ -89,31 +89,31 @@ function globalErrorReducer(state: GlobalErrorState, action: GlobalErrorAction):
     case 'ADD_ERROR': {
       const error = action.payload
       const now = new Date()
-      
+
       // Add to active errors
       const activeErrors = [...state.activeErrors, error].slice(-20) // Keep last 20 active
-      
+
       // Add to history
       const errorHistory = [...state.errorHistory, error].slice(-state.maxHistorySize)
-      
+
       // Update frequent errors count
       const errorKey = `${error.category}_${error.severity}`
       const frequentErrors = {
         ...state.errorPatterns.frequentErrors,
         [errorKey]: (state.errorPatterns.frequentErrors[errorKey] || 0) + 1
       }
-      
+
       // Add to error trends
       const errorTrends = [
         ...state.errorPatterns.errorTrends,
         { timestamp: now, count: 1, severity: error.severity || ErrorSeverity.MEDIUM }
       ].slice(-50) // Keep last 50 trend points
-      
+
       // Calculate error rate (errors per hour)
       const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000)
       const recentErrors = errorTrends.filter(trend => trend.timestamp > oneHourAgo)
       const errorRate = recentErrors.reduce((sum, trend) => sum + trend.count, 0)
-      
+
       return {
         ...state,
         activeErrors,
@@ -130,7 +130,7 @@ function globalErrorReducer(state: GlobalErrorState, action: GlobalErrorAction):
         }
       }
     }
-    
+
     case 'REMOVE_ERROR': {
       const errorId = action.payload
       return {
@@ -138,7 +138,7 @@ function globalErrorReducer(state: GlobalErrorState, action: GlobalErrorAction):
         activeErrors: state.activeErrors.filter(error => error.errorId !== errorId)
       }
     }
-    
+
     case 'CLEAR_ERRORS': {
       return {
         ...state,
@@ -146,14 +146,14 @@ function globalErrorReducer(state: GlobalErrorState, action: GlobalErrorAction):
         correlatedErrors: {}
       }
     }
-    
+
     case 'UPDATE_SYSTEM_HEALTH': {
       const healthUpdate = action.payload
       const newHealth = { ...state.systemHealth, ...healthUpdate, lastHealthCheck: new Date() }
-      
+
       // Determine overall status based on various factors
       let overallStatus: 'healthy' | 'degraded' | 'critical' = 'healthy'
-      
+
       if (newHealth.errorRate > state.errorPatterns.criticalThreshold) {
         overallStatus = 'critical'
       } else if (
@@ -163,13 +163,13 @@ function globalErrorReducer(state: GlobalErrorState, action: GlobalErrorAction):
       ) {
         overallStatus = 'degraded'
       }
-      
+
       return {
         ...state,
         systemHealth: { ...newHealth, overallStatus }
       }
     }
-    
+
     case 'START_RECOVERY': {
       return {
         ...state,
@@ -181,7 +181,7 @@ function globalErrorReducer(state: GlobalErrorState, action: GlobalErrorAction):
         }
       }
     }
-    
+
     case 'UPDATE_RECOVERY_PROGRESS': {
       return {
         ...state,
@@ -191,7 +191,7 @@ function globalErrorReducer(state: GlobalErrorState, action: GlobalErrorAction):
         }
       }
     }
-    
+
     case 'COMPLETE_RECOVERY': {
       return {
         ...state,
@@ -204,7 +204,7 @@ function globalErrorReducer(state: GlobalErrorState, action: GlobalErrorAction):
         activeErrors: [] // Clear active errors after successful recovery
       }
     }
-    
+
     case 'CORRELATE_ERRORS': {
       const { pattern, errors } = action.payload
       return {
@@ -215,7 +215,7 @@ function globalErrorReducer(state: GlobalErrorState, action: GlobalErrorAction):
         }
       }
     }
-    
+
     case 'UPDATE_ERROR_PATTERNS': {
       return {
         ...state,
@@ -225,7 +225,7 @@ function globalErrorReducer(state: GlobalErrorState, action: GlobalErrorAction):
         }
       }
     }
-    
+
     default:
       return state
   }
@@ -234,29 +234,29 @@ function globalErrorReducer(state: GlobalErrorState, action: GlobalErrorAction):
 // Context type
 interface GlobalErrorContextType {
   state: GlobalErrorState
-  
+
   // Error management
   addError: (error: EnhancedError) => void
   removeError: (errorId: string) => void
   clearErrors: () => void
-  
+
   // System health
   updateSystemHealth: (health: Partial<GlobalErrorState['systemHealth']>) => void
   getSystemHealthScore: () => number
-  
+
   // Recovery
   startRecovery: (tasks: string[]) => void
   updateRecoveryProgress: (progress: number) => void
   completeRecovery: () => void
-  
+
   // Error correlation
   correlateErrors: (pattern: string, errors: EnhancedError[]) => void
   findCorrelatedErrors: (error: EnhancedError) => EnhancedError[]
-  
+
   // Error patterns
   getErrorTrends: () => GlobalErrorState['errorPatterns']['errorTrends']
   getFrequentErrors: () => Array<{ pattern: string; count: number }>
-  
+
   // Health monitoring
   isSystemHealthy: () => boolean
   getHealthStatus: () => 'healthy' | 'degraded' | 'critical'
@@ -268,21 +268,21 @@ const GlobalErrorContext = createContext<GlobalErrorContextType | undefined>(und
 // Provider component
 export function GlobalErrorProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(globalErrorReducer, initialState)
-  const { networkQuality } = useNetworkStatus({ showNotifications: false })
+  const { quality: networkQuality } = useNetworkStatus({ showNotifications: false })
   const circuitBreakers = useAllCircuitBreakers()
   const { warning: showWarning, error: showError, info: showInfo } = useNotifications()
-  
+
   // Refs for tracking notifications to prevent spam
   const lastHealthNotificationRef = useRef<Date | null>(null)
   const notificationCooldownRef = useRef<Record<string, Date>>({})
-  
+
   // Update system health when network or circuit breakers change
   useEffect(() => {
     const circuitBreakerStatus: Record<string, 'open' | 'closed' | 'half_open'> = {}
     Object.entries(circuitBreakers).forEach(([key, stats]) => {
       circuitBreakerStatus[key] = stats.state as 'open' | 'closed' | 'half_open'
     })
-    
+
     dispatch({
       type: 'UPDATE_SYSTEM_HEALTH',
       payload: {
@@ -291,16 +291,16 @@ export function GlobalErrorProvider({ children }: { children: React.ReactNode })
       }
     })
   }, [networkQuality, circuitBreakers])
-  
+
   // Monitor system health and show notifications
   useEffect(() => {
     const now = new Date()
     const cooldownPeriod = 5 * 60 * 1000 // 5 minutes
-    
+
     // Check if we should notify about health status
-    const shouldNotify = !lastHealthNotificationRef.current || 
+    const shouldNotify = !lastHealthNotificationRef.current ||
       (now.getTime() - lastHealthNotificationRef.current.getTime()) > cooldownPeriod
-    
+
     if (shouldNotify) {
       switch (state.systemHealth.overallStatus) {
         case 'critical':
@@ -311,7 +311,7 @@ export function GlobalErrorProvider({ children }: { children: React.ReactNode })
           )
           lastHealthNotificationRef.current = now
           break
-          
+
         case 'degraded':
           showWarning(
             'System Performance Degraded',
@@ -320,7 +320,7 @@ export function GlobalErrorProvider({ children }: { children: React.ReactNode })
           )
           lastHealthNotificationRef.current = now
           break
-          
+
         case 'healthy':
           // Only show recovery notification if we were previously unhealthy
           if (lastHealthNotificationRef.current) {
@@ -335,19 +335,19 @@ export function GlobalErrorProvider({ children }: { children: React.ReactNode })
       }
     }
   }, [state.systemHealth.overallStatus, state.systemHealth.errorRate, showError, showWarning, showInfo])
-  
+
   // Error correlation analysis
   useEffect(() => {
     if (state.activeErrors.length < 2) return
-    
+
     // Find errors that occurred within a short time window
     const correlationWindow = 60000 // 1 minute
     const now = Date.now()
-    
-    const recentErrors = state.activeErrors.filter(error => 
+
+    const recentErrors = state.activeErrors.filter(error =>
       error.timestamp && (now - error.timestamp.getTime()) < correlationWindow
     )
-    
+
     if (recentErrors.length >= 3) {
       // Group by category or feature
       const errorsByCategory = recentErrors.reduce((acc, error) => {
@@ -356,7 +356,7 @@ export function GlobalErrorProvider({ children }: { children: React.ReactNode })
         acc[key].push(error)
         return acc
       }, {} as Record<string, EnhancedError[]>)
-      
+
       // Find categories with multiple errors
       Object.entries(errorsByCategory).forEach(([category, errors]) => {
         if (errors.length >= 2) {
@@ -368,29 +368,29 @@ export function GlobalErrorProvider({ children }: { children: React.ReactNode })
       })
     }
   }, [state.activeErrors])
-  
+
   // Context methods
   const addError = useCallback((error: EnhancedError) => {
     dispatch({ type: 'ADD_ERROR', payload: error })
   }, [])
-  
+
   const removeError = useCallback((errorId: string) => {
     dispatch({ type: 'REMOVE_ERROR', payload: errorId })
   }, [])
-  
+
   const clearErrors = useCallback(() => {
     dispatch({ type: 'CLEAR_ERRORS' })
   }, [])
-  
+
   const updateSystemHealth = useCallback((health: Partial<GlobalErrorState['systemHealth']>) => {
     dispatch({ type: 'UPDATE_SYSTEM_HEALTH', payload: health })
   }, [])
-  
+
   const getSystemHealthScore = useCallback((): number => {
     const { networkQuality, errorRate, circuitBreakerStatus } = state.systemHealth
-    
+
     let score = 100
-    
+
     // Network quality impact
     switch (networkQuality) {
       case NetworkQuality.EXCELLENT: score -= 0; break
@@ -399,37 +399,37 @@ export function GlobalErrorProvider({ children }: { children: React.ReactNode })
       case NetworkQuality.POOR: score -= 30; break
       case NetworkQuality.OFFLINE: score -= 50; break
     }
-    
+
     // Error rate impact
     if (errorRate > state.errorPatterns.criticalThreshold) {
       score -= 40
     } else if (errorRate > state.errorPatterns.warningThreshold) {
       score -= 20
     }
-    
+
     // Circuit breaker impact
     const openBreakers = Object.values(circuitBreakerStatus).filter(status => status === 'open').length
     score -= openBreakers * 15
-    
+
     return Math.max(0, score)
   }, [state.systemHealth, state.errorPatterns])
-  
+
   const startRecovery = useCallback((tasks: string[]) => {
     dispatch({ type: 'START_RECOVERY', payload: tasks })
   }, [])
-  
+
   const updateRecoveryProgress = useCallback((progress: number) => {
     dispatch({ type: 'UPDATE_RECOVERY_PROGRESS', payload: progress })
   }, [])
-  
+
   const completeRecovery = useCallback(() => {
     dispatch({ type: 'COMPLETE_RECOVERY' })
   }, [])
-  
+
   const correlateErrors = useCallback((pattern: string, errors: EnhancedError[]) => {
     dispatch({ type: 'CORRELATE_ERRORS', payload: { pattern, errors } })
   }, [])
-  
+
   const findCorrelatedErrors = useCallback((error: EnhancedError): EnhancedError[] => {
     const patterns = Object.keys(state.correlatedErrors)
     for (const pattern of patterns) {
@@ -440,25 +440,25 @@ export function GlobalErrorProvider({ children }: { children: React.ReactNode })
     }
     return []
   }, [state.correlatedErrors])
-  
+
   const getErrorTrends = useCallback(() => {
     return state.errorPatterns.errorTrends
   }, [state.errorPatterns.errorTrends])
-  
+
   const getFrequentErrors = useCallback(() => {
     return Object.entries(state.errorPatterns.frequentErrors)
       .map(([pattern, count]) => ({ pattern, count }))
       .sort((a, b) => b.count - a.count)
   }, [state.errorPatterns.frequentErrors])
-  
+
   const isSystemHealthy = useCallback(() => {
     return state.systemHealth.overallStatus === 'healthy'
   }, [state.systemHealth.overallStatus])
-  
+
   const getHealthStatus = useCallback(() => {
     return state.systemHealth.overallStatus
   }, [state.systemHealth.overallStatus])
-  
+
   const contextValue: GlobalErrorContextType = {
     state,
     addError,
@@ -476,7 +476,7 @@ export function GlobalErrorProvider({ children }: { children: React.ReactNode })
     isSystemHealthy,
     getHealthStatus
   }
-  
+
   return (
     <GlobalErrorContext.Provider value={contextValue}>
       {children}
@@ -496,7 +496,7 @@ export function useGlobalError(): GlobalErrorContextType {
 // Hook for system health monitoring
 export function useSystemHealth() {
   const { state, getSystemHealthScore, isSystemHealthy, getHealthStatus } = useGlobalError()
-  
+
   return {
     health: state.systemHealth,
     score: getSystemHealthScore(),
@@ -510,7 +510,7 @@ export function useSystemHealth() {
 // Hook for error correlation
 export function useErrorCorrelation() {
   const { state, correlateErrors, findCorrelatedErrors } = useGlobalError()
-  
+
   return {
     correlatedErrors: state.correlatedErrors,
     correlateErrors,
@@ -521,7 +521,7 @@ export function useErrorCorrelation() {
 // Hook for recovery management
 export function useErrorRecovery() {
   const { state, startRecovery, updateRecoveryProgress, completeRecovery } = useGlobalError()
-  
+
   return {
     recoveryState: state.recoveryState,
     startRecovery,

@@ -2,10 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { db } from '@/lib/db';
 import { z } from 'zod';
+import { NotificationCategory, NotificationType } from '@prisma/client';
 
 const UpdatePreferencesSchema = z.object({
   preferences: z.array(z.object({
-    category: z.enum(['NEW_OPPORTUNITY', 'MATCH_SCORE', 'SYSTEM_UPDATE', 'BILLING', 'PROFILE', 'TEAM', 'DEADLINE', 'GENERAL']),
+    category: z.nativeEnum(NotificationCategory),
     inApp: z.boolean().default(true),
     email: z.boolean().default(true),
     sms: z.boolean().default(false),
@@ -46,9 +47,9 @@ export async function GET(request: NextRequest) {
     // If no preferences exist, create default ones
     if (preferences.length === 0) {
       const categories = ['NEW_OPPORTUNITY', 'MATCH_SCORE', 'SYSTEM_UPDATE', 'BILLING', 'PROFILE', 'TEAM', 'DEADLINE', 'GENERAL'];
-      
+
       const defaultPreferences = await db.$transaction(
-        categories.map(category => 
+        categories.map(category =>
           db.notificationPreference.create({
             data: {
               userId: userId,
@@ -99,7 +100,7 @@ export async function PUT(request: NextRequest) {
 
     // Update or create preferences
     const updatedPreferences = await db.$transaction(
-      validatedData.preferences.map(pref => 
+      validatedData.preferences.map(pref =>
         db.notificationPreference.upsert({
           where: {
             userId_category: {

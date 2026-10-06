@@ -1,5 +1,6 @@
 'use client'
 
+import { useMounted } from '@/hooks/use-mounted';
 import * as React from 'react'
 import { Moon, Sun } from 'lucide-react'
 import { useTheme } from 'next-themes'
@@ -8,12 +9,10 @@ import { Button } from '@/components/ui/button'
 
 export function ThemeToggle() {
   const { setTheme, resolvedTheme } = useTheme()
-  const [mounted, setMounted] = React.useState(false)
+  const mounted = useMounted();
 
   // Prevent hydration mismatch by only rendering after mount
-  React.useEffect(() => {
-    setMounted(true)
-  }, [])
+
 
   // Show a fallback during SSR and hydration
   if (!mounted) {

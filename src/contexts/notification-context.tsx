@@ -1,5 +1,6 @@
 'use client';
 
+import { useMounted } from '@/hooks/use-mounted';
 import React, { createContext, useContext, useCallback, useState, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { ToastNotification, type ToastProps } from '@/components/ui/toast';
@@ -41,12 +42,11 @@ const DUPLICATE_THRESHOLD = 1000; // 1 second
 
 export function NotificationProvider({ children }: { children: React.ReactNode }) {
   const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [mounted, setMounted] = useState(false);
+  const mounted = useMounted();
   const timeoutsRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
 
   useEffect(() => {
-    setMounted(true);
-    
+
     // Cleanup function to clear all timeouts on unmount
     return () => {
       timeoutsRef.current.forEach(timeout => clearTimeout(timeout));
@@ -65,7 +65,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       clearTimeout(timeout);
       timeoutsRef.current.delete(id);
     }
-    
+
     setNotifications(prev => prev.filter(notification => notification.id !== id));
   }, []);
 
@@ -73,7 +73,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     // Clear all timeouts
     timeoutsRef.current.forEach(timeout => clearTimeout(timeout));
     timeoutsRef.current.clear();
-    
+
     setNotifications([]);
   }, []);
 
@@ -90,32 +90,32 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
 
     setNotifications(prev => {
       // Check for duplicate notifications (same title and message within threshold)
-      const duplicateExists = prev.some(existing => 
-        existing.title === notification.title && 
+      const duplicateExists = prev.some(existing =>
+        existing.title === notification.title &&
         existing.message === notification.message &&
         (timestamp - existing.timestamp) < DUPLICATE_THRESHOLD
       );
-      
+
       if (duplicateExists) {
         return prev;
       }
-      
+
       // Remove any existing notification with the same ID
       const filtered = prev.filter(n => n.id !== id);
-      
+
       // Add new notification to the beginning
       const updated = [notification, ...filtered];
-      
+
       // Limit to MAX_NOTIFICATIONS
       return updated.slice(0, MAX_NOTIFICATIONS);
     });
 
     // Auto-dismiss if not persistent - use a ref to avoid dependency issues
-    if (!options.persistent && notification.duration > 0) {
+    if (!options.persistent && (notification.duration ?? 0) > 0) {
       const timeoutId = setTimeout(() => {
         dismiss(id);
       }, notification.duration);
-      
+
       // Store timeout for cleanup
       timeoutsRef.current.set(id, timeoutId);
     }
@@ -200,11 +200,11 @@ function NotificationContainer({ notifications, onDismiss }: NotificationContain
   if (notifications.length === 0) return null;
 
   return (
-    <div 
+    <div
       className="fixed top-4 right-4 z-[100000] flex flex-col gap-2 max-w-sm w-full pointer-events-none"
       style={{ zIndex: 100000 }}
-      role="region" 
-      aria-label="Notifications" 
+      role="region"
+      aria-label="Notifications"
       aria-live="polite"
     >
       {notifications.map((notification) => (
@@ -224,6 +224,10 @@ function NotificationContainer({ notifications, onDismiss }: NotificationContain
   );
 }
 
+export function useOptionalNotifications() {
+  return useContext(NotificationContext);
+}
+
 export function useNotifications() {
   const context = useContext(NotificationContext);
   if (context === undefined) {
@@ -235,7 +239,7 @@ export function useNotifications() {
 // Convenience hook for quick notifications
 export function useNotify() {
   const { success, error, warning, info } = useNotifications();
-  
+
   return useMemo(() => ({
     success,
     error,

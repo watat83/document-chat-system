@@ -1,6 +1,6 @@
 /**
  * ImageRouter Advanced Caching System
- * 
+ *
  * Multi-tier caching system for ImageRouter with:
  * - Semantic similarity matching for prompts
  * - Content-aware deduplication
@@ -116,7 +116,7 @@ export class ImageRouterCache {
   private analytics: Map<string, any> = new Map();
   private popularPatterns: Map<string, number> = new Map();
   private contentHashes: Map<string, string[]> = new Map(); // Content hash -> cache keys
-  
+
   constructor(config: Partial<CacheConfig> = {}) {
     this.config = {
       enableSemanticSimilarity: true,
@@ -152,12 +152,12 @@ export class ImageRouterCache {
    */
   async get(request: UnifiedMediaGenerationRequest): Promise<CacheEntry | null> {
     const startTime = Date.now();
-    
+
     try {
       // 1. Exact match lookup (fastest)
       const exactKey = this.generateCacheKey(request);
       const exactMatch = await this.getFromTiers(exactKey);
-      
+
       if (exactMatch) {
         await this.recordCacheHit(exactMatch, 'exact', Date.now() - startTime);
         return exactMatch;
@@ -166,7 +166,7 @@ export class ImageRouterCache {
       // 2. Semantic similarity search (if enabled)
       if (this.config.enableSemanticSimilarity) {
         const similarMatch = await this.findSimilarEntry(request);
-        
+
         if (similarMatch && similarMatch.similarity >= this.config.similarity.threshold) {
           await this.recordCacheHit(similarMatch.entry, 'similar', Date.now() - startTime);
           return similarMatch.entry;
@@ -176,7 +176,7 @@ export class ImageRouterCache {
       // 3. Content deduplication check (if enabled)
       if (this.config.enableContentDeduplication) {
         const contentMatch = await this.findByContentSimilarity(request);
-        
+
         if (contentMatch) {
           await this.recordCacheHit(contentMatch, 'content', Date.now() - startTime);
           return contentMatch;
@@ -186,7 +186,7 @@ export class ImageRouterCache {
       // Cache miss
       await this.recordCacheMiss(request, Date.now() - startTime);
       return null;
-      
+
     } catch (error) {
       console.error('Cache get error:', error);
       return null;
@@ -202,10 +202,10 @@ export class ImageRouterCache {
     quality: number = 0.8
   ): Promise<void> {
     const cacheKey = this.generateCacheKey(request);
-    
+
     try {
       // Calculate content hash for deduplication
-      const contentHash = this.config.enableContentDeduplication 
+      const contentHash = this.config.enableContentDeduplication
         ? await this.calculateContentHash(response)
         : undefined;
 
@@ -233,20 +233,20 @@ export class ImageRouterCache {
 
       // Store in all tiers with appropriate TTLs
       await this.storeInTiers(entry);
-      
+
       // Update content hash mapping
       if (contentHash) {
         this.addToContentHashMap(contentHash, cacheKey);
       }
-      
+
       // Update popularity patterns
       await this.updatePopularityPatterns(request);
-      
+
       // Trigger cache warming if needed
       if (this.config.warming.enableAutoWarming) {
         await this.considerWarmingRelated(request);
       }
-      
+
     } catch (error) {
       console.error('Cache set error:', error);
     }
@@ -362,8 +362,8 @@ export class ImageRouterCache {
   /**
    * Optimize cache configuration based on usage patterns
    */
-  async optimizeConfiguration(): Promise<{ 
-    recommendations: string[]; 
+  async optimizeConfiguration(): Promise<{
+    recommendations: string[];
     estimatedImprovement: number;
     newConfig: Partial<CacheConfig>;
   }> {
@@ -398,6 +398,7 @@ export class ImageRouterCache {
     if (avgAccessInterval < this.config.tiers.l1.ttl * 0.5) {
       recommendations.push('Reduce L1 TTL to improve cache efficiency');
       newConfig.tiers = {
+        ...this.config.tiers,
         ...newConfig.tiers,
         l1: { ...this.config.tiers.l1, ttl: Math.max(60, avgAccessInterval * 2) }
       };
@@ -426,15 +427,15 @@ export class ImageRouterCache {
 
     // Get candidates for removal
     const removalCandidates = await this.getRemovalCandidates(aggressive);
-    
+
     for (const candidate of removalCandidates) {
       try {
         spaceSaved += candidate.metadata.size;
         costSavingsLost += candidate.analytics.costSavings;
-        
+
         await this.removeFromAllTiers(candidate.key);
         removed++;
-        
+
       } catch (error) {
         console.error(`Failed to remove cache entry ${candidate.key}:`, error);
       }
@@ -455,11 +456,11 @@ export class ImageRouterCache {
    */
   async exportCacheData(format: 'json' | 'csv' = 'json'): Promise<string> {
     const entries = await this.getAllEntries();
-    
+
     if (format === 'csv') {
       return this.convertEntriesToCSV(entries);
     }
-    
+
     return JSON.stringify({
       metadata: {
         exportDate: new Date().toISOString(),
@@ -512,7 +513,7 @@ export class ImageRouterCache {
       l2Entry.tier = 'l1';
       l2Entry.metadata.lastAccessed = new Date();
       l2Entry.metadata.accessCount++;
-      
+
       await this.promoteToL1(l2Entry);
       return l2Entry;
     }
@@ -524,7 +525,7 @@ export class ImageRouterCache {
       l3Entry.tier = 'l1';
       l3Entry.metadata.lastAccessed = new Date();
       l3Entry.metadata.accessCount++;
-      
+
       await this.promoteToL1(l3Entry);
       return l3Entry;
     }
@@ -535,10 +536,10 @@ export class ImageRouterCache {
   private async storeInTiers(entry: CacheEntry): Promise<void> {
     // L1 Cache (in-memory)
     await this.addToL1(entry);
-    
+
     // L2 Cache (Redis)
     await cacheManager.set(`l2:${entry.key}`, entry, this.config.tiers.l2.ttl);
-    
+
     // L3 Cache (persistent)
     await cacheManager.set(`l3:${entry.key}`, entry, this.config.tiers.l3.ttl);
   }
@@ -548,14 +549,14 @@ export class ImageRouterCache {
     if (this.l1Cache.size >= this.config.tiers.l1.size) {
       await this.evictFromL1();
     }
-    
+
     this.l1Cache.set(entry.key, entry);
   }
 
   private async evictFromL1(): Promise<void> {
     // LRU eviction with quality consideration
     const entries = Array.from(this.l1Cache.values());
-    
+
     const candidate = entries
       .sort((a, b) => {
         // Score based on last access time and quality
@@ -563,7 +564,7 @@ export class ImageRouterCache {
         const scoreB = b.metadata.lastAccessed.getTime() + (b.metadata.quality * 3600000);
         return scoreA - scoreB;
       })[0];
-    
+
     if (candidate) {
       this.l1Cache.delete(candidate.key);
     }
@@ -598,10 +599,10 @@ export class ImageRouterCache {
   private calculateJaccardSimilarity(text1: string, text2: string): number {
     const words1 = new Set(text1.toLowerCase().split(/\s+/));
     const words2 = new Set(text2.toLowerCase().split(/\s+/));
-    
+
     const intersection = new Set([...words1].filter(x => words2.has(x)));
     const union = new Set([...words1, ...words2]);
-    
+
     return union.size > 0 ? intersection.size / union.size : 0;
   }
 
@@ -616,22 +617,22 @@ export class ImageRouterCache {
 
     const freq1 = getWordFreq(text1);
     const freq2 = getWordFreq(text2);
-    
+
     const allWords = new Set([...Object.keys(freq1), ...Object.keys(freq2)]);
-    
+
     let dotProduct = 0;
     let norm1 = 0;
     let norm2 = 0;
-    
+
     allWords.forEach(word => {
       const f1 = freq1[word] || 0;
       const f2 = freq2[word] || 0;
-      
+
       dotProduct += f1 * f2;
       norm1 += f1 * f1;
       norm2 += f2 * f2;
     });
-    
+
     const magnitude = Math.sqrt(norm1) * Math.sqrt(norm2);
     return magnitude > 0 ? dotProduct / magnitude : 0;
   }
@@ -639,10 +640,10 @@ export class ImageRouterCache {
   private calculateLevenshteinSimilarity(text1: string, text2: string): number {
     const levenshteinDistance = (s1: string, s2: string): number => {
       const matrix = Array(s2.length + 1).fill(null).map(() => Array(s1.length + 1).fill(null));
-      
+
       for (let i = 0; i <= s1.length; i++) matrix[0][i] = i;
       for (let j = 0; j <= s2.length; j++) matrix[j][0] = j;
-      
+
       for (let j = 1; j <= s2.length; j++) {
         for (let i = 1; i <= s1.length; i++) {
           const substitutionCost = s1[i - 1] === s2[j - 1] ? 0 : 1;
@@ -653,13 +654,13 @@ export class ImageRouterCache {
           );
         }
       }
-      
+
       return matrix[s2.length][s1.length];
     };
 
     const maxLength = Math.max(text1.length, text2.length);
     if (maxLength === 0) return 1;
-    
+
     const distance = levenshteinDistance(text1, text2);
     return 1 - (distance / maxLength);
   }
@@ -669,9 +670,9 @@ export class ImageRouterCache {
     const similarityWeight = 0.5;
     const accessWeight = 0.3;
     const qualityWeight = 0.2;
-    
+
     const accessScore = Math.min(1, entry.metadata.accessCount / 10);
-    
+
     return (
       similarity * similarityWeight +
       accessScore * accessWeight +
@@ -685,33 +686,33 @@ export class ImageRouterCache {
     similarity: number
   ): string[] {
     const reasons: string[] = [];
-    
+
     if (req1.type === req2.type) {
       reasons.push(`Same media type: ${req1.type}`);
     }
-    
+
     if (req1.model === req2.model) {
       reasons.push(`Same model: ${req1.model}`);
     }
-    
+
     const commonWords = this.getCommonWords(req1.prompt, req2.prompt);
     if (commonWords.length > 0) {
       reasons.push(`Common keywords: ${commonWords.slice(0, 5).join(', ')}`);
     }
-    
+
     if (similarity > 0.9) {
       reasons.push('Very high prompt similarity');
     } else if (similarity > 0.8) {
       reasons.push('High prompt similarity');
     }
-    
+
     return reasons;
   }
 
   private getCommonWords(text1: string, text2: string): string[] {
     const words1 = new Set(text1.toLowerCase().split(/\s+/));
     const words2 = new Set(text2.toLowerCase().split(/\s+/));
-    
+
     return [...words1].filter(word => words2.has(word) && word.length > 3);
   }
 
@@ -724,7 +725,7 @@ export class ImageRouterCache {
       resultTypes: response.results.map(r => r.type),
       mimeTypes: response.results.map(r => r.mimeType)
     });
-    
+
     return crypto.createHash('sha256').update(hashInput).digest('hex').substring(0, 16);
   }
 
@@ -737,29 +738,29 @@ export class ImageRouterCache {
       }
       return sum + 100; // URL size estimate
     }, 0);
-    
+
     return baseSize + resultSize;
   }
 
   private extractTags(request: UnifiedMediaGenerationRequest): string[] {
     const tags: string[] = [request.type];
-    
+
     if (request.model) {
       tags.push(`model:${request.model}`);
     }
-    
+
     if ('quality' in request && request.quality) {
       tags.push(`quality:${request.quality}`);
     }
-    
+
     // Extract semantic tags from prompt (simplified)
     const promptWords = request.prompt.toLowerCase().split(/\s+/);
-    const importantWords = promptWords.filter(word => 
+    const importantWords = promptWords.filter(word =>
       word.length > 4 && !['image', 'generate', 'create', 'make'].includes(word)
     ).slice(0, 5);
-    
+
     tags.push(...importantWords.map(word => `keyword:${word}`));
-    
+
     return tags;
   }
 
@@ -779,7 +780,7 @@ export class ImageRouterCache {
     entry.analytics.hitCount++;
     entry.analytics.latencySavings += latency;
     entry.analytics.popularityScore += 1;
-    
+
     if (this.config.analytics.trackHitPatterns) {
       const hits = this.analytics.get('hits') || [];
       hits.push({ timestamp: Date.now(), type, latency, key: entry.key });
@@ -790,9 +791,9 @@ export class ImageRouterCache {
   private async recordCacheMiss(request: UnifiedMediaGenerationRequest, latency: number): Promise<void> {
     if (this.config.analytics.trackHitPatterns) {
       const misses = this.analytics.get('misses') || [];
-      misses.push({ 
-        timestamp: Date.now(), 
-        latency, 
+      misses.push({
+        timestamp: Date.now(),
+        latency,
         prompt: request.prompt.substring(0, 100),
         type: request.type,
         model: request.model
@@ -897,7 +898,7 @@ export class ImageRouterCache {
     // Identify related prompts that might be requested soon
     const pattern = this.extractPattern(request.prompt);
     const popularity = this.popularPatterns.get(pattern) || 0;
-    
+
     if (popularity >= this.config.warming.popularityThreshold) {
       console.log(`Consider warming related content for pattern: ${pattern}`);
     }
@@ -922,7 +923,7 @@ export class ImageRouterCache {
 
   // Additional placeholder methods for optimization features
   private async calculateOptimalTierSizes(): Promise<{ l1: number; l2: number; l3: number }> {
-    return this.config.tiers;
+    return { l1: this.config.tiers.l1.size, l2: this.config.tiers.l2.size, l3: this.config.tiers.l3.size };
   }
 
   private async calculateOptimalTTLs(): Promise<{ l1: number; l2: number; l3: number }> {
@@ -952,11 +953,11 @@ export class ImageRouterCache {
   private async getRemovalCandidates(aggressive: boolean): Promise<CacheEntry[]> {
     const entries = Array.from(this.l1Cache.values());
     const now = Date.now();
-    
+
     return entries.filter(entry => {
       const age = now - entry.metadata.createdAt.getTime();
       const lastAccess = now - entry.metadata.lastAccessed.getTime();
-      
+
       if (aggressive) {
         return lastAccess > 3600000 || entry.metadata.quality < 0.6; // 1 hour or low quality
       } else {
@@ -967,8 +968,8 @@ export class ImageRouterCache {
 
   private async removeFromAllTiers(key: string): Promise<void> {
     this.l1Cache.delete(key);
-    await cacheManager.del(`l2:${key}`);
-    await cacheManager.del(`l3:${key}`);
+    await cacheManager.delete(`l2:${key}`);
+    await cacheManager.delete(`l3:${key}`);
   }
 
   private async cleanupContentHashMappings(): Promise<void> {
@@ -995,7 +996,7 @@ export class ImageRouterCache {
       entry.analytics.costSavings.toFixed(4),
       entry.metadata.createdAt.toISOString()
     ]);
-    
+
     return [headers, ...rows].map(row => row.join(',')).join('\n');
   }
 }

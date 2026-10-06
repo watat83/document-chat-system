@@ -1,8 +1,8 @@
 /**
  * Account Deletion Service
- * 
+ *
  * Implements industry-standard account deletion following GDPR and financial compliance requirements.
- * 
+ *
  * Features:
  * - Immediate soft delete with PII anonymization
  * - Subscription cancellation and cleanup
@@ -11,6 +11,8 @@
  * - Compliance with financial record retention
  */
 
+import { supabaseAdmin } from '@/lib/supabase';
+import { defaultNamespaceManager } from '@/lib/ai/services/pinecone-namespace-manager';
 import { db } from '@/lib/db';
 import { stripe } from '@/lib/stripe-server';
 import { clerkClient as clerkClientInstance } from '@clerk/nextjs/server';
@@ -37,7 +39,7 @@ export interface DeletionResult {
 
 export class AccountDeletionService {
   private readonly DEFAULT_GRACE_PERIOD_DAYS = 30;
-  
+
   /**
    * Initiate account deletion process
    */
@@ -45,7 +47,7 @@ export class AccountDeletionService {
     const gracePeriodDays = request.gracePeriodDays || this.DEFAULT_GRACE_PERIOD_DAYS;
     const scheduledHardDeleteAt = new Date();
     scheduledHardDeleteAt.setDate(scheduledHardDeleteAt.getDate() + gracePeriodDays);
-    
+
     // Create deletion record
     const accountDeletion = await db.accountDeletion.create({
       data: {
@@ -72,7 +74,7 @@ export class AccountDeletionService {
 
     // Perform immediate soft deletion
     const softDeleteResult = await this.performSoftDeletion(accountDeletion.id);
-    
+
     return {
       accountDeletionId: accountDeletion.id,
       status: softDeleteResult.status,
@@ -107,7 +109,7 @@ export class AccountDeletionService {
       // Step 1: Cancel all active subscriptions
       await this.cancelActiveSubscriptions(accountDeletion.organizationId);
       auditTrail.push('✅ Active subscriptions canceled');
-      
+
       await this.createAuditEntry(accountDeletionId, DeletionAction.SUBSCRIPTIONS_CANCELLED, {
         dataType: 'subscriptions',
         details: { organizationId: accountDeletion.organizationId }
@@ -223,10 +225,10 @@ export class AccountDeletionService {
       });
 
       // Remove payment methods
-      const paymentMethods = await stripe.paymentMethods.list({ 
-        customer: stripeCustomerId 
+      const paymentMethods = await stripe.paymentMethods.list({
+        customer: stripeCustomerId
       });
-      
+
       for (const pm of paymentMethods.data) {
         try {
           await stripe.paymentMethods.detach(pm.id);
@@ -242,9 +244,9 @@ export class AccountDeletionService {
 
       await this.createAuditEntry(accountDeletionId, DeletionAction.STRIPE_CUSTOMER_PROCESSED, {
         dataType: 'stripe_customer',
-        details: { 
+        details: {
           stripeCustomerId,
-          paymentMethodsRemoved: paymentMethods.data.length 
+          paymentMethodsRemoved: paymentMethods.data.length
         }
       });
 
@@ -274,7 +276,7 @@ export class AccountDeletionService {
 
       await this.createAuditEntry(accountDeletionId, DeletionAction.CLERK_USER_DELETED, {
         dataType: 'clerk_user',
-        details: { 
+        details: {
           userId,
           userEmail,
           deletedAt: new Date().toISOString()
@@ -286,7 +288,7 @@ export class AccountDeletionService {
       // Don't throw - user might already be deleted
       await this.createAuditEntry(accountDeletionId, DeletionAction.CLERK_USER_DELETED, {
         dataType: 'clerk_user',
-        details: { 
+        details: {
           userId,
           error: error instanceof Error ? error.message : String(error)
         },
@@ -352,7 +354,7 @@ export class AccountDeletionService {
     await this.createAuditEntry(accountDeletionId, DeletionAction.PII_ANONYMIZED, {
       dataType: 'pii_data',
       recordsAffected: users.length + 1, // +1 for organization
-      details: { 
+      details: {
         organizationId,
         usersAnonymized: users.length,
         anonymizedAt: anonymizedAt.toISOString()
@@ -367,47 +369,14 @@ export class AccountDeletionService {
     const deletedAt = new Date();
     const deletedData: Record<string, number> = {};
 
-    // Soft delete non-compliance data
-    const updates = [
-      { model: 'savedOpportunity', field: 'organizationId' },
-      { model: 'opportunityApplication', field: 'organizationId' },
-      { model: 'opportunityNote', field: 'organizationId' },
-      { model: 'document', field: 'organizationId' },
-      { model: 'pipeline', field: 'organizationId' },
-      { model: 'activity', field: 'organizationId' }
-    ];
-
-    for (const { model, field } of updates) {
-      try {
-        const result = await (db as any)[model].updateMany({
-          where: { [field]: organizationId, deletedAt: null },
-          data: { deletedAt }
-        });
-        deletedData[model] = result.count;
-      } catch (error) {
-        console.warn(`Failed to soft delete ${model}:`, error);
-        deletedData[model] = 0;
-      }
-    }
-
-    // Deactivate API keys (they don't have deletedAt field)
-    try {
-      const apiKeyResult = await db.apiKey.updateMany({
-        where: { organizationId, isActive: true },
-        data: { isActive: false }
-      });
-      deletedData.apiKey = apiKeyResult.count;
-    } catch (error) {
-      console.warn('Failed to deactivate API keys:', error);
-      deletedData.apiKey = 0;
-    }
-
-    // Keep but anonymize opportunities (might be needed for business analytics)
-    const opportunityResult = await db.opportunity.updateMany({
-      where: { organizationId, deletedAt: null },
-      data: { deletedAt }
-    });
-    deletedData.opportunity = opportunityResult.count;
+    // Use current schema models and propagate failures so deletion is never falsely completed.
+    const results = await db.$transaction(async tx => ({
+      document: await tx.document.updateMany({ where: { organizationId, deletedAt: null }, data: { deletedAt } }),
+      folder: await tx.folder.updateMany({ where: { organizationId, deletedAt: null }, data: { deletedAt } }),
+      savedSearch: await tx.savedSearch.updateMany({ where: { organizationId, deletedAt: null }, data: { deletedAt } }),
+      apiKey: await tx.apiKey.updateMany({ where: { organizationId, isActive: true }, data: { isActive: false } }),
+    }))
+    for (const [model, result] of Object.entries(results)) deletedData[model] = result.count
 
     // KEEP compliance data: subscriptions, usageRecords, invoices, audit logs
     // These are retained for financial and legal compliance
@@ -433,52 +402,38 @@ export class AccountDeletionService {
       throw new Error('Account deletion record not found');
     }
 
-    if (accountDeletion.status !== DeletionStatus.SOFT_DELETED) {
+    if (!accountDeletion.softDeletedAt || ![DeletionStatus.SOFT_DELETED, DeletionStatus.FAILED].includes(accountDeletion.status as 'SOFT_DELETED' | 'FAILED')) {
       throw new Error('Cannot perform hard deletion: account not soft deleted');
     }
 
+    if (!accountDeletion.scheduledHardDeleteAt || accountDeletion.scheduledHardDeleteAt > new Date()) {
+      throw new Error('Account deletion grace period has not ended');
+    }
     const hardDeletedAt = new Date();
 
     try {
       // Hard delete non-compliance data
       const organizationId = accountDeletion.organizationId;
-      
-      // Delete application data that's not needed for compliance
-      await db.savedOpportunity.deleteMany({ where: { organizationId } });
-      await db.opportunityApplication.deleteMany({ where: { organizationId } });
-      await db.opportunityNote.deleteMany({ where: { organizationId } });
-      await db.document.deleteMany({ where: { organizationId } });
-      await db.pipeline.deleteMany({ where: { organizationId } });
-      await db.activity.deleteMany({ where: { organizationId } });
-      await db.apiKey.deleteMany({ where: { organizationId } });
-      await db.opportunity.deleteMany({ where: { organizationId } });
-      await db.matchScore.deleteMany({ where: { organizationId } });
-      await db.profile.deleteMany({ where: { organizationId } });
-      await db.user.deleteMany({ where: { organizationId } });
 
-      // Keep organization record but mark as hard deleted for audit trail
-      await db.organization.update({
-        where: { id: organizationId },
-        data: {
-          name: `HARD_DELETED_${organizationId.slice(-8)}`,
-          deletedAt: hardDeletedAt
-        }
-      });
-
-      // RETAIN: subscriptions, usageRecords, audit logs for compliance
-
-      // Update deletion status
-      await db.accountDeletion.update({
-        where: { id: accountDeletionId },
-        data: {
-          status: DeletionStatus.HARD_DELETED,
-          hardDeletedAt
-        }
+      // Purge external assets first. A failed provider operation leaves the ledger retryable.
+      await this.purgeOrganizationAssets(organizationId);
+      await db.$transaction(async tx => {
+        const where = { organizationId };
+        await tx.savedSearch.deleteMany({ where });
+        await tx.conversation.deleteMany({ where });
+        await tx.document.deleteMany({ where });
+        await tx.folder.deleteMany({ where });
+        await tx.activity.deleteMany({ where: { user: { organizationId } } });
+        await tx.apiKey.deleteMany({ where });
+        await tx.profile.deleteMany({ where });
+        await tx.user.deleteMany({ where });
+        await tx.organization.update({ where: { id: organizationId }, data: { name: `HARD_DELETED_${organizationId.slice(-8)}`, deletedAt: hardDeletedAt } });
+        await tx.accountDeletion.update({ where: { id: accountDeletionId }, data: { status: DeletionStatus.HARD_DELETED, hardDeletedAt } });
       });
 
       await this.createAuditEntry(accountDeletionId, DeletionAction.DATA_HARD_DELETED, {
         dataType: 'all',
-        details: { 
+        details: {
           organizationId,
           hardDeletedAt: hardDeletedAt.toISOString(),
           retainedForCompliance: ['subscriptions', 'usageRecords', 'accountDeletions', 'stripe_records']
@@ -487,7 +442,7 @@ export class AccountDeletionService {
 
       await this.createAuditEntry(accountDeletionId, DeletionAction.DELETION_COMPLETED, {
         dataType: 'account_deletion',
-        details: { 
+        details: {
           completedAt: hardDeletedAt.toISOString(),
           totalProcessingDays: Math.ceil((hardDeletedAt.getTime() - accountDeletion.requestedAt.getTime()) / (1000 * 60 * 60 * 24))
         }
@@ -534,7 +489,7 @@ export class AccountDeletionService {
     await this.createAuditEntry(accountDeletionId, DeletionAction.DELETION_CANCELLED, {
       dataType: 'account_deletion',
       performedBy: cancelledBy,
-      details: { 
+      details: {
         cancelledAt: new Date().toISOString(),
         previousStatus: accountDeletion.status
       }
@@ -546,18 +501,44 @@ export class AccountDeletionService {
    */
   async getPendingHardDeletions(): Promise<Array<{ id: string; organizationId: string; scheduledHardDeleteAt: Date }>> {
     const now = new Date();
-    
-    return await db.accountDeletion.findMany({
-      where: {
-        status: DeletionStatus.SOFT_DELETED,
-        scheduledHardDeleteAt: { lte: now }
-      },
-      select: {
-        id: true,
-        organizationId: true,
-        scheduledHardDeleteAt: true
-      }
+
+    const pending = await db.accountDeletion.findMany({
+      where: { status: { in: [DeletionStatus.SOFT_DELETED, DeletionStatus.FAILED] }, softDeletedAt: { not: null }, scheduledHardDeleteAt: { lte: now } },
+      select: { id: true, organizationId: true, scheduledHardDeleteAt: true }
     });
+    return pending.filter((row): row is typeof row & { scheduledHardDeleteAt: Date } => row.scheduledHardDeleteAt !== null);
+  }
+
+  private async purgeOrganizationAssets(organizationId: string): Promise<void> {
+    if (!supabaseAdmin) throw new Error('Storage must be configured before permanent deletion');
+    const bucket = supabaseAdmin.storage.from('documents');
+    // Remove every object under both historical tenant prefixes, including unreferenced uploads.
+    const visit = async (prefix: string, depth = 0): Promise<void> => {
+      if (depth > 30) throw new Error('Storage hierarchy exceeds deletion depth limit');
+      const files: string[] = [];
+      const folders: string[] = [];
+      for (let offset = 0; ; offset += 1000) {
+        const { data, error } = await bucket.list(prefix, { limit: 1000, offset, sortBy: { column: 'name', order: 'asc' } });
+        if (error || !data) throw error || new Error('Unable to list account storage');
+        for (const object of data) {
+          if (object.name.includes('/') || object.name === '..') throw new Error('Invalid storage object name');
+          const path = `${prefix}/${object.name}`;
+          if (object.id) files.push(path); else folders.push(path);
+        }
+        if (data.length < 1000) break;
+      }
+      for (const folder of folders) await visit(folder, depth + 1);
+      for (let start = 0; start < files.length; start += 100) {
+        const { error } = await bucket.remove(files.slice(start, start + 100));
+        if (error) throw error;
+      }
+    };
+    await visit(organizationId);
+    await visit(`documents/${organizationId}`);
+    await defaultNamespaceManager.deleteOrganizationNamespaces(organizationId);
+    if (process.env.ENABLE_PGVECTOR_FALLBACK === 'true') {
+      await db.$executeRaw`DELETE FROM document_vectors WHERE organization_id = ${organizationId}`;
+    }
   }
 
   /**

@@ -18,8 +18,8 @@ jest.mock('@pinecone-database/pinecone', () => ({
       }),
       describeIndexStats: jest.fn().mockResolvedValue({
         namespaces: {
-          'test-org_org123': { vectorCount: 100 },
-          'another-company_org456': { vectorCount: 50 },
+          'testorg_org123': { recordCount: 100 },
+          'anothercompany_org456': { recordCount: 50 },
         },
         indexFullness: 0.1,
       }),
@@ -37,12 +37,14 @@ jest.mock('@/lib/prisma', () => ({
   },
 }))
 
-const mockPrisma = require('@/lib/prisma').prisma
+import { prisma as mockPrisma } from '@/lib/prisma'
 
 describe('PineconeNamespaceManager', () => {
   let namespaceManager: PineconeNamespaceManager
-  
+
   beforeEach(() => {
+    process.env.PINECONE_API_KEY = 'unit-test-pinecone';
+    process.env.PINECONE_INDEX_NAME = 'unit-test-index';
     jest.clearAllMocks()
     namespaceManager = new PineconeNamespaceManager()
   })
@@ -50,12 +52,12 @@ describe('PineconeNamespaceManager', () => {
   describe('namespace sanitization', () => {
     test('should sanitize organization names correctly', () => {
       const testCases = [
-        { input: 'Test Company Inc.', expected: 'test-company-inc' },
-        { input: 'ABC Corp!!!', expected: 'abc-corp' },
+        { input: 'Test Company Inc.', expected: 'testcompanyinc' },
+        { input: 'ABC Corp!!!', expected: 'abccorp' },
         { input: '123-Tech__Solutions', expected: '123-tech-solutions' },
-        { input: 'Multi   Space   Company', expected: 'multi-space-company' },
+        { input: 'Multi   Space   Company', expected: 'multispacecompany' },
         { input: '___leading-underscores___', expected: 'leading-underscores' },
-        { input: 'very-long-company-name-that-exceeds-limits-by-far', expected: 'very-long-company-name-that-exceeds-limit' },
+        { input: 'very-long-company-name-that-exceeds-limits-by-far', expected: 'very-long-company-name-that-exceeds-limi' },
         { input: '', expected: 'org' },
         { input: '###', expected: 'org' },
       ]
@@ -69,7 +71,7 @@ describe('PineconeNamespaceManager', () => {
 
     test('should validate namespace names correctly', () => {
       const validNames = [
-        'test-org_org123',
+        'testorg_org123',
         'a',
         'company-name_12345',
         'test123',
@@ -107,10 +109,10 @@ describe('PineconeNamespaceManager', () => {
 
       const namespaceInfo = await namespaceManager.getOrCreateNamespace('org123')
 
-      expect(namespaceInfo.namespace).toBe('test-company_org123')
+      expect(namespaceInfo.namespace).toBe('testcompany_org123')
       expect(namespaceInfo.organizationId).toBe('org123')
       expect(namespaceInfo.organizationName).toBe('Test Company')
-      expect(namespaceInfo.sanitizedName).toBe('test-company')
+      expect(namespaceInfo.sanitizedName).toBe('testcompany')
     })
 
     test('should handle organization not found', async () => {
@@ -139,14 +141,14 @@ describe('PineconeNamespaceManager', () => {
     test('should list namespaces for organization', async () => {
       const namespaces = await namespaceManager.listOrganizationNamespaces('org123')
 
-      expect(namespaces).toContain('test-org_org123')
-      expect(namespaces).not.toContain('another-company_org456')
+      expect(namespaces).toContain('testorg_org123')
+      expect(namespaces).not.toContain('anothercompany_org456')
     })
   })
 
   describe('namespace stats', () => {
     test('should get namespace statistics', async () => {
-      const stats = await namespaceManager.getNamespaceStats('test-org_org123')
+      const stats = await namespaceManager.getNamespaceStats('testorg_org123')
 
       expect(stats.vectorCount).toBe(100)
       expect(stats.indexFullness).toBe(0.1)

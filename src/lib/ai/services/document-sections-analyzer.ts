@@ -16,7 +16,7 @@ export class DocumentSectionsAnalyzer {
   async analyzeSections(
     extractedText: string,
     documentName: string,
-    documentType: DocumentType = 'GENERAL'
+    documentType: DocumentType = 'OTHER'
   ): Promise<{
     success: boolean
     sections?: DocumentSection[]
@@ -280,7 +280,7 @@ export class DocumentSectionsAnalyzer {
     // Check if line looks like a header
     return (
       // Markdown headers
-      /^#+\s+/.test(line) ||
+      (/^#+\s+/.test(line) ||
       // Numbered headers
       /^\d+\.\s+[A-Z]/.test(line) ||
       // All caps headers
@@ -288,12 +288,11 @@ export class DocumentSectionsAnalyzer {
       // Title case headers (short lines)
       (line.length < 100 && /^[A-Z][a-z]+(\s+[A-Z][a-z]+)*$/.test(line)) ||
       // Headers ending with colon
-      /^[A-Z][^.!?]*:$/.test(line) ||
-      // Headers with common section words
+      /^[A-Z][^.!?]*:$/.test(line) || // Headers with common section words
       /^(Executive Summary|Introduction|Background|Overview|Conclusion|Summary|Appendix|Table of Contents|References)/i.test(
         line
-      )
-    )
+      ))
+    );
   }
 
   /**
@@ -514,7 +513,7 @@ export class DocumentSectionsAnalyzer {
       firstSentence.length < 80 &&
       /^[A-Z]/.test(firstSentence)
     ) {
-      return firstSentence.replace(/[.!?]+$/, '') // Remove trailing punctuation
+      return firstSentence.replace(/[.!?]+$/, ''); // Remove trailing punctuation
     }
 
     // Default section numbering with document context
@@ -535,20 +534,20 @@ export class DocumentSectionsAnalyzer {
   private calculateOptimalSectionCount(wordCount: number, paragraphCount: number): number {
     // Very short documents: 1 section
     if (wordCount < 200) return 1
-    
+
     // Short documents: 2 sections
     if (wordCount < 500) return 2
-    
+
     // Medium documents: 2-4 sections
     if (wordCount < 2000) {
       return Math.min(4, Math.max(2, Math.floor(paragraphCount / 2)))
     }
-    
+
     // Long documents: 3-6 sections
     if (wordCount < 5000) {
       return Math.min(6, Math.max(3, Math.floor(paragraphCount / 3)))
     }
-    
+
     // Very long documents: 4-8 sections
     return Math.min(8, Math.max(4, Math.floor(paragraphCount / 4)))
   }
@@ -563,7 +562,7 @@ export class DocumentSectionsAnalyzer {
   ): string {
     const textLength = extractedText.length
     const wordCount = extractedText.split(/\s+/).length
-    
+
     return `Analyze this ${documentType.toLowerCase()} document and create well-structured, meaningful sections.
 
 Document: ${documentName}

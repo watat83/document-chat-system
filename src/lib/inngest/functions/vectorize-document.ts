@@ -77,7 +77,7 @@ export const vectorizeDocument = inngest.createFunction(
         console.log('🧮 [INNGEST] Processing embeddings...')
 
         // Update document status
-        const processing = (document.processing as any) || {}
+        const processing = (await prisma.document.findUnique({ where: { id: documentId }, select: { processing: true } }))?.processing as any || {}
         await prisma.document.update({
           where: { id: documentId },
           data: {
@@ -232,7 +232,7 @@ export const vectorizeDocument = inngest.createFunction(
       console.log('🏁 [INNGEST] Finalizing vectorization...')
       
       const processingTime = Date.now() - startTime
-      const processing = (document.processing as any) || {}
+      const processing = (await prisma.document.findUnique({ where: { id: documentId }, select: { processing: true } }))?.processing as any || {}
 
       // Update final document status
       await prisma.document.update({

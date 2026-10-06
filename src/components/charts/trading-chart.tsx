@@ -124,9 +124,14 @@ export function TradingChart({ symbol, height = 400, showControls = true, classN
   const [timeframe, setTimeframe] = useState('30D')
   const [isLoading, setIsLoading] = useState(true)
 
+  const [previousInput, setPreviousInput] = useState({ symbol, timeframe })
+  if (previousInput.symbol !== symbol || previousInput.timeframe !== timeframe) {
+    setPreviousInput({ symbol, timeframe })
+    setIsLoading(true)
+  }
+
   useEffect(() => {
     // Simulate loading delay
-    setIsLoading(true)
     const timer = setTimeout(() => {
       setData(generateMockData(symbol))
       setIsLoading(false)

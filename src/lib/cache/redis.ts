@@ -1,12 +1,5 @@
-// Server-side only Redis implementation
-let Redis: any;
-let redis: any;
-
-// Only import on server-side
-if (typeof window === 'undefined') {
-  Redis = require('ioredis');
-  redis = require('@/lib/config/env').redis;
-}
+import Redis from 'ioredis';
+import { redis } from '@/lib/config/env';
 
 class CacheService {
   private redis: any | null = null;
@@ -14,8 +7,8 @@ class CacheService {
 
   constructor() {
     // Only initialize on server-side
-    if (typeof window === 'undefined') {
-      this.initialize();
+    if (typeof window === 'undefined' && process.env.REDIS_HOST) {
+      void this.initialize();
     }
   }
 
@@ -31,7 +24,7 @@ class CacheService {
         port: redis.port,
         password: redis.password,
         db: redis.db,
-        retryDelayOnFailover: 100,
+        retryStrategy: (attempt: number) => Math.min(attempt * 100, 3000),
         maxRetriesPerRequest: 3,
         lazyConnect: true,
         keepAlive: 30000,
@@ -44,7 +37,7 @@ class CacheService {
         this.isConnected = true;
       });
 
-      this.redis.on('error', (error) => {
+      this.redis.on('error', (error: Error) => {
         console.error('Redis connection error:', error);
         this.isConnected = false;
       });

@@ -3,13 +3,13 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
-import { 
-  BarChart, 
-  Bar, 
-  XAxis, 
-  YAxis, 
-  CartesianGrid, 
-  Tooltip, 
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
   ResponsiveContainer,
   PieChart,
   Pie,
@@ -19,10 +19,10 @@ import {
   Area,
   AreaChart
 } from 'recharts';
-import { 
-  TrendingUp, 
-  Activity, 
-  Clock, 
+import {
+  TrendingUp,
+  Activity,
+  Clock,
   Calendar,
   Users,
   Shield,
@@ -56,7 +56,7 @@ interface LogsInsightsProps {
   };
 }
 
-const CATEGORY_COLORS = {
+const CATEGORY_COLORS: Partial<Record<AuditCategory, string>> = {
   [AuditCategory.USER_MANAGEMENT]: '#3b82f6',
   [AuditCategory.SECURITY]: '#ef4444',
   [AuditCategory.DATA_ACCESS]: '#10b981',
@@ -64,7 +64,6 @@ const CATEGORY_COLORS = {
   [AuditCategory.COMPLIANCE]: '#8b5cf6',
   [AuditCategory.AUTHENTICATION]: '#06b6d4',
   [AuditCategory.AUTHORIZATION]: '#8b5cf6',
-  [AuditCategory.OPPORTUNITY_MANAGEMENT]: '#f97316',
   [AuditCategory.PROFILE_MANAGEMENT]: '#84cc16',
   [AuditCategory.DOCUMENT_MANAGEMENT]: '#6366f1',
 };
@@ -73,7 +72,7 @@ export function LogsInsights({ summaryData, logs, timeframe }: LogsInsightsProps
   // Process data for charts
   const processActivityByHour = () => {
     const hourlyData: Record<string, number> = {};
-    
+
     logs.forEach(log => {
       try {
         const date = new Date(log.createdAt);
@@ -100,7 +99,7 @@ export function LogsInsights({ summaryData, logs, timeframe }: LogsInsightsProps
   const processActivityByDay = () => {
     const days = eachDayOfInterval({ start: timeframe.start, end: timeframe.end });
     const dailyData: Record<string, number> = {};
-    
+
     logs.forEach(log => {
       try {
         const date = new Date(log.createdAt);
@@ -123,7 +122,7 @@ export function LogsInsights({ summaryData, logs, timeframe }: LogsInsightsProps
 
   const processCategoryData = () => {
     if (!summaryData) return [];
-    
+
     return Object.entries(summaryData.actionsByCategory).map(([category, count]) => ({
       name: category.replace('_', ' ').toLowerCase().replace(/\b\w/g, l => l.toUpperCase()),
       value: count,
@@ -133,7 +132,7 @@ export function LogsInsights({ summaryData, logs, timeframe }: LogsInsightsProps
 
   const processTopActions = () => {
     if (!summaryData) return [];
-    
+
     return Object.entries(summaryData.actionsByType)
       .sort(([,a], [,b]) => b - a)
       .slice(0, 10)
@@ -145,7 +144,7 @@ export function LogsInsights({ summaryData, logs, timeframe }: LogsInsightsProps
 
   const getActivityPattern = () => {
     if (logs.length === 0) return 'No activity';
-    
+
     const hourCounts: Record<number, number> = {};
     logs.forEach(log => {
       try {
@@ -161,12 +160,12 @@ export function LogsInsights({ summaryData, logs, timeframe }: LogsInsightsProps
       }
     });
 
-    const maxHour = Object.entries(hourCounts).reduce((a, b) => 
+    const maxHour = Object.entries(hourCounts).reduce((a, b) =>
       hourCounts[a[0] as any] > hourCounts[b[0] as any] ? a : b
     )[0];
 
     const hourNum = parseInt(maxHour);
-    
+
     if (hourNum >= 6 && hourNum < 12) return 'Morning person';
     if (hourNum >= 12 && hourNum < 18) return 'Afternoon active';
     if (hourNum >= 18 && hourNum < 22) return 'Evening worker';
@@ -255,18 +254,18 @@ export function LogsInsights({ summaryData, logs, timeframe }: LogsInsightsProps
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={dailyData}>
                   <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
-                  <XAxis 
-                    dataKey="date" 
+                  <XAxis
+                    dataKey="date"
                     fontSize={12}
                     axisLine={false}
                     tickLine={false}
                   />
-                  <YAxis 
+                  <YAxis
                     fontSize={12}
                     axisLine={false}
                     tickLine={false}
                   />
-                  <Tooltip 
+                  <Tooltip
                     contentStyle={{
                       backgroundColor: 'hsl(var(--card))',
                       border: '1px solid hsl(var(--border))',
@@ -299,26 +298,26 @@ export function LogsInsights({ summaryData, logs, timeframe }: LogsInsightsProps
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={hourlyData}>
                   <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
-                  <XAxis 
-                    dataKey="hour" 
+                  <XAxis
+                    dataKey="hour"
                     fontSize={12}
                     axisLine={false}
                     tickLine={false}
                   />
-                  <YAxis 
+                  <YAxis
                     fontSize={12}
                     axisLine={false}
                     tickLine={false}
                   />
-                  <Tooltip 
+                  <Tooltip
                     contentStyle={{
                       backgroundColor: 'hsl(var(--card))',
                       border: '1px solid hsl(var(--border))',
                       borderRadius: '8px',
                     }}
                   />
-                  <Bar 
-                    dataKey="activity" 
+                  <Bar
+                    dataKey="activity"
                     fill="hsl(var(--primary))"
                     radius={[2, 2, 0, 0]}
                   />
@@ -363,7 +362,7 @@ export function LogsInsights({ summaryData, logs, timeframe }: LogsInsightsProps
                 <div className="flex flex-wrap gap-2">
                   {categoryData.map((category, index) => (
                     <div key={index} className="flex items-center gap-2">
-                      <div 
+                      <div
                         className="w-3 h-3 rounded-full"
                         style={{ backgroundColor: category.color }}
                       />
@@ -400,8 +399,8 @@ export function LogsInsights({ summaryData, logs, timeframe }: LogsInsightsProps
                       {action.action}
                     </span>
                     <div className="flex items-center gap-2">
-                      <Progress 
-                        value={(action.count / topActions[0].count) * 100} 
+                      <Progress
+                        value={(action.count / topActions[0].count) * 100}
                         className="w-16 h-2"
                       />
                       <Badge variant="secondary" className="text-xs min-w-[2rem] text-center">

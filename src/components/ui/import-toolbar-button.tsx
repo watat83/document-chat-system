@@ -6,7 +6,7 @@ import type { DropdownMenuProps } from '@radix-ui/react-dropdown-menu';
 
 import { MarkdownPlugin } from '@platejs/markdown';
 import { ArrowUpToLineIcon } from 'lucide-react';
-import { getEditorDOMFromHtmlString } from 'platejs';
+import { getEditorDOMFromHtmlString } from 'platejs/static';
 import { useEditorRef } from 'platejs/react';
 import { useFilePicker } from 'use-file-picker';
 
@@ -46,7 +46,8 @@ export function ImportToolbarButton(props: DropdownMenuProps) {
   const { openFilePicker: openMdFilePicker } = useFilePicker({
     accept: ['.md', '.mdx'],
     multiple: false,
-    onFilesSelected: async ({ plainFiles }) => {
+    onFilesSuccessfullySelected: async ({ plainFiles }: { plainFiles: File[] }) => {
+      if (!plainFiles?.length) return;
       const text = await plainFiles[0].text();
 
       const nodes = getFileNodes(text, 'markdown');
@@ -58,7 +59,8 @@ export function ImportToolbarButton(props: DropdownMenuProps) {
   const { openFilePicker: openHtmlFilePicker } = useFilePicker({
     accept: ['text/html'],
     multiple: false,
-    onFilesSelected: async ({ plainFiles }) => {
+    onFilesSuccessfullySelected: async ({ plainFiles }: { plainFiles: File[] }) => {
+      if (!plainFiles?.length) return;
       const text = await plainFiles[0].text();
 
       const nodes = getFileNodes(text, 'html');

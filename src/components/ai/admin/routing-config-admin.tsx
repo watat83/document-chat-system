@@ -90,14 +90,6 @@ interface SystemStatus {
   lastUpdated: Date;
 }
 
-export function RoutingConfigAdmin() {
-  const [config, setConfig] = useState<RoutingConfig | null>(null);
-  const [providers, setProviders] = useState<ProviderConfig[]>([]);
-  const [systemStatus, setSystemStatus] = useState<SystemStatus | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
-  const [activeTab, setActiveTab] = useState('routing');
-
   // Demo data
   const demoConfig: RoutingConfig = {
     id: 'system-config-1',
@@ -179,12 +171,14 @@ export function RoutingConfigAdmin() {
     lastUpdated: new Date(),
   };
 
-  useEffect(() => {
-    // Load demo data
-    setConfig(demoConfig);
-    setProviders(demoProviders);
-    setSystemStatus(demoSystemStatus);
-  }, []);
+
+export function RoutingConfigAdmin() {
+  const [config, setConfig] = useState<RoutingConfig | null>(demoConfig);
+  const [providers, setProviders] = useState<ProviderConfig[]>(demoProviders);
+  const [systemStatus, setSystemStatus] = useState<SystemStatus | null>(demoSystemStatus);
+  const [isLoading, setIsLoading] = useState(false);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [activeTab, setActiveTab] = useState('routing');
 
   const handleConfigChange = (field: keyof RoutingConfig, value: any) => {
     if (config) {

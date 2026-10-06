@@ -1,3 +1,4 @@
+import { provisionUser } from '@/lib/auth/provision-user';
 import { Webhook } from 'svix'
 import { headers } from 'next/headers'
 import { WebhookEvent } from '@clerk/nextjs/server'
@@ -6,7 +7,7 @@ import { NextResponse } from 'next/server'
 
 export async function POST(req: Request) {
   // Get the headers
-  const headerPayload = headers()
+  const headerPayload = await headers()
   const svix_id = headerPayload.get('svix-id')
   const svix_timestamp = headerPayload.get('svix-timestamp')
   const svix_signature = headerPayload.get('svix-signature')
@@ -20,8 +21,9 @@ export async function POST(req: Request) {
 
   // Get the body
   const payload = await req.text()
-  // Parse webhook payload to validate format
-  JSON.parse(payload)
+  if (!process.env.CLERK_WEBHOOK_SECRET) {
+    return new Response('Webhook configuration error', { status: 503 })
+  }
 
   // Create a new Svix instance with your secret
   const wh = new Webhook(process.env.CLERK_WEBHOOK_SECRET || '')
@@ -88,52 +90,8 @@ export async function POST(req: Request) {
 }
 
 async function handleUserCreated(data: any) {
-  console.log('User created:', data.id)
-  
-  // Find or create organization (for single-user organizations)
-  let organizationId = null
-  
-  // Check if user belongs to any organizations
-  if (data.organization_memberships?.length > 0) {
-    const membership = data.organization_memberships[0]
-    organizationId = membership.organization.id
-    
-    // Ensure organization exists in our database
-    await db.organization.upsert({
-      where: { id: organizationId },
-      create: {
-        id: organizationId,
-        name: membership.organization.name || `${data.first_name} ${data.last_name}'s Organization`,
-        slug: membership.organization.slug || `org-${organizationId.slice(0, 8)}`,
-      },
-      update: {
-        name: membership.organization.name || `${data.first_name} ${data.last_name}'s Organization`,
-      },
-    })
-  } else {
-    // Create a personal organization for the user
-    const organization = await db.organization.create({
-      data: {
-        name: `${data.first_name} ${data.last_name}'s Organization`,
-        slug: `org-${data.id.slice(0, 8)}`,
-      },
-    })
-    organizationId = organization.id
-  }
-
-  // Create the user in our database
-  await db.user.create({
-    data: {
-      clerkId: data.id,
-      email: data.email_addresses[0]?.email_address || '',
-      firstName: data.first_name,
-      lastName: data.last_name,
-      imageUrl: data.image_url,
-      organizationId: organizationId,
-      role: 'OWNER', // First user in organization is owner
-      lastActiveAt: new Date(),
-    },
-  })
+  await provisionUser({ id: data.id, firstName: data.first_name, lastName: data.last_name,
+    imageUrl: data.image_url, emailAddresses: (data.email_addresses || []).map((e: any) => ({ emailAddress: e.email_address })) });
 }
 
 async function handleUserUpdated(data: any) {

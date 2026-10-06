@@ -84,7 +84,7 @@ export class ComplianceReportGenerator {
     endDate: Date = new Date()
   ): Promise<ComplianceReport> {
     const reportId = `compliance-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    
+
     // Base query filters
     const baseFilters = {
       createdAt: {
@@ -136,22 +136,22 @@ export class ComplianceReportGenerator {
     organizationId?: string
   ): Promise<ComplianceMetrics> {
     const profileOps = auditLogs.filter(log => log.category === AuditCategory.PROFILE_MANAGEMENT);
-    const billingOps = auditLogs.filter(log => log.category === AuditCategory.BILLING_OPERATIONS);
+    const billingOps = auditLogs.filter(log => log.category === AuditCategory.BILLING);
     const documentOps = auditLogs.filter(log => log.category === AuditCategory.DOCUMENT_MANAGEMENT);
-    const apiKeyOps = auditLogs.filter(log => log.category === AuditCategory.API_SECURITY);
+    const apiKeyOps = auditLogs.filter(log => log.category === AuditCategory.API_USAGE);
 
     const criticalEvents = auditLogs.filter(log => log.severity === AuditSeverity.CRITICAL);
-    const highSeverityEvents = auditLogs.filter(log => log.severity === AuditSeverity.HIGH);
+    const highSeverityEvents = auditLogs.filter(log => log.severity === AuditSeverity.ERROR);
     const dataAccessEvents = auditLogs.filter(log => log.eventType === AuditEventType.DATA_ACCESSED);
 
     // Calculate sensitive data masking compliance
-    const sensitiveDataEvents = auditLogs.filter(log => 
+    const sensitiveDataEvents = auditLogs.filter(log =>
       log.sensitiveFields && (log.sensitiveFields as string[]).length > 0
     );
 
     // Calculate multi-tenant isolation
-    const tenantViolations = organizationId ? 
-      auditLogs.filter(log => 
+    const tenantViolations = organizationId ?
+      auditLogs.filter(log =>
         log.organizationId && log.organizationId !== organizationId
       ).length : 0;
 
@@ -162,38 +162,38 @@ export class ComplianceReportGenerator {
         documentOperations: documentOps.length,
         apiKeyOperations: apiKeyOps.length,
         totalOperations: auditLogs.length,
-        coveragePercentage: auditLogs.length > 0 ? 
+        coveragePercentage: auditLogs.length > 0 ?
           ((profileOps.length + billingOps.length + documentOps.length + apiKeyOps.length) / auditLogs.length) * 100 : 0
       },
       securityCompliance: {
         criticalEvents: criticalEvents.length,
         highSeverityEvents: highSeverityEvents.length,
         dataAccessEvents: dataAccessEvents.length,
-        securityViolations: criticalEvents.filter(log => 
-          log.category === AuditCategory.SECURITY_EVENTS
+        securityViolations: criticalEvents.filter(log =>
+          log.category === AuditCategory.SECURITY
         ).length,
         averageResponseTime: this.calculateAverageResponseTime(auditLogs)
       },
       dataProtection: {
         sensitiveDataMasked: sensitiveDataEvents.length,
-        piiProtectionEvents: auditLogs.filter(log => 
-          log.currentData && typeof log.currentData === 'object' && 
+        piiProtectionEvents: auditLogs.filter(log =>
+          log.currentData && typeof log.currentData === 'object' &&
           JSON.stringify(log.currentData).includes('[REDACTED]')
         ).length,
         dataRetentionCompliance: 100, // Assuming compliance - can be enhanced
         encryptionCompliance: 100 // Assuming compliance - can be enhanced
       },
       accessControl: {
-        userAuthenticationEvents: auditLogs.filter(log => 
-          log.eventType === AuditEventType.USER_ACTION
+        userAuthenticationEvents: auditLogs.filter(log =>
+          log.eventType === AuditEventType.USER_LOGIN
         ).length,
-        adminOperations: auditLogs.filter(log => 
+        adminOperations: auditLogs.filter(log =>
           log.user?.role && ['ADMIN', 'OWNER'].includes(log.user.role)
         ).length,
-        permissionDenials: auditLogs.filter(log => 
+        permissionDenials: auditLogs.filter(log =>
           log.eventType === AuditEventType.SECURITY_VIOLATION
         ).length,
-        sessionManagement: auditLogs.filter(log => 
+        sessionManagement: auditLogs.filter(log =>
           log.category === AuditCategory.USER_MANAGEMENT
         ).length
       },
@@ -231,8 +231,8 @@ export class ComplianceReportGenerator {
     }
 
     // Failed authentication attempts
-    const authFailures = auditLogs.filter(log => 
-      log.eventType === AuditEventType.SECURITY_VIOLATION && 
+    const authFailures = auditLogs.filter(log =>
+      log.eventType === AuditEventType.SECURITY_VIOLATION &&
       log.description?.includes('authentication')
     );
     if (authFailures.length > 5) {
@@ -247,7 +247,7 @@ export class ComplianceReportGenerator {
 
     // Unusual data access patterns
     const dataAccessEvents = auditLogs.filter(log => log.eventType === AuditEventType.DATA_ACCESSED);
-    const bulkDataAccess = dataAccessEvents.filter(log => 
+    const bulkDataAccess = dataAccessEvents.filter(log =>
       log.entityType === 'BULK' || (log.currentData as any)?.count > 100
     );
     if (bulkDataAccess.length > 0) {
@@ -261,8 +261,8 @@ export class ComplianceReportGenerator {
     }
 
     // API key security issues
-    const apiKeyEvents = auditLogs.filter(log => log.category === AuditCategory.API_SECURITY);
-    const keyRotations = apiKeyEvents.filter(log => 
+    const apiKeyEvents = auditLogs.filter(log => log.category === AuditCategory.API_USAGE);
+    const keyRotations = apiKeyEvents.filter(log =>
       log.metadata && (log.metadata as any).isRotation
     );
     if (keyRotations.length === 0 && apiKeyEvents.length > 0) {
@@ -353,10 +353,10 @@ export class ComplianceReportGenerator {
     };
 
     const auditScore = Math.min(100, metrics.auditTrailCoverage.coveragePercentage);
-    const securityScore = metrics.securityCompliance.criticalEvents === 0 ? 100 : 
+    const securityScore = metrics.securityCompliance.criticalEvents === 0 ? 100 :
       Math.max(0, 100 - (metrics.securityCompliance.criticalEvents * 20));
     const dataScore = (metrics.dataProtection.dataRetentionCompliance + metrics.dataProtection.encryptionCompliance) / 2;
-    const accessScore = metrics.accessControl.permissionDenials < 5 ? 100 : 
+    const accessScore = metrics.accessControl.permissionDenials < 5 ? 100 :
       Math.max(0, 100 - (metrics.accessControl.permissionDenials * 5));
     const tenantScore = metrics.tenantSeparation.isolationScore;
 
@@ -407,15 +407,15 @@ export class ComplianceReportGenerator {
     switch (format) {
       case 'JSON':
         return JSON.stringify(report, null, 2);
-      
+
       case 'CSV':
         return this.generateCSVReport(report);
-      
+
       case 'PDF':
         // For now, return a formatted text representation
         // In production, this would generate actual PDF using a library like puppeteer
         return this.generateTextReport(report);
-      
+
       default:
         throw new Error(`Unsupported export format: ${format}`);
     }
@@ -521,7 +521,7 @@ CC9 - Risk Mitigation: ${report.soc2Requirements.CC9_RiskMitigation ? '✅ COMPL
 
 FINDINGS
 ========
-${report.findings.length === 0 ? 'No significant findings detected.' : 
+${report.findings.length === 0 ? 'No significant findings detected.' :
   report.findings.map(f => `${f.severity}: ${f.description} (${f.count} occurrences)`).join('\n')}
 
 RECOMMENDATIONS

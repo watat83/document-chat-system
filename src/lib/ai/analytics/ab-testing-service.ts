@@ -1,5 +1,5 @@
 import { PrismaClient } from '@prisma/client';
-import { generateId } from '../../utils/id-generator';
+import { generateId } from '../../utils';
 
 const prisma = new PrismaClient();
 
@@ -103,10 +103,10 @@ export class ABTestingService {
    */
   async createTest(config: Omit<ABTestConfig, 'id'>): Promise<ABTestConfig> {
     const testId = generateId();
-    
+
     // Validate test configuration
     this.validateTestConfig(config);
-    
+
     // Create test in database
     const test = await prisma.aBTest.create({
       data: {
@@ -159,7 +159,7 @@ export class ABTestingService {
    */
   async getActiveTests(userId: string, organizationId: string): Promise<ABTestConfig[]> {
     const now = new Date();
-    
+
     const tests = await prisma.aBTest.findMany({
       where: {
         enabled: true,
@@ -177,17 +177,17 @@ export class ABTestingService {
     // Filter tests based on target audience
     const eligibleTests = tests.filter(test => {
       const targetAudience = test.targetAudience as any;
-      
+
       // Check organization targeting
       if (targetAudience.organizationIds && !targetAudience.organizationIds.includes(organizationId)) {
         return false;
       }
-      
+
       // Check user targeting
       if (targetAudience.userIds && !targetAudience.userIds.includes(userId)) {
         return false;
       }
-      
+
       // Check percentage targeting
       if (targetAudience.percentage && targetAudience.percentage < 100) {
         const hash = this.hashString(userId + test.id);
@@ -196,7 +196,7 @@ export class ABTestingService {
           return false;
         }
       }
-      
+
       return true;
     });
 
@@ -259,7 +259,7 @@ export class ABTestingService {
 
     // Assign user to a variant based on weighted distribution
     const selectedVariant = this.selectWeightedVariant(test.variants, userId + testId);
-    
+
     if (!selectedVariant) {
       return null;
     }
@@ -317,10 +317,10 @@ export class ABTestingService {
     }
 
     const variantAnalysis = [];
-    
+
     for (const variant of test.variants) {
       const results = test.results.filter(r => r.variantId === variant.id);
-      
+
       if (results.length === 0) {
         variantAnalysis.push({
           variantId: variant.id,
@@ -343,10 +343,10 @@ export class ABTestingService {
       const successRate = (results.filter(r => r.success).length / results.length) * 100;
       const avgCost = results.reduce((sum, r) => sum + r.cost, 0) / results.length;
       const avgTokens = results.reduce((sum, r) => sum + r.tokensUsed, 0) / results.length;
-      
+
       const feedbackResults = results.filter(r => r.userFeedback);
-      const userSatisfaction = feedbackResults.length > 0 
-        ? feedbackResults.reduce((sum, r) => sum + (r.userFeedback?.rating || 0), 0) / feedbackResults.length 
+      const userSatisfaction = feedbackResults.length > 0
+        ? feedbackResults.reduce((sum, r) => sum + (r.userFeedback?.rating || 0), 0) / feedbackResults.length
         : 0;
 
       // Calculate confidence (simplified)
@@ -370,10 +370,10 @@ export class ABTestingService {
 
     // Determine winner
     const winner = this.determineWinner(variantAnalysis);
-    
+
     // Generate recommendation
     const recommendation = this.generateRecommendation(test, variantAnalysis, winner);
-    
+
     // Generate insights
     const insights = this.generateInsights(variantAnalysis);
 
@@ -417,13 +417,13 @@ export class ABTestingService {
 
     // Group results by hour and variant
     const hourlyData = new Map();
-    
+
     for (const result of results) {
       const hour = new Date(result.startTime);
       hour.setMinutes(0, 0, 0); // Round to hour
-      
+
       const key = `${hour.getTime()}_${result.variantId}`;
-      
+
       if (!hourlyData.has(key)) {
         hourlyData.set(key, {
           timestamp: hour,
@@ -435,12 +435,12 @@ export class ABTestingService {
           totalCount: 0,
         });
       }
-      
+
       const data = hourlyData.get(key);
       data.latencies.push(result.latency);
       data.costs.push(result.cost);
       data.totalCount++;
-      
+
       if (result.success) {
         data.successes++;
       }
@@ -579,7 +579,7 @@ export class ABTestingService {
   private selectWeightedVariant(variants: any[], seed: string): any {
     const hash = this.hashString(seed);
     const random = (hash % 100) + 1;
-    
+
     let cumulativeWeight = 0;
     for (const variant of variants) {
       cumulativeWeight += variant.weight;
@@ -587,7 +587,7 @@ export class ABTestingService {
         return variant;
       }
     }
-    
+
     return variants[0]; // Fallback
   }
 
@@ -603,7 +603,7 @@ export class ABTestingService {
 
   private determineWinner(variants: any[]): any {
     const validVariants = variants.filter(v => v.participants > 10 && v.confidence > 80);
-    
+
     if (validVariants.length === 0) {
       return null;
     }
@@ -616,7 +616,7 @@ export class ABTestingService {
         variant.metrics.successRate + // Higher success rate is better
         variant.metrics.userSatisfaction * 20 // Higher satisfaction is better
       );
-      
+
       return { ...variant, score };
     });
 
@@ -637,70 +637,70 @@ export class ABTestingService {
 
   private generateRecommendation(test: any, variants: any[], winner: any): string {
     const totalParticipants = variants.reduce((sum, v) => sum + v.participants, 0);
-    
+
     if (totalParticipants < 100) {
       return 'continue';
     }
-    
+
     if (winner && winner.confidence > 90) {
       return 'stop_winner';
     }
-    
+
     if (totalParticipants > 1000 && (!winner || winner.confidence < 70)) {
       return 'stop_inconclusive';
     }
-    
+
     return 'continue';
   }
 
   private generateInsights(variants: any[]): string[] {
     const insights = [];
-    
+
     // Find performance patterns
     const bestLatency = Math.min(...variants.map(v => v.metrics.avgLatency));
     const bestCost = Math.min(...variants.map(v => v.metrics.avgCost));
     const bestSatisfaction = Math.max(...variants.map(v => v.metrics.userSatisfaction));
-    
+
     const fastestVariant = variants.find(v => v.metrics.avgLatency === bestLatency);
     const cheapestVariant = variants.find(v => v.metrics.avgCost === bestCost);
     const mostSatisfyingVariant = variants.find(v => v.metrics.userSatisfaction === bestSatisfaction);
-    
+
     if (fastestVariant) {
       insights.push(`${fastestVariant.name} has the lowest latency (${bestLatency.toFixed(0)}ms)`);
     }
-    
+
     if (cheapestVariant) {
       insights.push(`${cheapestVariant.name} has the lowest cost ($${bestCost.toFixed(4)} per request)`);
     }
-    
+
     if (mostSatisfyingVariant && bestSatisfaction > 0) {
       insights.push(`${mostSatisfyingVariant.name} has the highest user satisfaction (${bestSatisfaction.toFixed(1)}/5)`);
     }
-    
+
     // Check for statistical significance
     const significantVariants = variants.filter(v => v.significantDifference);
     if (significantVariants.length > 0) {
       insights.push(`${significantVariants.length} variant(s) show statistically significant differences`);
     }
-    
+
     return insights;
   }
 
   private getTestStatus(test: any): string {
     const now = new Date();
-    
+
     if (!test.enabled) {
       return 'completed';
     }
-    
+
     if (test.startDate > now) {
       return 'scheduled';
     }
-    
+
     if (test.endDate && test.endDate < now) {
       return 'completed';
     }
-    
+
     return 'running';
   }
 }

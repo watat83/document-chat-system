@@ -9,13 +9,14 @@ export class DocumentPromptLibrary {
    * Get section analysis prompt based on document type
    */
   static getSectionAnalysisPrompt(
-    documentType: DocumentType,
+    documentType: DocumentType | 'RFP' | 'INVOICE' | 'REPORT' | 'GENERAL',
     documentName: string,
     extractedText: string
   ): string {
     const basePrompt = `Document Name: ${documentName}\n\n`
 
     switch (documentType) {
+      case 'SOLICITATION':
       case 'RFP':
         return (
           basePrompt +
@@ -66,7 +67,7 @@ export class DocumentPromptLibrary {
    * Get entity extraction prompt for DocumentEntities interface
    */
   static getEntityExtractionPrompt(
-    documentType: DocumentType,
+    documentType: DocumentType | 'RFP' | 'INVOICE' | 'REPORT' | 'GENERAL',
     documentName: string,
     extractedText: string
   ): string {
@@ -79,13 +80,14 @@ export class DocumentPromptLibrary {
    * Get content analysis prompt based on document type
    */
   static getContentAnalysisPrompt(
-    documentType: DocumentType,
+    documentType: DocumentType | 'RFP' | 'INVOICE' | 'REPORT' | 'GENERAL',
     documentName: string,
     extractedText: string
   ): string {
     const basePrompt = `Analyze this ${documentType} document and provide comprehensive insights.\n\nDocument Name: ${documentName}\n\n`
 
     switch (documentType) {
+      case 'SOLICITATION':
       case 'RFP':
         return (
           basePrompt +
@@ -150,7 +152,7 @@ For each section, provide ALL required fields:
 
 Focus on typical RFP sections:
 - Executive Summary
-- Background/Introduction  
+- Background/Introduction
 - Scope of Work
 - Technical Requirements
 - Evaluation Criteria
@@ -386,7 +388,7 @@ For each section you identify, provide ALL required fields:
 7. parentId - null for top-level sections
 8. level - 1 for main sections, 2+ for subsections
 
-IMPORTANT: 
+IMPORTANT:
 - Be flexible and adaptive to the document's actual structure
 - Don't create artificial sections if the document is continuous
 - Respect the author's original organization
@@ -463,7 +465,7 @@ Required JSON structure with DocumentAnalysis fields:
     "timeline": "Contract duration or timeline" | null,
     "requirements": ["Key requirement 1", "Key requirement 2"],
     "risks": ["Risk factor 1", "Risk factor 2"],
-    "opportunities": ["Opportunity 1", "Opportunity 2"], 
+    "opportunities": ["Opportunity 1", "Opportunity 2"],
     "keyTerms": ["Important term 1", "Important term 2"],
     "deadlines": ["2024-12-31", "2025-03-15"] | null,
     "parties": ["Party 1 name", "Party 2 name"],
@@ -479,7 +481,7 @@ Required JSON structure with DocumentAnalysis fields:
     "checkType": "contract-analysis",
     "complianceScore": 85,
     "lastCheckedAt": "2024-01-01T00:00:00Z",
-    "createdAt": "2024-01-01T00:00:00Z", 
+    "createdAt": "2024-01-01T00:00:00Z",
     "updatedAt": "2024-01-01T00:00:00Z"
   }
 }

@@ -1,6 +1,8 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useCallback, useEffect, useSyncExternalStore } from 'react'
+import { useMounted } from '@/hooks/use-mounted'
+import { useClock } from '@/hooks/use-clock'
 import { Button } from '@/components/ui/button'
 import {
   Tooltip,
@@ -23,49 +25,26 @@ export function DonationBanner({
   currency = 'USD',
   onVisibilityChange
 }: DonationBannerProps) {
-  const [isVisible, setIsVisible] = useState(false)
-  const [isMounted, setIsMounted] = useState(false)
-
-  // Don't render if no email is configured
-  if (!email) {
-    return null
-  }
-
-  useEffect(() => {
-    setIsMounted(true)
-
-    // Clean up old permanent dismiss key (migration)
-    const oldDismissed = localStorage.getItem('donation-banner-dismissed')
-    if (oldDismissed) {
-      localStorage.removeItem('donation-banner-dismissed')
+  const isMounted = useMounted()
+  const now = useClock()
+  const subscribe = useCallback((notify: () => void) => {
+    window.addEventListener('storage', notify)
+    window.addEventListener('donation-banner-change', notify)
+    return () => {
+      window.removeEventListener('storage', notify)
+      window.removeEventListener('donation-banner-change', notify)
     }
-
-    // Check if banner was dismissed and if enough time has passed
-    const dismissedUntil = localStorage.getItem('donation-banner-dismissed-until')
-    if (dismissedUntil) {
-      const dismissedTimestamp = parseInt(dismissedUntil, 10)
-      const now = Date.now()
-      // Show banner again if 6 hours have passed
-      if (now > dismissedTimestamp) {
-        setIsVisible(true)
-        onVisibilityChange?.(true)
-        localStorage.removeItem('donation-banner-dismissed-until')
-      } else {
-        onVisibilityChange?.(false)
-      }
-    } else {
-      // No dismiss record, show the banner
-      setIsVisible(true)
-      onVisibilityChange?.(true)
-    }
-  }, [onVisibilityChange])
-
+  }, [])
+  const getSnapshot = useCallback(() => {
+    try { return localStorage.getItem('donation-banner-dismissed-until') } catch { return null }
+  }, [])
+  const dismissedUntil = useSyncExternalStore(subscribe, getSnapshot, () => null)
+  const isVisible = isMounted && (!dismissedUntil || now > Number(dismissedUntil))
+  useEffect(() => { onVisibilityChange?.(isVisible) }, [isVisible, onVisibilityChange])
+  if (!email) return null
   const handleDismiss = () => {
-    setIsVisible(false)
-    onVisibilityChange?.(false)
-    // Hide banner for 6 hours
-    const sixHoursFromNow = Date.now() + (6 * 60 * 60 * 1000)
-    localStorage.setItem('donation-banner-dismissed-until', sixHoursFromNow.toString())
+    try { localStorage.setItem('donation-banner-dismissed-until', String(Date.now() + 6 * 60 * 60 * 1000)) } catch { return }
+    window.dispatchEvent(new Event('donation-banner-change'))
   }
 
   const handleDonate = () => {
@@ -111,7 +90,7 @@ export function DonationBanner({
                     <p className="font-semibold text-sm">Why donate?</p>
                     <p className="text-xs leading-relaxed">
                       Your donations help us provide free AI-powered document analysis, chat,
-                      and matching services to users who can't afford premium AI subscriptions.
+                      and matching services to users who can&apos;t afford premium AI subscriptions.
                       Every contribution helps cover API costs and keeps these powerful tools
                       accessible to everyone.
                     </p>

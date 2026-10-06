@@ -7,7 +7,9 @@
 
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useCallback } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { useAuth } from '@clerk/nextjs';
 
 export interface UseCSRFReturn {
   token: string | null;
@@ -22,58 +24,22 @@ export interface UseCSRFReturn {
  * Custom hook for CSRF protection
  */
 export function useCSRF(): UseCSRFReturn {
-  const [token, setToken] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  /**
-   * Fetch CSRF token from server
-   */
-  const fetchToken = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
-
-      const response = await fetch('/api/v1/csrf', {
-        method: 'GET',
-        credentials: 'include'
-      });
-
-      if (!response.ok) {
-        console.warn(`CSRF token fetch failed: ${response.statusText}`);
-        // For now, continue without CSRF token instead of throwing
-        setToken(null);
-        setError(`CSRF unavailable: ${response.statusText}`);
-        return;
-      }
-
+  const { userId, orgId } = useAuth();
+  const query = useQuery({
+    queryKey: ['csrf-token', userId, orgId],
+    queryFn: async ({ signal }) => {
+      const response = await fetch('/api/v1/csrf', { credentials: 'include', signal });
+      if (!response.ok) throw new Error(`CSRF unavailable (${response.status})`);
       const data = await response.json();
-      
-      if (!data.token) {
-        console.warn('No CSRF token received from server');
-        setToken(null);
-        setError('No CSRF token received');
-        return;
-      }
-
-      setToken(data.token);
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-      setError(errorMessage);
-      console.warn('Failed to fetch CSRF token:', errorMessage);
-      // Continue without token instead of failing
-      setToken(null);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  /**
-   * Refresh token manually
-   */
-  const refreshToken = useCallback(async () => {
-    await fetchToken();
-  }, [fetchToken]);
+      if (!data.token) throw new Error('No CSRF token received');
+      return data.token as string;
+    },
+    refetchInterval: 55 * 60 * 1000, gcTime: 0, retry: 1,
+  });
+  const token = query.data ?? null;
+  const loading = query.isFetching;
+  const error = query.error?.message ?? null;
+  const refreshToken = useCallback(async () => { await query.refetch(); }, [query.refetch]);
 
   /**
    * Add CSRF token to request headers
@@ -102,22 +68,6 @@ export function useCSRF(): UseCSRFReturn {
     formData.append('_csrf', token);
     return formData;
   }, [token]);
-
-  // Fetch token on mount
-  useEffect(() => {
-    fetchToken();
-  }, [fetchToken]);
-
-  // Auto-refresh token before expiration (55 minutes)
-  useEffect(() => {
-    if (!token) return;
-
-    const refreshInterval = setInterval(() => {
-      refreshToken();
-    }, 55 * 60 * 1000); // 55 minutes
-
-    return () => clearInterval(refreshInterval);
-  }, [token, refreshToken]);
 
   return {
     token,

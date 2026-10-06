@@ -39,39 +39,39 @@ import { auth } from '@/lib/config/env';
  */
 export async function GET(request: NextRequest) {
   const startTime = Date.now();
-  
+
   console.log('🔄 Starting periodic subscription sync...');
 
   try {
     // Authentication check
     const apiKey = request.headers.get('x-api-key');
     const authHeader = request.headers.get('authorization');
-    
+
     // Check for API key in header or query parameter
     const validApiKey = auth.internalApiKey;
-    const providedKey = apiKey || 
-                       authHeader?.replace('Bearer ', '') || 
+    const providedKey = apiKey ||
+                       authHeader?.replace('Bearer ', '') ||
                        request.nextUrl.searchParams.get('key');
 
     if (!validApiKey) {
       console.error('❌ INTERNAL_API_KEY not configured');
-      return NextResponse.json({ 
-        error: 'Internal API key not configured' 
+      return NextResponse.json({
+        error: 'Internal API key not configured'
       }, { status: 500 });
     }
 
     if (!providedKey || providedKey !== validApiKey) {
-      console.warn('⚠️ Unauthorized sync attempt from:', request.ip);
-      return NextResponse.json({ 
-        error: 'Unauthorized - Invalid API key' 
+      console.warn('⚠️ Unauthorized sync attempt from:', request.headers.get('x-forwarded-for')?.split(',')[0]);
+      return NextResponse.json({
+        error: 'Unauthorized - Invalid API key'
       }, { status: 401 });
     }
 
     // Check if Stripe is configured
     if (!process.env.STRIPE_SECRET_KEY) {
       console.error('❌ Stripe not configured');
-      return NextResponse.json({ 
-        error: 'Stripe not configured' 
+      return NextResponse.json({
+        error: 'Stripe not configured'
       }, { status: 500 });
     }
 
@@ -79,7 +79,7 @@ export async function GET(request: NextRequest) {
 
     // Get organizations that have Stripe customers
     const organizations = await db.organization.findMany({
-      where: { 
+      where: {
         stripeCustomerId: { not: null },
         // Only sync organizations that have been active recently (optional optimization)
         updatedAt: {
@@ -117,9 +117,9 @@ export async function GET(request: NextRequest) {
     for (const org of organizations) {
       try {
         console.log(`🔄 Syncing ${org.name} (${org.id})...`);
-        
+
         const result = await SubscriptionManager.syncAllSubscriptionsFromStripe(org.id);
-        
+
         if (result.syncedCount > 0) {
           totalSyncedCount += result.syncedCount;
           console.log(`✅ Synced ${result.syncedCount} subscriptions for ${org.name}`);
@@ -142,7 +142,7 @@ export async function GET(request: NextRequest) {
     }
 
     const duration = Date.now() - startTime;
-    
+
     console.log(`✅ Periodic sync completed: ${totalSyncedCount} subscriptions synced across ${processedCount} organizations in ${duration}ms`);
 
     if (errors.length > 0) {
@@ -163,10 +163,10 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     const duration = Date.now() - startTime;
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    
+
     console.error('❌ Periodic sync failed:', error);
-    
-    return NextResponse.json({ 
+
+    return NextResponse.json({
       success: false,
       error: errorMessage,
       timestamp: new Date().toISOString(),
@@ -207,22 +207,22 @@ export async function GET(request: NextRequest) {
  */
 export async function POST(request: NextRequest) {
   const startTime = Date.now();
-  
+
   console.log('🔄 Starting manual subscription sync...');
 
   try {
     // Authentication check (same as GET)
     const apiKey = request.headers.get('x-api-key');
     const authHeader = request.headers.get('authorization');
-    
+
     const validApiKey = auth.internalApiKey;
-    const providedKey = apiKey || 
-                       authHeader?.replace('Bearer ', '') || 
+    const providedKey = apiKey ||
+                       authHeader?.replace('Bearer ', '') ||
                        request.nextUrl.searchParams.get('key');
 
     if (!validApiKey || !providedKey || providedKey !== validApiKey) {
-      return NextResponse.json({ 
-        error: 'Unauthorized - Invalid API key' 
+      return NextResponse.json({
+        error: 'Unauthorized - Invalid API key'
       }, { status: 401 });
     }
 
@@ -233,9 +233,9 @@ export async function POST(request: NextRequest) {
     if (organizationId) {
       // Sync specific organization
       console.log(`🎯 Manual sync for specific organization: ${organizationId}`);
-      
+
       const result = await SubscriptionManager.syncAllSubscriptionsFromStripe(organizationId);
-      
+
       return NextResponse.json({
         success: true,
         syncedCount: result.syncedCount,
@@ -245,11 +245,11 @@ export async function POST(request: NextRequest) {
         timestamp: new Date().toISOString(),
         duration: Date.now() - startTime
       });
-      
+
     } else {
       // Sync all organizations (force mode if requested)
       const whereClause: any = { stripeCustomerId: { not: null } };
-      
+
       if (!force) {
         // Only sync recently active organizations unless forced
         whereClause.updatedAt = {
@@ -275,7 +275,7 @@ export async function POST(request: NextRequest) {
         try {
           const result = await SubscriptionManager.syncAllSubscriptionsFromStripe(org.id);
           totalSyncedCount += result.syncedCount;
-          
+
           if (result.errors.length > 0) {
             errors.push(`${org.name}: ${result.errors.join(', ')}`);
           }
@@ -297,10 +297,10 @@ export async function POST(request: NextRequest) {
 
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    
+
     console.error('❌ Manual sync failed:', error);
-    
-    return NextResponse.json({ 
+
+    return NextResponse.json({
       success: false,
       error: errorMessage,
       timestamp: new Date().toISOString(),

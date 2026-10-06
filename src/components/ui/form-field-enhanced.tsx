@@ -39,7 +39,8 @@ export function FormFieldEnhanced({
 }: FormFieldEnhancedProps) {
   const [isFocused, setIsFocused] = useState(false)
   const [hasBeenFocused, setHasBeenFocused] = useState(false)
-  const [showValidation, setShowValidation] = useState(false)
+  const [validatedValue, setValidatedValue] = useState<string | null>(null)
+  const showValidation = hasBeenFocused && value.length > 0 && validatedValue === value
 
   const hasValue = value.length > 0
   const hasError = error && hasBeenFocused
@@ -48,10 +49,8 @@ export function FormFieldEnhanced({
 
   useEffect(() => {
     if (hasBeenFocused && value) {
-      const timer = setTimeout(() => setShowValidation(true), 300)
+      const timer = setTimeout(() => setValidatedValue(value), 300)
       return () => clearTimeout(timer)
-    } else {
-      setShowValidation(false)
     }
   }, [value, hasBeenFocused])
 

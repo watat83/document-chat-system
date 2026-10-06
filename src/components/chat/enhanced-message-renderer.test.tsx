@@ -1,3 +1,4 @@
+/** @jest-environment jsdom */
 import React from 'react';
 import { render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom';
@@ -71,7 +72,7 @@ describe('EnhancedMessageRenderer', () => {
   it('applies custom CSS classes', () => {
     const content = 'Test content';
     const customClass = 'custom-class';
-    
+
     render(
       <EnhancedMessageRenderer
         content={content}
@@ -81,7 +82,7 @@ describe('EnhancedMessageRenderer', () => {
       />
     );
 
-    const container = screen.getByText(content).closest('div');
+    const container = screen.getByText(content).closest('.prose');
     expect(container).toHaveClass(customClass);
   });
 

@@ -1,8 +1,10 @@
 'use client';
 
+import { useMounted } from '@/hooks/use-mounted';
 import { Header } from '@/components/layout/header';
 import { Sidebar } from '@/components/layout/sidebar';
 import { CleanAIChat } from '@/components/ai/clean-ai-chat';
+import type { Citation } from '@/components/ai/clean-ai-chat';
 import { CitationsPanel } from '@/components/chat/citations-panel';
 import { DocumentChatToggle } from '@/components/chat/document-chat-toggle';
 import { DocumentScopeSelector } from '@/components/chat/document-scope-selector';
@@ -15,21 +17,19 @@ export default function ChatPage() {
   const { orgId, userId, isSignedIn } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [citationsOpen, setCitationsOpen] = useState(false);
-  const [activeCitations, setActiveCitations] = useState([]);
-  
+  const [activeCitations, setActiveCitations] = useState<Citation[]>([]);
+
   // Document chat state
   const [chatState, setChatState] = useState<ChatState>(DEFAULT_GENERAL_STATE);
   const [organizationId, setOrganizationId] = useState<string | null>(null);
-  const [availableDocuments, setAvailableDocuments] = useState<Array<{id: string, name: string, folderId?: string}>>([]);
+  const [availableDocuments, setAvailableDocuments] = useState<Array<{id: string, name: string, folderId?: string, createdAt: string}>>([]);
   const [availableFolders, setAvailableFolders] = useState<Array<{id: string, name: string}>>([]);
   const [documentsLoading, setDocumentsLoading] = useState(false);
-  const [isHydrated, setIsHydrated] = useState(false);
+  const isHydrated = useMounted();
   const [donationBannerVisible, setDonationBannerVisible] = useState(true);
 
   // Set hydration state
-  useEffect(() => {
-    setIsHydrated(true);
-  }, []);
+
 
   // Get organization ID via user sync
   useEffect(() => {
@@ -39,7 +39,7 @@ export default function ChatPage() {
       try {
         const userResponse = await fetch('/api/v1/user/sync', { method: 'POST' });
         const userData = await userResponse.json();
-        
+
         if (userData.success && userData.data?.organizationId) {
           setOrganizationId(userData.data.organizationId);
         }
@@ -100,9 +100,9 @@ export default function ChatPage() {
       // Switch to document mode - load OpenAI provider
       setChatState({
         documentChatEnabled: true,
-        documentScope: { 
+        documentScope: {
           mode: 'all-documents',
-          documentCount: availableDocuments.length 
+          documentCount: availableDocuments.length
         },
         provider: 'openai'
       });
@@ -187,13 +187,12 @@ export default function ChatPage() {
                 )}
               </div>
             </div>
-            
+
             {/* Chat component */}
             <div className="flex-1 overflow-hidden">
-              <CleanAIChat 
-                organizationId={organizationId || orgId || userId || 'demo'} 
+              <CleanAIChat
+                organizationId={organizationId || orgId || userId || 'demo'}
                 className="h-full w-full"
-                demoMode={!isSignedIn}
                 chatState={chatState}
                 onCitationsUpdate={(citations) => {
                   setActiveCitations(citations);

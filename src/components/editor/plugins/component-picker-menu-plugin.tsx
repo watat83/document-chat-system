@@ -84,7 +84,6 @@ export function ComponentPickerMenuPlugin({
   return (
     <>
       {modal}
-      {/* @ts-ignore */}
       <LexicalTypeaheadMenuPlugin<ComponentPickerOption>
         onQueryChange={setQueryString}
         onSelectOption={onSelectOption}

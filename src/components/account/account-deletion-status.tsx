@@ -1,4 +1,5 @@
 'use client';
+import { useQuery } from '@tanstack/react-query';
 
 import { useState, useEffect } from 'react';
 import { useUser } from '@clerk/nextjs';
@@ -31,53 +32,22 @@ export function AccountDeletionStatus() {
   const { user } = useUser();
   const { token: csrfToken, addToHeaders } = useCSRF();
   
-  const [status, setStatus] = useState<DeletionStatus | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [actionError, setError] = useState<string | null>(null);
   const [cancelling, setCancelling] = useState(false);
 
-  const fetchDeletionStatus = async () => {
-    if (!user) return;
-
-    try {
-      setLoading(true);
-      setError(null);
-
-      const response = await fetch('/api/v1/account/delete', {
-        method: 'GET',
-        headers: addToHeaders({
-          'Content-Type': 'application/json',
-        }),
-        credentials: 'include',
-      });
-
-      if (!response.ok) {
-        // Silently handle 404 - no deletion request exists
-        if (response.status === 404) {
-          setStatus(null);
-          setLoading(false);
-          return;
-        }
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || 'Failed to fetch deletion status');
-      }
-
-      const data = await response.json();
-      setStatus(data);
-
-    } catch (err) {
-      // Only log non-network errors
-      if (err instanceof TypeError && err.message === 'Failed to fetch') {
-        // Network error - silently fail
-        setStatus(null);
-      } else {
-        console.error('Error fetching deletion status:', err);
-        setError(err instanceof Error ? err.message : 'Failed to load deletion status');
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
+  const query = useQuery({
+    queryKey: ['account-deletion-status', user?.id], enabled: Boolean(user), gcTime: 0,
+    queryFn: async ({ signal }) => {
+      const response = await fetch('/api/v1/account/delete', { credentials: 'include', signal });
+      if (response.status === 404) return null;
+      if (!response.ok) throw new Error('Failed to load deletion status');
+      return await response.json() as DeletionStatus;
+    },
+  });
+  const status = query.data ?? null;
+  const loading = query.isFetching;
+  const error = actionError || query.error?.message;
+  const fetchDeletionStatus = async () => { await query.refetch(); };
 
   const handleCancelDeletion = async () => {
     if (!status?.deletion || !csrfToken) return;
@@ -123,9 +93,6 @@ export function AccountDeletionStatus() {
     }
   };
 
-  useEffect(() => {
-    fetchDeletionStatus();
-  }, [user]);
 
   if (loading) {
     return (

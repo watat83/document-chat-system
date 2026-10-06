@@ -1,6 +1,6 @@
 /**
  * AIServiceManager Unit Tests
- * 
+ *
  * Comprehensive unit tests for the AIServiceManager class covering:
  * - Singleton pattern implementation
  * - Provider registration and management
@@ -12,10 +12,10 @@
  * - Integration with all supported providers
  */
 
-import { describe, it, expect, beforeEach, afterEach, jest } from '@jest/globals';
+import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import { AIServiceManager } from '../ai-service-manager';
-import { 
-  UnifiedCompletionRequest, 
+import {
+  UnifiedCompletionRequest,
   UnifiedEmbeddingRequest,
   UnifiedCompletionResponse,
   UnifiedEmbeddingResponse,
@@ -25,31 +25,32 @@ import {
   ProviderConfig,
   TaskType
 } from '../interfaces/types';
-import {
-  AIProviderRegistry,
-  AIRequestRouter,
-  CircuitBreakerManager,
-  AIFallbackStrategy,
-  AIConfiguration,
-  AIMetricsIntegration,
-  MiddlewareManager
-} from '../';
+import { AIProviderRegistry } from '../registry/provider-registry';
+import { AIRequestRouter } from '../routing/request-router';
+import { CircuitBreakerManager } from '../circuit-breaker/circuit-breaker';
+import { AIFallbackStrategy } from '../fallback/fallback-strategy';
+import { AIConfiguration } from '../config/ai-config';
+import { AIMetricsIntegration } from '../monitoring/ai-metrics-integration';
+import MiddlewareManager from '../middleware';
 
 // Mock all dependencies
+jest.mock('@/lib/config/env', () => ({
+  ...jest.requireActual('@/lib/config/env'),
+  ai: { openrouterApiKey: '', openaiApiKey: '', anthropicApiKey: '', openrouterAppName: 'TestApp', openrouterSiteUrl: 'https://test.com', openrouterSmartRouting: true, openrouterCostOptimization: 'balanced' },
+  imageRouter: { apiKey: '' },
+}));
 jest.mock('../providers/openai-adapter');
 jest.mock('../providers/anthropic-adapter');
 jest.mock('../providers/smart-openrouter-adapter');
 jest.mock('../providers/vercel-ai-adapter');
 jest.mock('../registry/provider-registry');
 jest.mock('../routing/request-router');
-jest.mock('../circuit-breaker/circuit-breaker-manager');
+jest.mock('../circuit-breaker/circuit-breaker');
 jest.mock('../fallback/fallback-strategy');
 jest.mock('../config/ai-config');
-jest.mock('../monitoring/metrics-integration');
-jest.mock('../middleware/middleware-manager');
-jest.mock('../middleware/logging-middleware');
-jest.mock('../middleware/monitoring-middleware');
-jest.mock('../middleware/cost-control-middleware');
+jest.mock('../monitoring/ai-metrics-integration');
+jest.mock('../middleware');
+jest.mock('../middleware/built-in');
 
 import { OpenAIAdapter } from '../providers/openai-adapter';
 import { AnthropicAdapter } from '../providers/anthropic-adapter';
@@ -73,6 +74,7 @@ describe('AIServiceManager Unit Tests', () => {
   let mockMiddlewareManager: jest.Mocked<MiddlewareManager>;
 
   beforeEach(() => {
+    delete process.env.AI_ENABLE_DEMO_PROVIDER;
     // Clear singleton instance
     (AIServiceManager as any).instance = null;
 
@@ -140,7 +142,7 @@ describe('AIServiceManager Unit Tests', () => {
 
     // Mock static getInstance method
     (AIConfiguration.getInstance as jest.Mock).mockReturnValue(mockAIConfig);
-    
+
     // Mock constructor dependencies
     (AIProviderRegistry as any).mockImplementation(() => mockRegistry);
     (AIRequestRouter as any).mockImplementation(() => mockRouter);
@@ -208,7 +210,9 @@ describe('AIServiceManager Unit Tests', () => {
     });
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    await aiServiceManager.initialize();
+    aiServiceManager.destroy();
     jest.resetAllMocks();
     // Clear singleton instance
     (AIServiceManager as any).instance = null;
@@ -218,7 +222,7 @@ describe('AIServiceManager Unit Tests', () => {
     it('should create singleton instance', () => {
       const instance1 = AIServiceManager.getInstance();
       const instance2 = AIServiceManager.getInstance();
-      
+
       expect(instance1).toBe(instance2);
       expect(instance1).toBeInstanceOf(AIServiceManager);
     });
@@ -328,7 +332,7 @@ describe('AIServiceManager Unit Tests', () => {
 
       expect(mockRegistry.register).toHaveBeenCalledWith('openai', expect.any(Object), {
         enabled: true,
-        priority: 10,
+        priority: 9,
         maxConcurrentRequests: 50,
         healthCheckInterval: 60000
       });
@@ -358,17 +362,16 @@ describe('AIServiceManager Unit Tests', () => {
 
       expect(mockRegistry.register).toHaveBeenCalledWith('anthropic', expect.any(Object), {
         enabled: true,
-        priority: 9,
+        priority: 8,
         maxConcurrentRequests: 50,
-        healthCheckInterval: 300000,
-        circuitBreakerThreshold: 5
+        healthCheckInterval: 60000
       });
     });
 
     it('should initialize OpenRouter provider when API key is available', async () => {
       mockAIConfig.getProviderConfig.mockImplementation((provider) => {
         if (provider === 'openrouter') {
-          return { 
+          return {
             apiKey: 'sk-or-test-key',
             appName: 'TestApp',
             siteUrl: 'https://test.com'
@@ -393,7 +396,6 @@ describe('AIServiceManager Unit Tests', () => {
         siteUrl: 'https://test.com',
         enableSmartRouting: true,
         costOptimization: 'balanced',
-        fallbackStrategy: 'hybrid',
         maxRetries: 3,
         timeout: 30000
       });
@@ -417,14 +419,9 @@ describe('AIServiceManager Unit Tests', () => {
       await expect(aiServiceManager.initializeDefaultProviders()).resolves.not.toThrow();
     });
 
-    it('should register mock provider for testing', async () => {
+    it('does not register demo providers without an explicit opt-in', async () => {
       await aiServiceManager.initializeDefaultProviders();
-
-      expect(mockRegistry.register).toHaveBeenCalledWith('mock-demo', expect.any(Object), {
-        enabled: true,
-        priority: 1,
-        maxConcurrentRequests: 10
-      });
+      expect(mockRegistry.register.mock.calls.some(([name]) => name === 'mock-demo' || name === 'demo')).toBe(false);
     });
   });
 
@@ -531,7 +528,7 @@ describe('AIServiceManager Unit Tests', () => {
       await aiServiceManager.generateCompletion(mockRequest);
 
       // Check that metrics were recorded
-      const metrics = aiServiceManager.getMetrics();
+      const metrics = aiServiceManager.getRequestMetrics();
       expect(metrics.length).toBeGreaterThan(0);
       expect(metrics[0]).toEqual(expect.objectContaining({
         provider: 'openai',
@@ -547,7 +544,7 @@ describe('AIServiceManager Unit Tests', () => {
 
       await expect(aiServiceManager.generateCompletion(mockRequest)).rejects.toThrow();
 
-      const metrics = aiServiceManager.getMetrics();
+      const metrics = aiServiceManager.getRequestMetrics();
       expect(metrics.length).toBeGreaterThan(0);
       expect(metrics[0]).toEqual(expect.objectContaining({
         provider: 'unknown',
@@ -718,7 +715,7 @@ describe('AIServiceManager Unit Tests', () => {
     it('should provide comprehensive health status', async () => {
       const providers = ['openai', 'anthropic', 'openrouter'];
       mockRegistry.getAvailableProviders.mockReturnValue(providers);
-      
+
       mockRegistry.getProviderStatus.mockImplementation((provider) => ({
         healthy: provider !== 'anthropic', // Simulate anthropic being unhealthy
         enabled: true,
@@ -742,7 +739,7 @@ describe('AIServiceManager Unit Tests', () => {
     it('should report healthy status when all providers are available', async () => {
       const providers = ['openai', 'anthropic'];
       mockRegistry.getAvailableProviders.mockReturnValue(providers);
-      
+
       mockRegistry.getProviderStatus.mockReturnValue({
         healthy: true,
         enabled: true,
@@ -831,11 +828,11 @@ describe('AIServiceManager Unit Tests', () => {
         metadata: { taskType: 'simple_qa' }
       });
 
-      expect(aiServiceManager.getMetrics()).toHaveLength(1);
+      expect(aiServiceManager.getRequestMetrics()).toHaveLength(1);
 
       aiServiceManager.clearMetrics();
 
-      expect(aiServiceManager.getMetrics()).toHaveLength(0);
+      expect(aiServiceManager.getRequestMetrics()).toHaveLength(0);
     });
   });
 
@@ -951,9 +948,10 @@ describe('AIServiceManager Unit Tests', () => {
         getProviderPerformanceComparison: jest.fn()
       } as any;
 
+      Object.setPrototypeOf(mockOpenRouterAdapter, SmartOpenRouterAdapter.prototype);
       mockRegistry.getProvider.mockImplementation((name) => {
         if (name === 'openrouter') {
-          return { adapter: mockOpenRouterAdapter };
+          return mockOpenRouterAdapter;
         }
         return null;
       });
@@ -1118,7 +1116,7 @@ describe('AIServiceManager Unit Tests', () => {
       aiServiceManager.destroy();
 
       expect(mockRegistry.destroy).toHaveBeenCalled();
-      expect(aiServiceManager.getMetrics()).toHaveLength(0);
+      expect(aiServiceManager.getRequestMetrics()).toHaveLength(0);
     });
 
     it('should handle metrics memory management', async () => {
@@ -1140,7 +1138,7 @@ describe('AIServiceManager Unit Tests', () => {
       }
 
       // Should keep only the last 1000 metrics
-      expect(aiServiceManager.getMetrics()).toHaveLength(1000);
+      expect(aiServiceManager.getRequestMetrics()).toHaveLength(1000);
     });
   });
 });

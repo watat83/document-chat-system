@@ -44,8 +44,9 @@ import { AuditQueryService } from '@/lib/audit/query-service';
  */
 export async function GET(
   request: NextRequest,
-  { params }: { params: { correlationId: string } }
+  props: { params: Promise<{ correlationId: string }> }
 ) {
+  const params = await props.params;
   try {
     const { userId } = await auth();
     if (!userId) {

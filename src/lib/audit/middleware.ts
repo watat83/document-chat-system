@@ -14,7 +14,7 @@ interface RequestMetadata {
 export async function auditMiddleware(request: NextRequest): Promise<NextResponse> {
   const startTime = Date.now();
   const correlationId = crypto.randomUUID();
-  
+
   // Extract request metadata
   const metadata: RequestMetadata = {
     method: request.method,
@@ -27,7 +27,7 @@ export async function auditMiddleware(request: NextRequest): Promise<NextRespons
 
   // Continue with the request
   const response = NextResponse.next();
-  
+
   // Log after processing
   const endTime = Date.now();
   const responseTime = endTime - startTime;
@@ -40,8 +40,8 @@ export async function auditMiddleware(request: NextRequest): Promise<NextRespons
 
   // Log API requests
   if (isSensitiveEndpoint) {
-    const severity = statusCode >= 400 ? AuditSeverity.WARNING : AuditSeverity.INFO;
-    const eventType = statusCode >= 400 ? AuditEventType.API_ERROR : AuditEventType.API_REQUEST;
+    const severity = statusCode >= 400 ? AuditSeverity.WARN : AuditSeverity.INFO;
+    const eventType = statusCode >= 400 ? AuditEventType.API_REQUEST_FAILED : AuditEventType.API_REQUEST_MADE;
 
     await auditLogger.log({
       eventType,
@@ -66,9 +66,9 @@ export async function auditMiddleware(request: NextRequest): Promise<NextRespons
   if (isAuthEndpoint) {
     const isSuccessful = statusCode < 400;
     await auditLogger.logSecurityEvent(
-      isSuccessful ? AuditEventType.USER_LOGIN : AuditEventType.LOGIN_FAILED,
+      isSuccessful ? AuditEventType.USER_LOGIN : AuditEventType.USER_LOGIN_FAILED,
       `Authentication attempt: ${request.nextUrl.pathname}`,
-      isSuccessful ? AuditSeverity.INFO : AuditSeverity.WARNING,
+      isSuccessful ? AuditSeverity.INFO : AuditSeverity.WARN,
       {
         ...metadata,
         statusCode,
@@ -81,7 +81,7 @@ export async function auditMiddleware(request: NextRequest): Promise<NextRespons
   // Log admin access
   if (isAdminEndpoint) {
     await auditLogger.logSecurityEvent(
-      AuditEventType.ADMIN_ACCESS,
+      AuditEventType.API_ENDPOINT_ACCESSED,
       `Admin endpoint accessed: ${request.nextUrl.pathname}`,
       AuditSeverity.INFO,
       {
@@ -107,5 +107,5 @@ export function getClientIP(request: NextRequest): string {
   if (forwarded) return forwarded.split(',')[0].trim();
   if (real) return real;
 
-  return request.ip || 'unknown';
+  return 'unknown';
 }

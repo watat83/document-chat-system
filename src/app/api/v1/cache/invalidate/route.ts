@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { cacheManager } from '@/lib/cache';
+import { isPlatformAdmin } from '@/lib/security/platform-admin';
 import { z } from 'zod';
 
 // Validation schema for cache invalidation requests
@@ -13,17 +14,17 @@ const invalidateSchema = z.object({
 
 /**
  * POST /api/cache/invalidate
- * 
+ *
  * Immediately invalidates specific cache keys or patterns.
  * Used for real-time cache updates when subscriptions change.
- * 
+ *
  * @example
  * POST /api/cache/invalidate
  * {
  *   "organizationId": "org_123",
  *   "immediate": true
  * }
- * 
+ *
  * // Invalidates all subscription-related cache for the organization
  */
 export async function POST(request: NextRequest) {
@@ -33,13 +34,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    if (!isPlatformAdmin(userId)) return NextResponse.json({ error: 'Platform administrator access required' }, { status: 403 });
+
     const body = await request.json();
     const validatedData = invalidateSchema.parse(body);
 
     console.log('🗑️ Cache invalidation request:', validatedData);
 
+    if (validatedData.patterns?.length) return NextResponse.json({ error: 'Pattern invalidation is not supported; supply explicit keys' }, { status: 400 });
     const invalidationResults: Record<string, boolean> = {};
-    
+
     // If organizationId is provided, invalidate all subscription-related cache
     if (validatedData.organizationId) {
       const orgCacheKeys = [
@@ -51,7 +55,7 @@ export async function POST(request: NextRequest) {
 
       for (const key of orgCacheKeys) {
         try {
-          await cacheManager.invalidate(key);
+          if (!(await cacheManager.invalidate(key))) throw new Error('Cache deletion failed');
           invalidationResults[key] = true;
           console.log(`✅ Invalidated cache key: ${key}`);
         } catch (error) {
@@ -65,7 +69,7 @@ export async function POST(request: NextRequest) {
     if (validatedData.keys) {
       for (const key of validatedData.keys) {
         try {
-          await cacheManager.invalidate(key);
+          if (!(await cacheManager.invalidate(key))) throw new Error('Cache deletion failed');
           invalidationResults[key] = true;
           console.log(`✅ Invalidated specific cache key: ${key}`);
         } catch (error) {
@@ -75,24 +79,10 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Invalidate patterns if provided
-    if (validatedData.patterns) {
-      for (const pattern of validatedData.patterns) {
-        try {
-          await cacheManager.invalidatePattern(pattern);
-          invalidationResults[`pattern:${pattern}`] = true;
-          console.log(`✅ Invalidated cache pattern: ${pattern}`);
-        } catch (error) {
-          invalidationResults[`pattern:${pattern}`] = false;
-          console.warn(`⚠️ Failed to invalidate cache pattern ${pattern}:`, error);
-        }
-      }
-    }
-
     // Also invalidate global pricing cache if this might affect pricing
     if (validatedData.organizationId) {
       try {
-        await cacheManager.invalidate('pricing:plans');
+        if (!(await cacheManager.invalidate('pricing:plans'))) throw new Error('Cache deletion failed');
         invalidationResults['pricing:plans'] = true;
         console.log('✅ Invalidated pricing plans cache');
       } catch (error) {
@@ -107,7 +97,7 @@ export async function POST(request: NextRequest) {
     console.log(`🎯 Cache invalidation completed: ${successCount}/${totalCount} successful`);
 
     return NextResponse.json({
-      success: true,
+      success: successCount === totalCount,
       invalidated: invalidationResults,
       summary: {
         successful: successCount,
@@ -118,7 +108,7 @@ export async function POST(request: NextRequest) {
 
   } catch (error) {
     console.error('❌ Cache invalidation error:', error);
-    
+
     return NextResponse.json({
       error: 'Cache invalidation failed',
       details: error instanceof Error ? error.message : 'Unknown error',
@@ -128,7 +118,7 @@ export async function POST(request: NextRequest) {
 
 /**
  * DELETE /api/cache/invalidate
- * 
+ *
  * Emergency cache flush - clears all cache.
  * Should be used sparingly.
  */
@@ -139,10 +129,12 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    if (!isPlatformAdmin(userId)) return NextResponse.json({ error: 'Platform administrator access required' }, { status: 403 });
+
     console.log('🚨 Emergency cache flush requested by user:', userId);
 
     // Full cache flush
-    await cacheManager.flush();
+    if (!(await cacheManager.flush())) throw new Error('Cache flush failed');
 
     console.log('🧹 Emergency cache flush completed');
 
@@ -154,7 +146,7 @@ export async function DELETE(request: NextRequest) {
 
   } catch (error) {
     console.error('❌ Emergency cache flush error:', error);
-    
+
     return NextResponse.json({
       error: 'Cache flush failed',
       details: error instanceof Error ? error.message : 'Unknown error',

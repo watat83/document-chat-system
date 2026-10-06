@@ -11,7 +11,7 @@ let broadcastSystemNotification: ((notification: any) => number) | null = null;
 async function loadSSEFunctions() {
   if (!sendNotificationToUser) {
     try {
-      const sseModule = await import('@/app/api/notifications/stream/route');
+      const sseModule = await import('@/lib/notification-stream');
       sendNotificationToUser = sseModule.sendNotificationToUser;
       sendNotificationToOrganization = sseModule.sendNotificationToOrganization;
       broadcastSystemNotification = sseModule.broadcastSystemNotification;
@@ -120,7 +120,7 @@ export class NotificationService {
           where: { id: notification.userId },
           select: { clerkId: true },
         });
-        
+
         if (user && sendNotificationToUser) {
           const sent = sendNotificationToUser(user.clerkId, notification);
           if (sent) {
@@ -196,13 +196,13 @@ export class NotificationService {
         const userStatus = notification.userStatuses[0];
         // Hide if user has deleted this notification
         if (userStatus?.isDeleted) return false;
-        
+
         // Filter by read state if specified
         if (filters.isRead !== undefined) {
           const notificationIsRead = userStatus?.isRead || false;
           return notificationIsRead === filters.isRead;
         }
-        
+
         return true;
       })
       .map(notification => {
@@ -308,7 +308,7 @@ export class NotificationService {
     const updates = [];
     for (const notification of userNotifications) {
       const existingStatus = notification.userStatuses[0];
-      
+
       if (existingStatus) {
         // Update existing status if not already read and not deleted
         if (!existingStatus.isRead && !existingStatus.isDeleted) {

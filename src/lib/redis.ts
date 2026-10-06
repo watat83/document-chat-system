@@ -122,4 +122,5 @@ if (app.nodeEnv === 'development' && !hasValidRedisConfig) {
   redisClient = memoryCache
 }
 
+export const isRedisConfigured = Boolean(hasValidRedisConfig);
 export { redisClient as redis }

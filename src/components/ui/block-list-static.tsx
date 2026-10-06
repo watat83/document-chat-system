@@ -1,10 +1,7 @@
 import * as React from 'react';
 
-import type {
-  RenderStaticNodeWrapper,
-  SlateRenderElementProps,
-  TListElement,
-} from 'platejs';
+import type { RenderStaticNodeWrapper, TListElement } from 'platejs';
+import type { SlateRenderElementProps } from 'platejs/static';
 
 import { isOrderedList } from '@platejs/list';
 import { CheckIcon } from 'lucide-react';
@@ -27,7 +24,7 @@ const config: Record<
 export const BlockListStatic: RenderStaticNodeWrapper = (props) => {
   if (!props.element.listStyleType) return;
 
-  return (props) => <List {...props} />;
+  return function ListStaticWrapper(props) { return <List {...props} />; };
 };
 
 function List(props: SlateRenderElementProps) {

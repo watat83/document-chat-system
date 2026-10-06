@@ -1,6 +1,6 @@
 /**
  * OpenAPI/Swagger Configuration for Document Chat System AI API
- * 
+ *
  * This file configures the API documentation generation using swagger-jsdoc
  * and provides the base OpenAPI specification for all API endpoints.
  */
@@ -17,8 +17,8 @@ const options = {
       description: `
 # Document Chat System AI API Documentation
 
-A comprehensive SaaS platform that revolutionizes government contracting through AI-powered insights. 
-The platform leverages multiple AI providers to provide opportunity discovery, intelligent matching, 
+A comprehensive SaaS platform that revolutionizes government contracting through AI-powered insights.
+The platform leverages multiple AI providers to provide opportunity discovery, intelligent matching,
 and document processing for government contractors.
 
 ## Features
@@ -42,7 +42,7 @@ Authorization: Bearer <your-token>
 
 API endpoints are rate-limited to ensure fair usage:
 - General endpoints: 100 requests per 15 minutes
-- Search endpoints: 50 requests per 15 minutes  
+- Search endpoints: 50 requests per 15 minutes
 - AI endpoints: 20 requests per 15 minutes
 
 ## Error Handling
@@ -82,8 +82,8 @@ The API uses standard HTTP status codes and returns consistent error responses:
     servers: [
       {
         url: app.url,
-        description: app.nodeEnv === 'production' 
-          ? 'Production server' 
+        description: app.nodeEnv === 'production'
+          ? 'Production server'
           : 'Development server'
       }
     ],
@@ -1637,7 +1637,7 @@ The API uses standard HTTP status codes and returns consistent error responses:
           summary: 'Get organization member',
           description: 'Get details of a specific organization member',
           security: [{ BearerAuth: [] }],
-          parameters: [
+          inputSchema: [
             {
               name: 'id',
               in: 'path',
@@ -1671,7 +1671,7 @@ The API uses standard HTTP status codes and returns consistent error responses:
           summary: 'Update organization member',
           description: 'Update member role or permissions',
           security: [{ BearerAuth: [] }],
-          parameters: [
+          inputSchema: [
             {
               name: 'id',
               in: 'path',
@@ -1722,7 +1722,7 @@ The API uses standard HTTP status codes and returns consistent error responses:
           summary: 'Remove organization member',
           description: 'Remove a member from the organization',
           security: [{ BearerAuth: [] }],
-          parameters: [
+          inputSchema: [
             {
               name: 'id',
               in: 'path',
@@ -1758,7 +1758,7 @@ The API uses standard HTTP status codes and returns consistent error responses:
           summary: 'Rotate API key',
           description: 'Generate a new API key and invalidate the old one',
           security: [{ BearerAuth: [] }],
-          parameters: [
+          inputSchema: [
             {
               name: 'keyId',
               in: 'path',
@@ -1848,7 +1848,7 @@ The API uses standard HTTP status codes and returns consistent error responses:
           summary: 'Get billing invoices',
           description: 'Retrieve billing invoice history',
           security: [{ BearerAuth: [] }],
-          parameters: [
+          inputSchema: [
             {
               name: 'limit',
               in: 'query',
@@ -1985,7 +1985,7 @@ The API uses standard HTTP status codes and returns consistent error responses:
           summary: 'Get usage analytics',
           description: 'Retrieve detailed usage analytics',
           security: [{ BearerAuth: [] }],
-          parameters: [
+          inputSchema: [
             {
               name: 'period',
               in: 'query',
@@ -2069,7 +2069,7 @@ The API uses standard HTTP status codes and returns consistent error responses:
           summary: 'Search opportunities (alternative)',
           description: 'Alternative endpoint for searching opportunities with different filters',
           security: [{ BearerAuth: [] }],
-          parameters: [
+          inputSchema: [
             {
               name: 'query',
               in: 'query',
@@ -2149,7 +2149,7 @@ The API uses standard HTTP status codes and returns consistent error responses:
           summary: 'Get match scores',
           description: 'Calculate match scores for opportunities',
           security: [{ BearerAuth: [] }],
-          parameters: [
+          inputSchema: [
             {
               name: 'opportunityIds',
               in: 'query',
@@ -2425,7 +2425,7 @@ The API uses standard HTTP status codes and returns consistent error responses:
           summary: 'Get AI analytics',
           description: 'Get AI performance analytics or cost analysis based on type parameter',
           security: [{ BearerAuth: [] }],
-          parameters: [
+          inputSchema: [
             {
               name: 'type',
               in: 'query',
@@ -2689,7 +2689,7 @@ The API uses standard HTTP status codes and returns consistent error responses:
           summary: 'Get notifications',
           description: 'Retrieve notifications for the current user with per-user read/delete status',
           security: [{ BearerAuth: [] }],
-          parameters: [
+          inputSchema: [
             {
               name: 'isRead',
               in: 'query',
@@ -2699,7 +2699,7 @@ The API uses standard HTTP status codes and returns consistent error responses:
             {
               name: 'category',
               in: 'query',
-              schema: { 
+              schema: {
                 type: 'string',
                 enum: ['NEW_OPPORTUNITY', 'MATCH_SCORE', 'SYSTEM_UPDATE', 'BILLING', 'PROFILE', 'TEAM', 'DEADLINE', 'GENERAL']
               },
@@ -2708,7 +2708,7 @@ The API uses standard HTTP status codes and returns consistent error responses:
             {
               name: 'priority',
               in: 'query',
-              schema: { 
+              schema: {
                 type: 'string',
                 enum: ['LOW', 'MEDIUM', 'HIGH', 'URGENT']
               },
@@ -2845,7 +2845,7 @@ The API uses standard HTTP status codes and returns consistent error responses:
           summary: 'Mark all notifications as read',
           description: 'Mark all notifications as read for the current user',
           security: [{ BearerAuth: [] }],
-          parameters: [
+          inputSchema: [
             {
               name: 'action',
               in: 'query',
@@ -2880,7 +2880,7 @@ The API uses standard HTTP status codes and returns consistent error responses:
           summary: 'Get notification',
           description: 'Get a specific notification with user-specific read status',
           security: [{ BearerAuth: [] }],
-          parameters: [
+          inputSchema: [
             {
               name: 'id',
               in: 'path',
@@ -2908,7 +2908,7 @@ The API uses standard HTTP status codes and returns consistent error responses:
           summary: 'Update notification status',
           description: 'Update notification read status for the current user',
           security: [{ BearerAuth: [] }],
-          parameters: [
+          inputSchema: [
             {
               name: 'id',
               in: 'path',
@@ -2958,7 +2958,7 @@ The API uses standard HTTP status codes and returns consistent error responses:
           summary: 'Delete notification',
           description: 'Delete notification for the current user. For organization-wide notifications, this marks them as deleted only for the current user. For user-specific notifications or admin users, this may permanently delete the notification.',
           security: [{ BearerAuth: [] }],
-          parameters: [
+          inputSchema: [
             {
               name: 'id',
               in: 'path',
@@ -3202,7 +3202,7 @@ The API uses standard HTTP status codes and returns consistent error responses:
           summary: 'Reset error configuration to environment defaults',
           description: 'Remove all runtime configuration overrides and reset to environment variable defaults',
           security: [{ BearerAuth: [] }],
-          parameters: [
+          inputSchema: [
             {
               name: 'keys',
               in: 'query',
@@ -3390,7 +3390,7 @@ The API uses standard HTTP status codes and returns consistent error responses:
 // In production, cache the specs for performance
 const isDevelopment = process.env.NODE_ENV === 'development'
 
-const swaggerSpec = isDevelopment 
+const swaggerSpec = isDevelopment
   ? swaggerJSDoc(options)  // Generate fresh in development
   : swaggerJSDoc(options); // Cache in production
 

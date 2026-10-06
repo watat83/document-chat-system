@@ -1,4 +1,4 @@
-import { AIService, AIProviderAdapter } from '../interfaces';
+import { AIProviderAdapter } from '../interfaces';
 import { ProviderCapabilities } from '../interfaces/types';
 
 export interface ProviderConfig {
@@ -38,7 +38,7 @@ export class AIProviderRegistry {
     };
 
     this.providers.set(name, registeredProvider);
-    
+
     if (!this.healthCheckInterval && config.healthCheckInterval) {
       this.startHealthChecks();
     }
@@ -50,11 +50,11 @@ export class AIProviderRegistry {
 
   getProvider(name: string): AIProviderAdapter | null {
     const registered = this.providers.get(name);
-    
+
     if (!registered || !registered.config.enabled || !registered.isHealthy) {
       return null;
     }
-    
+
     return registered.adapter;
   }
 
@@ -76,19 +76,25 @@ export class AIProviderRegistry {
 
   getProviderStatus(name: string): {
     enabled: boolean;
+    priority: number;
+    maxConcurrentRequests?: number;
+    healthCheckInterval?: number;
     healthy: boolean;
     lastHealthCheck: Date;
     errorCount: number;
     lastError?: string;
   } | null {
     const registered = this.providers.get(name);
-    
+
     if (!registered) {
       return null;
     }
-    
+
     return {
       enabled: registered.config.enabled,
+      priority: registered.config.priority,
+      maxConcurrentRequests: registered.config.maxConcurrentRequests,
+      healthCheckInterval: registered.config.healthCheckInterval,
       healthy: registered.isHealthy,
       lastHealthCheck: registered.lastHealthCheck,
       errorCount: registered.errorCount,
@@ -119,7 +125,7 @@ export class AIProviderRegistry {
     if (registered) {
       registered.errorCount++;
       registered.lastError = error;
-      
+
       if (registered.errorCount >= 5) {
         registered.isHealthy = false;
         console.warn(`Provider ${name} marked as unhealthy due to repeated errors`);
@@ -131,7 +137,7 @@ export class AIProviderRegistry {
     const registered = this.providers.get(name);
     if (registered) {
       registered.errorCount = Math.max(0, registered.errorCount - 1);
-      
+
       if (!registered.isHealthy && registered.errorCount === 0) {
         registered.isHealthy = true;
         console.info(`Provider ${name} recovered and marked as healthy`);
@@ -154,12 +160,12 @@ export class AIProviderRegistry {
 
         try {
           // Check if the adapter has a checkHealth method
-          const isHealthy = typeof registered.adapter.checkHealth === 'function' 
-            ? await registered.adapter.checkHealth() 
+          const isHealthy = typeof registered.adapter.checkHealth === 'function'
+            ? await registered.adapter.checkHealth()
             : true; // Assume healthy if no checkHealth method
           registered.isHealthy = isHealthy;
           registered.lastHealthCheck = new Date();
-          
+
           if (isHealthy) {
             this.recordProviderSuccess(name);
           }
@@ -175,15 +181,15 @@ export class AIProviderRegistry {
 
   getHealthySortedProviders(): Array<{ name: string; provider: RegisteredProvider }> {
     return Array.from(this.providers.entries())
-      .filter(([_, provider]) => 
-        provider.config.enabled && 
+      .filter(([_, provider]) =>
+        provider.config.enabled &&
         provider.isHealthy
       )
       .sort(([_, a], [__, b]) => {
         if (a.config.priority !== b.config.priority) {
           return b.config.priority - a.config.priority;
         }
-        
+
         return a.errorCount - b.errorCount;
       })
       .map(([name, provider]) => ({ name, provider }));

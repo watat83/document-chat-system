@@ -1,6 +1,8 @@
+import { Prisma } from '@prisma/client';
+import { getPinecone } from './pinecone-client'
 /**
  * Vector Index Management Service
- * 
+ *
  * Provides efficient management of vector indexes including cleanup,
  * optimization, and health monitoring for both Pinecone and pgvector.
  */
@@ -34,13 +36,10 @@ export interface OptimizationResult {
 }
 
 export class VectorIndexManager {
-  private pinecone: Pinecone
+  private get pinecone(): Pinecone { return getPinecone() }
   private pgVectorService: PgVectorSearchService
 
   constructor() {
-    this.pinecone = new Pinecone({
-      apiKey: process.env.PINECONE_API_KEY!,
-    })
     this.pgVectorService = new PgVectorSearchService()
   }
 
@@ -150,7 +149,7 @@ export class VectorIndexManager {
       const orphaned = await this.countOrphanedPineconeVectors()
 
       return {
-        totalVectors: stats.totalVectorCount || 0,
+        totalVectors: stats.totalRecordCount || 0,
         organizations,
         documents,
         orphanedVectors: orphaned,
@@ -169,7 +168,7 @@ export class VectorIndexManager {
   private async getPgVectorStats(): Promise<IndexStats> {
     try {
       const stats = await prisma.$queryRaw`
-        SELECT 
+        SELECT
           COUNT(*) as total_vectors,
           COUNT(DISTINCT organization_id) as organizations,
           COUNT(DISTINCT document_id) as documents,
@@ -256,7 +255,7 @@ export class VectorIndexManager {
     console.log('🧹 Cleaning up pgvector orphaned vectors...')
 
     const result = await prisma.$executeRaw`
-      DELETE FROM document_vectors 
+      DELETE FROM document_vectors
       WHERE document_id NOT IN (
         SELECT id FROM "Document"
       )
@@ -326,7 +325,7 @@ export class VectorIndexManager {
     } catch (error) {
       console.error('❌ Error optimizing pgvector index:', error)
       recommendations.push(`Optimization failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
-      
+
       return {
         indexesOptimized: 0,
         timeElapsed: Date.now() - startTime,
@@ -341,7 +340,7 @@ export class VectorIndexManager {
   private async countOrganizationsWithVectors(): Promise<number> {
     const result = await prisma.document.findMany({
       where: {
-        embeddings: { not: null }
+        embeddings: { not: Prisma.JsonNull }
       },
       select: {
         organizationId: true
@@ -354,7 +353,7 @@ export class VectorIndexManager {
   private async countDocumentsWithVectors(): Promise<number> {
     return await prisma.document.count({
       where: {
-        embeddings: { not: null }
+        embeddings: { not: Prisma.JsonNull }
       }
     })
   }
@@ -385,7 +384,7 @@ export class VectorIndexManager {
 
   private assessPgVectorHealth(totalVectors: number, orphanedVectors: number): 'healthy' | 'warning' | 'critical' {
     const orphanedPercentage = totalVectors > 0 ? orphanedVectors / totalVectors : 0
-    
+
     if (orphanedPercentage > 0.2) return 'critical' // >20% orphaned
     if (orphanedPercentage > 0.1) return 'warning'  // >10% orphaned
     return 'healthy'
@@ -396,7 +395,7 @@ export class VectorIndexManager {
     pgvectorStats: IndexStats | null
   ): 'healthy' | 'warning' | 'critical' {
     const healths = [pineconeStats?.health, pgvectorStats?.health].filter(Boolean)
-    
+
     if (healths.includes('critical')) return 'critical'
     if (healths.includes('warning')) return 'warning'
     return 'healthy'

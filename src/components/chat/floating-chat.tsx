@@ -113,43 +113,6 @@ export function FloatingChat() {
         const delay = retryCount === 0 ? 100 : 500 + retryCount * 500
         await new Promise((resolve) => setTimeout(resolve, delay))
 
-        // Skip user sync endpoint entirely to prevent infinite loop
-        console.log('📡 Skipping user sync endpoint to prevent infinite loop...')
-        
-        // Skip directly to profile endpoint
-        if (false) {
-          const userData = await userResponse.json()
-          console.log(
-            '📡 User sync response data:',
-            JSON.stringify(userData, null, 2)
-          )
-
-          if (userData.success && userData.data?.organizationId) {
-            console.log(
-              '✅ Found organization ID from user sync:',
-              userData.data.organizationId
-            )
-            setOrganizationId(userData.data.organizationId)
-            console.log(
-              '✅ Called setOrganizationId with:',
-              userData.data.organizationId
-            )
-            fetchingOrgIdRef.current = false
-            lastFetchedOrgIdRef.current = userId
-            return
-          } else {
-            console.log(
-              '❌ User sync succeeded but no organization ID found. Data structure:',
-              {
-                success: userData.success,
-                hasData: !!userData.data,
-                organizationId: userData.data?.organizationId,
-                dataKeys: userData.data ? Object.keys(userData.data) : null,
-              }
-            )
-          }
-        }
-
         // Fallback: try profile endpoint
         console.log('📡 Trying profile endpoint as fallback...')
         const profileResponse = await fetch('/api/v1/profile')
@@ -174,7 +137,7 @@ export function FloatingChat() {
               profileData.data.organizationId
             )
             fetchingOrgIdRef.current = false
-            lastFetchedOrgIdRef.current = userId
+            lastFetchedOrgIdRef.current = userId ?? null
             return
           } else {
             console.log(
@@ -332,7 +295,7 @@ export function FloatingChat() {
         context.title = 'Components Showcase'
         context.description = 'UI component library and examples'
         break
-      case pathname.match(/^\/documents\/[^\/]+$/):
+      case /^\/documents\/[^/]+$/.test(pathname):
         context.title = 'Document Details'
         context.description = 'Individual document view and analysis'
         context.supportsDocumentChat = false
@@ -357,7 +320,7 @@ export function FloatingChat() {
       console.log('🚫 loadDocumentContext: No organizationId provided')
       return
     }
-    
+
     // Check if we've already loaded for this org
     if (loadedForOrgIdRef.current === orgId) {
       console.log('📦 Already loaded documents for this organization, skipping')
@@ -368,7 +331,6 @@ export function FloatingChat() {
       '🔍 loadDocumentContext: Starting with organizationId:',
       orgId
     )
-    setIsLoadingDocuments(true)
     try {
       console.log('📡 Making API calls to load documents and folders...')
       const [docsResponse, foldersResponse] = await Promise.all([
@@ -391,7 +353,7 @@ export function FloatingChat() {
 
       setAvailableDocuments(docsData.documents || [])
       setAvailableFolders(foldersData.folders || [])
-      
+
       // Mark as loaded for this org
       loadedForOrgIdRef.current = orgId
 
@@ -427,7 +389,11 @@ export function FloatingChat() {
       isSignedIn
     ) {
       console.log('✅ All conditions met, calling loadDocumentContext')
-      loadDocumentContext(organizationId)
+      const timeout = window.setTimeout(() => {
+        void loadDocumentContext(organizationId)
+      }, 0)
+
+      return () => window.clearTimeout(timeout)
     } else {
       console.log('❌ Conditions not met for loading document context:', {
         supportsDocumentChat: pageContext.supportsDocumentChat,
@@ -439,9 +405,9 @@ export function FloatingChat() {
     }
   }, [
     pageContext, // Use the whole memoized object
-    organizationId, 
+    organizationId,
     loadDocumentContext, // Now stable because it has no dependencies
-    isLoaded, 
+    isLoaded,
     isSignedIn
   ])
 
@@ -739,7 +705,6 @@ export function FloatingChat() {
                   organizationId={organizationId || 'demo'}
                   chatState={chatState}
                   className="h-full"
-                  demoMode={!organizationId}
                 />
               </div>
             </CardContent>

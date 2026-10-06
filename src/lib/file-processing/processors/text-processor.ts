@@ -33,7 +33,7 @@ export class TextProcessor implements IFileProcessor {
 
   async extractText(buffer: Buffer, options: FileProcessingOptions): Promise<FileProcessingResult> {
     const startTime = Date.now();
-    
+
     try {
       // Validate file size
       if (buffer.length > options.maxFileSize) {
@@ -42,8 +42,9 @@ export class TextProcessor implements IFileProcessor {
 
       // Detect encoding and convert to string
       const rawText = buffer.toString('utf-8');
+      if (rawText.includes('\0') || /[\x01-\x08\x0e-\x1f]/.test(rawText) || rawText.includes('\ufffd')) throw new Error('Binary data is not a text document');
       const mimeType = this.detectMimeType(rawText);
-      
+
       let extractedText = '';
       let documentMetadata: Record<string, unknown> = {};
 
@@ -71,13 +72,14 @@ export class TextProcessor implements IFileProcessor {
           break;
       }
 
-      // Trim text to max length if needed
+      // Surface intentional loss of content instead of silently truncating.
+      const truncated = extractedText.length > options.maxTextLength;
       if (extractedText.length > options.maxTextLength) {
         extractedText = extractedText.substring(0, options.maxTextLength);
       }
 
       const processingDuration = Date.now() - startTime;
-      
+
       const metadata = {
         size: buffer.length,
         mimeType,
@@ -95,13 +97,14 @@ export class TextProcessor implements IFileProcessor {
         processing: {
           duration: processingDuration,
           method: ProcessingMethod.DIRECT_TEXT,
+          ...(truncated && { warnings: ['Text truncated to maximum length'] }),
           confidence: 1.0, // Text processing is deterministic
         },
       };
 
     } catch (error) {
       const processingDuration = Date.now() - startTime;
-      
+
       return {
         success: false,
         text: '',
@@ -126,7 +129,7 @@ export class TextProcessor implements IFileProcessor {
   private detectMimeType(text: string): string {
     // Simple heuristic-based detection
     const trimmedText = text.trim();
-    
+
     // JSON detection
     if ((trimmedText.startsWith('{') && trimmedText.endsWith('}')) ||
         (trimmedText.startsWith('[') && trimmedText.endsWith(']'))) {
@@ -137,13 +140,7 @@ export class TextProcessor implements IFileProcessor {
         // Not valid JSON, continue with other checks
       }
     }
-    
-    // XML detection
-    if (trimmedText.startsWith('<?xml') || 
-        (trimmedText.startsWith('<') && trimmedText.includes('>'))) {
-      return 'application/xml';
-    }
-    
+
     // HTML detection
     if (trimmedText.toLowerCase().includes('<!doctype html') ||
         trimmedText.toLowerCase().includes('<html') ||
@@ -151,7 +148,13 @@ export class TextProcessor implements IFileProcessor {
         trimmedText.toLowerCase().includes('<body')) {
       return 'text/html';
     }
-    
+
+    // XML detection
+    if (trimmedText.startsWith('<?xml') ||
+        (trimmedText.startsWith('<') && trimmedText.includes('>'))) {
+      return 'application/xml';
+    }
+
     // Enhanced Markdown detection (more comprehensive heuristics)
     const markdownPatterns = [
       /^#{1,6}\s/m,           // Headers (# ## ### etc)
@@ -166,11 +169,11 @@ export class TextProcessor implements IFileProcessor {
       /~~.*?~~/,              // Strikethrough
       /`.*?`/,                // Inline code
     ];
-    
+
     if (markdownPatterns.some(pattern => pattern.test(trimmedText))) {
       return 'text/markdown';
     }
-    
+
     return 'text/plain';
   }
 
@@ -186,7 +189,7 @@ export class TextProcessor implements IFileProcessor {
 
   private processHTML(html: string, options: FileProcessingOptions): { text: string; metadata: Record<string, unknown> } {
     const $ = cheerio.load(html);
-    
+
     // Extract metadata
     const metadata = {
       title: $('title').text() || undefined,
@@ -197,10 +200,10 @@ export class TextProcessor implements IFileProcessor {
 
     // Remove script and style elements
     $('script, style').remove();
-    
+
     // Extract text content
     let text = $('body').text() || $.text();
-    
+
     if (!options.preserveFormatting) {
       text = text
         .replace(/\s+/g, ' ')
@@ -216,16 +219,16 @@ export class TextProcessor implements IFileProcessor {
       // Convert markdown to HTML first, then extract text
       const html = marked(markdown) as string;
       const $ = cheerio.load(html);
-      
+
       let text = $.text();
-      
+
       if (!options.preserveFormatting) {
         text = text
           .replace(/\s+/g, ' ')
           .replace(/\n{3,}/g, '\n\n')
           .trim();
       }
-      
+
       return text;
     } catch {
       // Fall back to plain text processing
@@ -236,11 +239,11 @@ export class TextProcessor implements IFileProcessor {
   private processJSON(json: string, options: FileProcessingOptions): string {
     try {
       const parsed = JSON.parse(json);
-      
+
       // Extract all string values from the JSON
       const extractStrings = (obj: unknown): string[] => {
         const strings: string[] = [];
-        
+
         if (typeof obj === 'string') {
           strings.push(obj);
         } else if (Array.isArray(obj)) {
@@ -252,19 +255,19 @@ export class TextProcessor implements IFileProcessor {
             strings.push(...extractStrings(value));
           });
         }
-        
+
         return strings;
       };
-      
+
       const strings = extractStrings(parsed);
       let text = strings.join(' ');
-      
+
       if (!options.preserveFormatting) {
         text = text
           .replace(/\s+/g, ' ')
           .trim();
       }
-      
+
       return text;
     } catch {
       // Fall back to plain text processing
@@ -275,16 +278,16 @@ export class TextProcessor implements IFileProcessor {
   private processXML(xml: string, options: FileProcessingOptions): string {
     try {
       const $ = cheerio.load(xml, { xmlMode: true });
-      
+
       let text = $.text();
-      
+
       if (!options.preserveFormatting) {
         text = text
           .replace(/\s+/g, ' ')
           .replace(/\n{3,}/g, '\n\n')
           .trim();
       }
-      
+
       return text;
     } catch {
       // Fall back to plain text processing

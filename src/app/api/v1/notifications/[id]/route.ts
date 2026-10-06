@@ -10,13 +10,11 @@ const UpdateNotificationSchema = z.object({
   priority: z.enum(['LOW', 'MEDIUM', 'HIGH', 'URGENT']).optional(),
 });
 
-export async function GET(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
+export async function GET(request: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   try {
     // Try to get userId from auth() (cookie-based)
-    let userId = await auth().userId;
+    let userId = (await auth()).userId;
     
     // If no userId from cookies, try to get it from Bearer token
     if (!userId) {
@@ -101,13 +99,11 @@ export async function GET(
   }
 }
 
-export async function PATCH(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
+export async function PATCH(request: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   try {
     // Try to get userId from auth() (cookie-based)
-    let userId = await auth().userId;
+    let userId = (await auth()).userId;
     
     // If no userId from cookies, try to get it from Bearer token
     if (!userId) {
@@ -243,16 +239,14 @@ export async function PATCH(
   }
 }
 
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
+export async function DELETE(request: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   try {
     console.log('DELETE notification request for ID:', params.id);
     console.log('DELETE: Headers:', Object.fromEntries(request.headers.entries()));
     
     // Try to get userId from auth() (cookie-based)
-    let userId = await auth().userId;
+    let userId = (await auth()).userId;
     console.log('DELETE: userId from auth():', userId);
     
     // If no userId from cookies, try to get it from Bearer token

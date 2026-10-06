@@ -14,6 +14,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { defaultNamespaceManager } from '@/lib/ai/services/pinecone-namespace-manager'
 import { getAuth } from '@clerk/nextjs/server'
+import { isPlatformAdmin } from '@/lib/security/platform-admin'
 import { prisma } from '@/lib/prisma'
 
 // Validation schemas
@@ -121,7 +122,7 @@ export async function GET(request: NextRequest) {
     // Check if user is admin
     const user = await prisma.user.findUnique({
       where: { clerkId: userId },
-      include: { organizationMemberships: true }
+
     })
 
     if (!user) {
@@ -131,7 +132,7 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // For now, allow any authenticated user - in production, add proper admin role check
+    // Global namespace operations require platform access.
     // const isAdmin = user.organizationMemberships.some(m => m.role === 'OWNER' || m.role === 'ADMIN')
     // if (!isAdmin) {
     //   return NextResponse.json(
@@ -139,6 +140,8 @@ export async function GET(request: NextRequest) {
     //     { status: 403 }
     //   )
     // }
+
+    if (!isPlatformAdmin(userId)) return NextResponse.json({ success: false, error: 'Platform administrator access required' }, { status: 403 })
 
     // Parse query parameters
     const searchParams = request.nextUrl.searchParams
@@ -157,12 +160,12 @@ export async function GET(request: NextRequest) {
     })
 
     const namespaces = []
-    
+
     for (const org of organizations) {
       try {
         const namespaceInfo = await defaultNamespaceManager.getOrCreateNamespace(org.id)
         const stats = await defaultNamespaceManager.getNamespaceStats(namespaceInfo.namespace)
-        
+
         namespaces.push({
           namespace: namespaceInfo.namespace,
           organizationId: org.id,
@@ -199,8 +202,8 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error('Error listing namespaces:', error)
     return NextResponse.json(
-      { 
-        success: false, 
+      {
+        success: false,
         error: 'Failed to list namespaces',
         details: error instanceof Error ? error.message : 'Unknown error'
       },
@@ -273,6 +276,8 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    if (!isPlatformAdmin(userId)) return NextResponse.json({ success: false, error: 'Platform administrator access required' }, { status: 403 })
+
     // Parse request body
     const body = await request.json()
     const { organizationId } = CreateNamespaceBodySchema.parse(body)
@@ -306,11 +311,11 @@ export async function POST(request: NextRequest) {
 
   } catch (error) {
     console.error('Error creating namespace:', error)
-    
+
     if (error instanceof z.ZodError) {
       return NextResponse.json(
-        { 
-          success: false, 
+        {
+          success: false,
           error: 'Invalid request data',
           details: error.errors
         },
@@ -319,8 +324,8 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json(
-      { 
-        success: false, 
+      {
+        success: false,
         error: 'Failed to create namespace',
         details: error instanceof Error ? error.message : 'Unknown error'
       },
@@ -390,6 +395,8 @@ export async function DELETE(request: NextRequest) {
       )
     }
 
+    if (!isPlatformAdmin(userId)) return NextResponse.json({ success: false, error: 'Platform administrator access required' }, { status: 403 })
+
     // Parse request body
     const body = await request.json()
     const { namespace, organizationId, confirm } = DeleteNamespaceBodySchema.parse(body)
@@ -420,11 +427,11 @@ export async function DELETE(request: NextRequest) {
 
   } catch (error) {
     console.error('Error deleting namespace:', error)
-    
+
     if (error instanceof z.ZodError) {
       return NextResponse.json(
-        { 
-          success: false, 
+        {
+          success: false,
           error: 'Invalid request data',
           details: error.errors
         },
@@ -433,8 +440,8 @@ export async function DELETE(request: NextRequest) {
     }
 
     return NextResponse.json(
-      { 
-        success: false, 
+      {
+        success: false,
         error: 'Failed to delete namespace',
         details: error instanceof Error ? error.message : 'Unknown error'
       },

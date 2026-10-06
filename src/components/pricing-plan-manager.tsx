@@ -156,7 +156,7 @@ export function PricingPlanManager() {
     fetchPlans()
   }, [])
 
-  const fetchPlans = async () => {
+  async function fetchPlans() {
     try {
       setLoading(true)
       const response = await fetch(

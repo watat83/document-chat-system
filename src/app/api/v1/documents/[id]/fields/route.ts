@@ -1,7 +1,11 @@
+import { guardDocumentMutation } from '@/lib/security/document-route-guard';
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@clerk/nextjs/server'
 import { prisma } from '@/lib/db'
 import { z } from 'zod'
+import { Prisma, DocumentType, SecurityClassification, WorkflowStatus } from '@prisma/client'
+import { jsonObject, processingTransaction } from '@/lib/documents/processing-state'
+import { serializeDocument } from '@/lib/documents/document-response'
 
 /**
  * Document Fields Update Schema
@@ -9,26 +13,26 @@ import { z } from 'zod'
 const DocumentFieldsUpdateSchema = z.object({
   name: z.string().min(1).max(255).optional()
     .describe("Update document name"),
-  
+
   tags: z.array(z.string().min(1).max(50)).max(20).optional()
     .describe("Update document tags (max 20 tags, 50 chars each)"),
-  
+
   setAsideType: z.string().max(50).optional()
     .describe("Update set-aside type (8(a), HUBZone, SDVOSB, WOSB, etc.)"),
-  
+
   naicsCodes: z.array(z.string().regex(/^\d{6}$/)).max(10).optional()
     .describe("Update NAICS codes (6-digit codes, max 10)"),
-  
+
   description: z.string().max(1000).optional()
     .describe("Update document description (max 1000 characters)"),
-  
-  documentType: z.string().max(100).optional()
+
+  documentType: z.nativeEnum(DocumentType).optional()
     .describe("Update document type (CONTRACT, RFP, PROPOSAL, etc.)"),
-  
-  securityClassification: z.enum(['PUBLIC', 'INTERNAL', 'CONFIDENTIAL', 'RESTRICTED']).optional()
+
+  securityClassification: z.nativeEnum(SecurityClassification).optional()
     .describe("Update security classification level"),
-  
-  workflowStatus: z.enum(['DRAFT', 'REVIEW', 'APPROVED', 'PUBLISHED', 'ARCHIVED']).optional()
+
+  workflowStatus: z.nativeEnum(WorkflowStatus).optional()
     .describe("Update workflow status")
 })
 
@@ -159,6 +163,9 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const permissionError = await guardDocumentMutation((await params).id, 'WRITE');
+  if (permissionError) return permissionError;
+
   try {
     const { userId } = await auth()
     if (!userId) {
@@ -178,9 +185,9 @@ export async function PATCH(
 
     if (!validation.success) {
       return NextResponse.json(
-        { 
-          error: 'Invalid field data', 
-          details: validation.error.format() 
+        {
+          error: 'Invalid field data',
+          details: validation.error.format()
         },
         { status: 400 }
       )
@@ -203,135 +210,20 @@ export async function PATCH(
       return NextResponse.json({ error: 'User not found' }, { status: 404 })
     }
 
-    // Get document and verify access
-    const document = await prisma.document.findUnique({
-      where: { id: documentId },
-      select: {
-        id: true,
-        organizationId: true,
-        uploadedById: true,
-        name: true,
-        tags: true,
-        setAsideType: true,
-        naicsCodes: true,
-        description: true,
-        documentType: true,
-        securityClassification: true,
-        workflowStatus: true
-      }
-    })
-
-    if (!document) {
-      return NextResponse.json({ error: 'Document not found' }, { status: 404 })
-    }
-
-    // Verify user has access to the document's organization
-    if (document.organizationId !== user.organizationId) {
-      return NextResponse.json({ error: 'Access denied' }, { status: 403 })
-    }
-
-    // Check if user has permission to update fields
-    // For now, allow document owner and users in same organization
-    // This could be enhanced with more granular permissions
-    const canUpdate = document.uploadedById === user.id || true // Allow org members
-
-    if (!canUpdate) {
-      return NextResponse.json(
-        { error: 'Insufficient permissions to update document fields' }, 
-        { status: 403 }
-      )
-    }
-
-    // Prepare update data - only include fields that are provided
-    const documentUpdate: any = {}
-    const updatedFields: string[] = []
-
-    if (updateData.name !== undefined) {
-      documentUpdate.name = updateData.name
-      updatedFields.push('name')
-    }
-    
-    if (updateData.tags !== undefined) {
-      documentUpdate.tags = updateData.tags
-      updatedFields.push('tags')
-    }
-    
-    if (updateData.setAsideType !== undefined) {
-      documentUpdate.setAsideType = updateData.setAsideType
-      updatedFields.push('setAsideType')
-    }
-    
-    if (updateData.naicsCodes !== undefined) {
-      documentUpdate.naicsCodes = updateData.naicsCodes
-      updatedFields.push('naicsCodes')
-    }
-    
-    if (updateData.description !== undefined) {
-      documentUpdate.description = updateData.description
-      updatedFields.push('description')
-    }
-    
-    if (updateData.documentType !== undefined) {
-      documentUpdate.documentType = updateData.documentType
-      updatedFields.push('documentType')
-    }
-    
-    if (updateData.securityClassification !== undefined) {
-      documentUpdate.securityClassification = updateData.securityClassification
-      updatedFields.push('securityClassification')
-    }
-    
-    if (updateData.workflowStatus !== undefined) {
-      documentUpdate.workflowStatus = updateData.workflowStatus
-      updatedFields.push('workflowStatus')
-    }
-
-    // Always update timestamp
-    documentUpdate.updatedAt = new Date()
-
-    if (updatedFields.length === 0) {
-      return NextResponse.json(
-        { error: 'No fields to update' },
-        { status: 400 }
-      )
-    }
-
-    // Update the document
-    const updatedDocument = await prisma.document.update({
-      where: { id: documentId },
-      data: documentUpdate,
-      include: {
-        folder: { select: { id: true, name: true } },
-        uploadedBy: { select: { id: true, firstName: true, lastName: true, email: true } }
-      }
-    })
-
-    console.log('✅ Document fields updated:', {
-      documentId,
-      updatedFields,
-      changes: updatedFields.map(field => ({
-        field,
-        oldValue: (document as any)[field],
-        newValue: (updatedDocument as any)[field]
-      }))
-    })
-
-    // Format response
-    const responseDocument = {
-      id: updatedDocument.id,
-      name: updatedDocument.name,
-      tags: updatedDocument.tags || [],
-      setAsideType: updatedDocument.setAsideType,
-      naicsCodes: updatedDocument.naicsCodes || [],
-      description: updatedDocument.description,
-      documentType: updatedDocument.documentType,
-      securityClassification: updatedDocument.securityClassification,
-      workflowStatus: updatedDocument.workflowStatus,
-      updatedAt: updatedDocument.updatedAt.toISOString(),
-      folder: updatedDocument.folder,
-      uploadedBy: updatedDocument.uploadedBy,
-      opportunity: updatedDocument.opportunity
-    }
+    const updatedFields = Object.keys(updateData);
+    if (!updatedFields.length) return NextResponse.json({ error: 'No fields to update' }, { status: 400 });
+    const updatedDocument = await processingTransaction(prisma, async tx => {
+      const current = await tx.document.findFirst({ where: { id: documentId, organizationId: user.organizationId, deletedAt: null } });
+      if (!current) throw new Error('Document not found');
+      const { setAsideType, naicsCodes, ...fields } = updateData;
+      const analysis = jsonObject(current.analysis);
+      const metadata = jsonObject(analysis.metadata);
+      return tx.document.update({ where: { id: documentId }, data: {
+        ...fields,
+        ...((setAsideType !== undefined || naicsCodes !== undefined) && { analysis: { ...analysis, metadata: { ...metadata, ...(setAsideType !== undefined && { setAsideType }), ...(naicsCodes !== undefined && { naicsCodes }) } } satisfies Prisma.InputJsonObject }),
+      }, include: { folder: { select: { id: true, name: true } }, uploadedBy: { select: { id: true, firstName: true, lastName: true, email: true } } } });
+    });
+    const responseDocument = serializeDocument(updatedDocument);
 
     return NextResponse.json({
       success: true,
@@ -347,7 +239,7 @@ export async function PATCH(
   } catch (error) {
     console.error('❌ Document fields update error:', error)
     return NextResponse.json(
-      { 
+      {
         error: 'Failed to update document fields',
         details: error instanceof Error ? error.message : 'Unknown error'
       },

@@ -3,63 +3,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { getDocumentIcon } from './file-type-utils'
 
-interface DocumentThumbnailProps {
-  document: {
-    id: string
-    name: string
-    type: string
-    mimeType?: string
-    filePath?: string
-    extractedText?: string
-    originalFile?: File
-  }
-  size?: number
-  className?: string
-}
-
-export const DocumentThumbnail: React.FC<DocumentThumbnailProps> = ({ 
-  document, 
-  size = 80, 
-  className = "" 
-}) => {
-  const [previewImage, setPreviewImage] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
-  const canvasRef = useRef<HTMLCanvasElement>(null)
-
-  const generateCanvasPreview = useCallback(async () => {
-    if (!canvasRef.current) return
-
-    const canvas = canvasRef.current
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
-
-    // Set canvas size
-    canvas.width = size
-    canvas.height = size
-
-    // Clear canvas
-    ctx.fillStyle = '#ffffff'
-    ctx.fillRect(0, 0, size, size)
-
-    // Add border
-    ctx.strokeStyle = '#e5e7eb'
-    ctx.lineWidth = 1
-    ctx.strokeRect(0, 0, size, size)
-
-    if (document.type === 'pdf') {
-      // Generate PDF-like preview
-      generatePdfCanvasPreview(ctx, size)
-    } else if (document.type === 'md') {
-      // Generate Markdown-like preview
-      generateMarkdownCanvasPreview(ctx, size)
-    }
-
-    // Convert canvas to image
-    const dataUrl = canvas.toDataURL('image/png')
-    setPreviewImage(dataUrl)
-  }, [document, size])
-
-  const generatePdfCanvasPreview = (ctx: CanvasRenderingContext2D, canvasSize: number) => {
+function generatePdfCanvasPreview(ctx: CanvasRenderingContext2D, canvasSize: number) {
     const padding = canvasSize * 0.1
 
     // PDF background
@@ -84,7 +28,7 @@ export const DocumentThumbnail: React.FC<DocumentThumbnailProps> = ({
     ctx.fillText('PDF', canvasSize - padding - 20, canvasSize - padding - 4)
   }
 
-  const generateMarkdownCanvasPreview = (ctx: CanvasRenderingContext2D, canvasSize: number) => {
+function generateMarkdownCanvasPreview(ctx: CanvasRenderingContext2D, canvasSize: number) {
     const padding = canvasSize * 0.1
 
     // Markdown background
@@ -121,41 +65,54 @@ export const DocumentThumbnail: React.FC<DocumentThumbnailProps> = ({
     ctx.fillText('MD', canvasSize - padding - 16, canvasSize - padding - 4)
   }
 
-  useEffect(() => {
-    if (document.type === 'pdf' || document.type === 'md') {
-      setLoading(true)
-      generateCanvasPreview().finally(() => setLoading(false))
-    }
-  }, [document, generateCanvasPreview])
-
-  // For supported file types with canvas preview
-  if ((document.type === 'pdf' || document.type === 'md') && previewImage) {
-    return (
-      <div className={`relative ${className}`} style={{ width: size, height: size }}>
-        <img 
-          src={previewImage} 
-          alt={`Preview of ${document.name}`}
-          className="w-full h-full object-cover rounded"
-        />
-        {loading && (
-          <div className="absolute inset-0 bg-background/50 flex items-center justify-center rounded">
-            <div className="w-3 h-3 border border-primary border-t-transparent rounded-full animate-spin" />
-          </div>
-        )}
-      </div>
-    )
+interface DocumentThumbnailProps {
+  document: {
+    id: string
+    name: string
+    type: string
+    mimeType?: string
+    filePath?: string
+    extractedText?: string
+    originalFile?: File
   }
+  size?: number
+  className?: string
+}
 
-  // Fallback to document icon for unsupported types or while loading
-  return (
-    <div className={`flex items-center justify-center ${className}`}>
-      {getDocumentIcon(document.type, size)}
-      <canvas 
-        ref={canvasRef} 
-        style={{ display: 'none' }}
-        width={size}
-        height={size}
-      />
-    </div>
-  )
+export const DocumentThumbnail: React.FC<DocumentThumbnailProps> = ({
+  document,
+  size = 80,
+  className = ""
+}) => {
+  const generateCanvasPreview = useCallback((canvas: HTMLCanvasElement | null) => {
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+
+    // Set canvas size
+    canvas.width = size
+    canvas.height = size
+
+    // Clear canvas
+    ctx.fillStyle = '#ffffff'
+    ctx.fillRect(0, 0, size, size)
+
+    // Add border
+    ctx.strokeStyle = '#e5e7eb'
+    ctx.lineWidth = 1
+    ctx.strokeRect(0, 0, size, size)
+
+    if (document.type === 'pdf') {
+      // Generate PDF-like preview
+      generatePdfCanvasPreview(ctx, size)
+    } else if (document.type === 'md') {
+      // Generate Markdown-like preview
+      generateMarkdownCanvasPreview(ctx, size)
+    }
+
+  }, [document, size])
+
+  return document.type === 'pdf' || document.type === 'md' ? (
+    <canvas ref={generateCanvasPreview} width={size} height={size} className={`rounded ${className}`} style={{ width: size, height: size }} aria-label={`Preview of ${document.name}`} />
+  ) : <div className={`flex items-center justify-center ${className}`}>{getDocumentIcon(document.type, size)}</div>
 }

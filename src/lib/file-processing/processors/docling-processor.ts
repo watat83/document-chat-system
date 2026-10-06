@@ -29,7 +29,9 @@ export class DoclingProcessor implements IFileProcessor {
     // For development: Use localhost
     this.serviceUrl = process.env.DOCLING_SERVICE_URL || 'http://localhost:8001'
 
-    this.enabled = process.env.DOCLING_ENABLED !== 'false'
+    // Private documents require an authenticated worker in production.
+    this.enabled = process.env.DOCLING_ENABLED !== 'false' &&
+      (process.env.NODE_ENV !== 'production' || Boolean(process.env.DOCLING_API_TOKEN))
     this.timeout = parseInt(process.env.DOCLING_TIMEOUT || '30000', 10)
   }
 
@@ -136,6 +138,7 @@ export class DoclingProcessor implements IFileProcessor {
       const response = await fetch(`${this.serviceUrl}/process`, {
         method: 'POST',
         headers: {
+          ...(process.env.DOCLING_API_TOKEN ? { Authorization: `Bearer ${process.env.DOCLING_API_TOKEN}` } : {}),
           'Content-Type': `multipart/form-data; boundary=${boundary}`,
           'Content-Length': String(body.length)
         },
@@ -228,6 +231,7 @@ export class DoclingProcessor implements IFileProcessor {
       const response = await fetch(`${this.serviceUrl}/process-url`, {
         method: 'POST',
         headers: {
+          ...(process.env.DOCLING_API_TOKEN ? { Authorization: `Bearer ${process.env.DOCLING_API_TOKEN}` } : {}),
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
@@ -338,6 +342,7 @@ export class DoclingProcessor implements IFileProcessor {
       const response = await fetch(`${this.serviceUrl}/extract-page-images`, {
         method: 'POST',
         headers: {
+          ...(process.env.DOCLING_API_TOKEN ? { Authorization: `Bearer ${process.env.DOCLING_API_TOKEN}` } : {}),
           'Content-Type': `multipart/form-data; boundary=${boundary}`,
         },
         body: body,

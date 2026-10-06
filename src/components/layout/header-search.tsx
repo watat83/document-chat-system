@@ -1,4 +1,6 @@
 'use client'
+import { useQuery } from '@tanstack/react-query'
+import { useAuth } from '@clerk/nextjs'
 
 import React, { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
@@ -29,19 +31,11 @@ interface HeaderSearchProps {
 
 export function HeaderSearch({ triggerOpen, onOpenChange }: HeaderSearchProps = {}) {
   const router = useRouter()
-  const [open, setOpen] = useState(false)
+  const [localOpen, setOpen] = useState(false)
+  const open = triggerOpen ?? localOpen
   const [query, setQuery] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [results, setResults] = useState<SearchResult>({ documents: [], total: 0 })
 
   const debouncedQuery = useDebounce(query, 300)
-
-  // Handle external trigger
-  useEffect(() => {
-    if (triggerOpen !== undefined) {
-      setOpen(triggerOpen)
-    }
-  }, [triggerOpen])
 
   // Notify parent of open state changes
   const handleOpenChange = (newOpen: boolean) => {
@@ -61,33 +55,19 @@ export function HeaderSearch({ triggerOpen, onOpenChange }: HeaderSearchProps = 
     return () => document.removeEventListener('keydown', down)
   }, [open])
 
-  // Search functionality
-  useEffect(() => {
-    if (!debouncedQuery || debouncedQuery.length < 2) {
-      setResults({ documents: [], total: 0 })
-      return
-    }
-
-    const searchDocuments = async () => {
-      setLoading(true)
-      try {
-        const response = await fetch(`/api/v1/documents?search=${encodeURIComponent(debouncedQuery)}`)
-        const data = await response.json()
-        if (data.success) {
-          setResults({
-            documents: data.documents || [],
-            total: data.count || 0
-          })
-        }
-      } catch (error) {
-        console.error('Search error:', error)
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    searchDocuments()
-  }, [debouncedQuery])
+  const { userId, orgId } = useAuth()
+  const search = useQuery({
+    queryKey: ['header-search', userId, orgId, debouncedQuery],
+    enabled: open && Boolean(userId) && debouncedQuery.length >= 2, gcTime: 0,
+    queryFn: async ({ signal }) => {
+      const response = await fetch(`/api/v1/documents?search=${encodeURIComponent(debouncedQuery)}`, { signal })
+      if (!response.ok) throw new Error('Search failed')
+      const data = await response.json()
+      return { documents: data.documents || [], total: data.count || 0 } as SearchResult
+    },
+  })
+  const loading = search.isFetching
+  const results = debouncedQuery.length >= 2 ? search.data ?? { documents: [], total: 0 } : { documents: [], total: 0 }
 
   const handleSelect = (documentId: string) => {
     handleOpenChange(false)

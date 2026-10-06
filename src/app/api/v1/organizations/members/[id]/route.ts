@@ -10,10 +10,8 @@ const UpdateMemberSchema = z.object({
 })
 
 // GET /api/organizations/members/[id] - Get specific member
-export async function GET(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
+export async function GET(request: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   try {
     // Validate ID parameter
     let validatedParams
@@ -92,10 +90,8 @@ export async function GET(
 }
 
 // PATCH /api/organizations/members/[id] - Update member role (admin/owner only)
-export async function PATCH(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
+export async function PATCH(request: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   try {
     // Validate ID parameter
     let validatedParams
@@ -221,10 +217,8 @@ export async function PATCH(
 }
 
 // DELETE /api/organizations/members/[id] - Remove member (admin/owner only)
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
+export async function DELETE(request: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   try {
     // Validate ID parameter
     let validatedParams

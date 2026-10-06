@@ -1,3 +1,4 @@
+import { guardDocumentMutation } from '@/lib/security/document-route-guard';
 /**
  * @swagger
  * /api/v1/documents/{id}/vectorize:
@@ -132,6 +133,9 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const permissionError = await guardDocumentMutation((await params).id, 'WRITE');
+  if (permissionError) return permissionError;
+
   try {
     const { userId } = await auth()
     if (!userId) {

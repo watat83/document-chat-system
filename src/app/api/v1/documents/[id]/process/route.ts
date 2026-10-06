@@ -1,3 +1,9 @@
+import { processingSnapshot, processingTransition, updateProcessingState, ProcessingConflictError } from '@/lib/documents/processing-state';
+import { serializeDocument } from '@/lib/documents/document-response';
+import { inngest } from '@/lib/inngest/client';
+import { guardUsage } from '@/lib/billing/usage-guard';
+import { UsageType } from '@/lib/usage-tracking';
+import { guardDocumentMutation } from '@/lib/security/document-route-guard';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { prisma } from '@/lib/db';
@@ -95,6 +101,9 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const permissionError = await guardDocumentMutation((await params).id, 'WRITE');
+  if (permissionError) return permissionError;
+
   try {
     const { userId } = await auth();
     if (!userId) {
@@ -103,7 +112,7 @@ export async function POST(
 
     const resolvedParams = await params;
     const documentId = resolvedParams.id;
-    
+
     // Check for force reprocessing
     const { searchParams } = new URL(request.url);
     const forceReprocess = searchParams.get('force') === 'true';
@@ -133,9 +142,9 @@ export async function POST(
         organizationId: true,
         name: true,
         filePath: true,
-        status: true,
-        processedAt: true,
-        mimeType: true
+        processing: true,
+        mimeType: true,
+        extractedText: true
       }
     });
 
@@ -155,7 +164,7 @@ export async function POST(
     }
 
     // Check if document has a file
-    if (!document.filePath) {
+    if (!document.filePath && !document.extractedText?.trim()) {
       return NextResponse.json(
         { error: 'Document has no file to process' },
         { status: 400 }
@@ -163,23 +172,23 @@ export async function POST(
     }
 
     // Check if already processed (allow force reprocessing)
-    if (document.status === 'COMPLETED' && document.processedAt && !forceReprocess) {
+    if (processingSnapshot(document.processing).currentStatus === 'COMPLETED' && !forceReprocess) {
       return NextResponse.json(
-        { 
+        {
           error: 'Document already processed',
           message: 'Use force=true query parameter to reprocess',
-          processedAt: document.processedAt
+          processedAt: processingSnapshot(document.processing).events.map(event => event && typeof event === 'object' && !Array.isArray(event) ? event : {}).find(event => event.eventType === 'COMPLETED')?.timestamp
         },
         { status: 400 }
       );
     }
 
     // Check if already processing
-    if (document.status === 'PROCESSING') {
+    if (['PROCESSING', 'QUEUED'].includes(processingSnapshot(document.processing).currentStatus)) {
       return NextResponse.json(
-        { 
+        {
           error: 'Document is already being processed',
-          status: document.status
+          status: processingSnapshot(document.processing).currentStatus
         },
         { status: 400 }
       );
@@ -192,31 +201,30 @@ export async function POST(
       forceReprocess
     });
 
-    // Always use full AI analysis by default (basic processing only when specifically requested)
-    const processingPromise = documentProcessor.processDocument(documentId, (step, progress) => {
-      console.log(`📊 AI Processing [${documentId}]: ${step} - ${progress}%`);
-    });
-    
-    processingPromise.then(result => {
-      if (result.success) {
-        console.log('✅ AI processing completed for document:', documentId);
-      } else {
-        console.error('❌ AI processing failed for document:', documentId, result.error);
-      }
-    }).catch(error => {
-      console.error('❌ AI processing error for document:', documentId, error);
-    });
+    const usageError = await guardUsage(user.organizationId, UsageType.DOCUMENT_PROCESSING);
+    if (usageError) return usageError;
+    const queued = await updateProcessingState(documentId, current => {
+      if (['PROCESSING', 'QUEUED'].includes(current.currentStatus)) throw new ProcessingConflictError();
+      return processingTransition(current, 'QUEUED');
+    }, user.organizationId);
+    try {
+      await inngest.send({ name: 'document/process-full.requested', data: { documentId, organizationId: user.organizationId, userId: user.id, runId: processingSnapshot(queued.processing).runId, options: { forceReprocess } } });
+    } catch (error) {
+      await updateProcessingState(documentId, current => current.currentStatus === 'CANCELLED' ? current : processingTransition(current, 'FAILED', 'Unable to queue document processing'));
+      throw error;
+    }
 
     return NextResponse.json({
       message: 'AI processing started',
       documentId: document.id,
-      status: 'PROCESSING'
+      status: 'QUEUED'
     }, { status: 202 });
 
   } catch (error) {
+    if (error instanceof ProcessingConflictError) return NextResponse.json({ error: error.message }, { status: 409 });
     console.error('Process document error:', error);
     return NextResponse.json(
-      { 
+      {
         error: 'Internal server error',
         details: error instanceof Error ? error.message : 'Unknown error'
       },
@@ -229,6 +237,8 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const permissionError = await guardDocumentMutation((await params).id, 'READ');
+  if (permissionError) return permissionError;
   try {
     const { userId } = await auth();
     if (!userId) {
@@ -255,17 +265,8 @@ export async function GET(
       );
     }
 
-    // Get document with AI data
-    const document = await prisma.document.findUnique({
-      where: { id: documentId },
-      select: {
-        id: true,
-        organizationId: true,
-        status: true,
-        processedAt: true,
-        processingError: true,
-        aiData: true
-      }
+    const document = await prisma.document.findFirst({
+      where: { id: documentId, organizationId: user.organizationId, deletedAt: null }
     });
 
     if (!document) {
@@ -283,28 +284,18 @@ export async function GET(
       );
     }
 
-    // Calculate progress from AI data if available
-    let progress = 0;
-    if (document.status === 'COMPLETED') {
-      progress = 100;
-    } else if (document.status === 'PROCESSING' && document.aiData) {
-      const aiData = document.aiData as any;
-      progress = aiData.status?.progress || 50;
-    }
-
+    const result = serializeDocument(document);
     return NextResponse.json({
       documentId: document.id,
-      status: document.status || 'PENDING',
-      progress,
-      processedAt: document.processedAt,
-      error: document.processingError,
-      aiData: document.status === 'COMPLETED' ? document.aiData : undefined
+      status: result.status, progress: result.progress,
+      processedAt: result.processedAt, error: result.processingError,
+      aiData: result.status === 'COMPLETED' ? result.aiData : undefined,
     });
 
   } catch (error) {
     console.error('Get process status error:', error);
     return NextResponse.json(
-      { 
+      {
         error: 'Internal server error',
         details: error instanceof Error ? error.message : 'Unknown error'
       },

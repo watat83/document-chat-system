@@ -49,7 +49,10 @@ export function DatePicker({
   )
 
   // Update local state when value prop changes
-  React.useEffect(() => {
+  const valueTimestamp = value?.getTime()
+  const [previousTimestamp, setPreviousTimestamp] = React.useState(valueTimestamp)
+  if (previousTimestamp !== valueTimestamp) {
+    setPreviousTimestamp(valueTimestamp)
     if (value) {
       setSelectedMonth((value.getMonth() + 1).toString())
       setSelectedDay(value.getDate().toString())
@@ -59,7 +62,7 @@ export function DatePicker({
       setSelectedDay("")
       setSelectedYear("")
     }
-  }, [value])
+  }
 
   // Generate options
   const months = [

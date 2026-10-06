@@ -1,6 +1,6 @@
 /**
  * ImageRouter Types and Interfaces
- * 
+ *
  * Type definitions for ImageRouter.io API integration following OpenRouter adapter patterns.
  * Supports image generation, video generation, and image editing capabilities.
  */
@@ -48,7 +48,9 @@ export interface ImageGenerationResponse {
   usage?: {
     total_tokens?: number;
   };
-  model: string;
+  model?: string;
+  cost?: number;
+  latency?: number;
 }
 
 // Video Generation Request/Response Types
@@ -72,7 +74,9 @@ export interface VideoGenerationResponse {
   usage?: {
     total_tokens?: number;
   };
-  model: string;
+  model?: string;
+  cost?: number;
+  latency?: number;
 }
 
 // Image Editing Request/Response Types
@@ -95,7 +99,9 @@ export interface ImageEditResponse {
   usage?: {
     total_tokens?: number;
   };
-  model: string;
+  model?: string;
+  cost?: number;
+  latency?: number;
 }
 
 // Model Information Types
@@ -104,11 +110,14 @@ export interface ImageRouterModel {
   name?: string;
   description?: string;
   type: 'image' | 'video' | 'edit';
+  architecture?: { input_modalities: string[]; output_modalities: string[] };
+  supported_parameters?: string[];
+  parameters?: { size?: string[]; seconds?: (string | number)[] };
   features?: string[]; // e.g., ['quality', 'edit']
   pricing?: {
-    image?: string;
-    video?: string;
-    edit?: string;
+    min: number;
+    average: number;
+    max: number;
   };
   limits?: {
     max_images?: number;
@@ -121,6 +130,17 @@ export interface ImageRouterModelsResponse {
   data: ImageRouterModel[];
 }
 
+export interface MediaRequestMetadata {
+  organizationId?: string;
+  userId?: string;
+  sessionId?: string;
+  costLimit?: number;
+  httpRequest?: import('next/server').NextRequest;
+  priority?: 'speed' | 'quality' | 'cost';
+  requestId?: string;
+  isWarmingRequest?: boolean;
+}
+
 // Unified Request Types for Integration
 export interface UnifiedImageGenerationRequest {
   prompt: string;
@@ -130,25 +150,14 @@ export interface UnifiedImageGenerationRequest {
   responseFormat?: 'url' | 'b64_json';
   count?: number;
   size?: string;
-  metadata?: {
-    organizationId?: string;
-    userId?: string;
-    sessionId?: string;
-    costLimit?: number;
-    httpRequest?: any;
-  };
+  metadata?: MediaRequestMetadata;
 }
 
 export interface UnifiedVideoGenerationRequest {
   prompt: string;
   model?: string;
   type: 'video';
-  metadata?: {
-    organizationId?: string;
-    userId?: string;
-    sessionId?: string;
-    costLimit?: number;
-    httpRequest?: any;
+  metadata?: MediaRequestMetadata & {
     // Future parameters when ImageRouter supports them
     aspectRatio?: '16:9' | '9:16' | '1:1';
     duration?: number;
@@ -171,18 +180,12 @@ export interface UnifiedImageEditRequest {
   }>;
   quality?: 'auto' | 'low' | 'medium' | 'high';
   responseFormat?: 'url' | 'b64_json';
-  metadata?: {
-    organizationId?: string;
-    userId?: string;
-    sessionId?: string;
-    costLimit?: number;
-    httpRequest?: any;
-  };
+  metadata?: MediaRequestMetadata;
 }
 
-export type UnifiedMediaGenerationRequest = 
-  | UnifiedImageGenerationRequest 
-  | UnifiedVideoGenerationRequest 
+export type UnifiedMediaGenerationRequest =
+  | UnifiedImageGenerationRequest
+  | UnifiedVideoGenerationRequest
   | UnifiedImageEditRequest;
 
 export interface UnifiedMediaGenerationResponse {

@@ -1,8 +1,10 @@
+import { normalizeError } from '@/lib/errors/normalize-error';
+import { isPlatformAdmin } from '@/lib/security/platform-admin'
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@clerk/nextjs/server'
 import { db } from '@/lib/db'
 import { prisma } from '@/lib/prisma'
-import { z } from 'zod'
+import { z } from 'zod';
 import { stripe } from '@/lib/stripe-server'
 import { cacheManager } from '@/lib/cache'
 
@@ -43,26 +45,6 @@ const updatePricingPlanSchema = createPricingPlanSchema.partial().extend({
   stripeYearlyPriceId: z.string().optional()
 })
 
-// Helper to check if user is admin
-async function isAdmin(userId: string): Promise<boolean> {
-  const user = await db.user.findUnique({
-    where: { clerkId: userId },
-    select: { 
-      role: true,
-      email: true,
-      organization: {
-        select: {
-          stripeCustomerId: true
-        }
-      }
-    }
-  })
-  
-  // Allow OWNER and ADMIN roles, or specific admin emails
-  const adminEmails = ['yourpersonalmarketer123@gmail.com']
-  return user?.role === 'OWNER' || user?.role === 'ADMIN' || adminEmails.includes(user?.email || '')
-}
-
 // GET: List all pricing plans
 export async function GET(request: NextRequest) {
   try {
@@ -72,7 +54,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Check if user is admin
-    if (!(await isAdmin(userId))) {
+    if (!(isPlatformAdmin(userId))) {
       return NextResponse.json({ error: 'Forbidden: Admin access required' }, { status: 403 })
     }
 
@@ -133,7 +115,8 @@ export async function GET(request: NextRequest) {
               }
             }
           })
-        } catch (stripeError) {
+        } catch (caughtStripeerror) {
+      const stripeError = normalizeError(caughtStripeerror);
           console.warn('Stripe price fetching failed (non-critical):', stripeError.message)
           // Continue without Stripe data enrichment
         }
@@ -164,7 +147,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Check if user is admin
-    if (!(await isAdmin(userId))) {
+    if (!(isPlatformAdmin(userId))) {
       return NextResponse.json({ error: 'Forbidden: Admin access required' }, { status: 403 })
     }
 
@@ -238,7 +221,8 @@ export async function POST(request: NextRequest) {
           monthly: stripeMonthlyPriceId,
           yearly: stripeYearlyPriceId
         })
-      } catch (stripeError) {
+      } catch (caughtStripeerror) {
+      const stripeError = normalizeError(caughtStripeerror);
         console.error('Error creating Stripe products:', stripeError)
         return NextResponse.json({
           error: 'Failed to create Stripe products',
@@ -270,7 +254,8 @@ export async function POST(request: NextRequest) {
     // Invalidate pricing cache (with error handling)
     try {
       await cacheManager.invalidate('pricing:plans')
-    } catch (cacheError) {
+    } catch (caughtCacheerror) {
+      const cacheError = normalizeError(caughtCacheerror);
       console.warn('Cache invalidation failed (non-critical):', cacheError.message)
     }
 
@@ -282,7 +267,7 @@ export async function POST(request: NextRequest) {
 
   } catch (error) {
     console.error('Error creating pricing plan:', error)
-    
+
     if (error instanceof z.ZodError) {
       return NextResponse.json({
         error: 'Validation error',
@@ -306,7 +291,7 @@ export async function PUT(request: NextRequest) {
     }
 
     // Check if user is admin
-    if (!(await isAdmin(userId))) {
+    if (!(isPlatformAdmin(userId))) {
       return NextResponse.json({ error: 'Forbidden: Admin access required' }, { status: 403 })
     }
 
@@ -347,7 +332,7 @@ export async function PUT(request: NextRequest) {
           // Stripe doesn't allow updating price amounts, so we need to create a new price
           // and archive the old one
           const stripePrice = await stripe.prices.retrieve(existingPlan.stripeMonthlyPriceId)
-          
+
           if (stripePrice.product) {
             const newMonthlyPrice = await stripe.prices.create({
               product: stripePrice.product as string,
@@ -371,7 +356,8 @@ export async function PUT(request: NextRequest) {
             validatedData.stripeMonthlyPriceId = newMonthlyPrice.id
             console.log(`Updated Stripe monthly price from ${existingPlan.stripeMonthlyPriceId} to ${newMonthlyPrice.id}`)
           }
-        } catch (stripeError) {
+        } catch (caughtStripeerror) {
+      const stripeError = normalizeError(caughtStripeerror);
           console.error('Error updating Stripe monthly price:', stripeError)
         }
       }
@@ -382,7 +368,7 @@ export async function PUT(request: NextRequest) {
       if (existingPlan.stripeYearlyPriceId) {
         try {
           const stripePrice = await stripe.prices.retrieve(existingPlan.stripeYearlyPriceId)
-          
+
           if (stripePrice.product) {
             const newYearlyPrice = await stripe.prices.create({
               product: stripePrice.product as string,
@@ -406,7 +392,8 @@ export async function PUT(request: NextRequest) {
             validatedData.stripeYearlyPriceId = newYearlyPrice.id
             console.log(`Updated Stripe yearly price from ${existingPlan.stripeYearlyPriceId} to ${newYearlyPrice.id}`)
           }
-        } catch (stripeError) {
+        } catch (caughtStripeerror) {
+      const stripeError = normalizeError(caughtStripeerror);
           console.error('Error updating Stripe yearly price:', stripeError)
         }
       }
@@ -422,7 +409,8 @@ export async function PUT(request: NextRequest) {
     // Invalidate pricing cache (with error handling)
     try {
       await cacheManager.invalidate('pricing:plans')
-    } catch (cacheError) {
+    } catch (caughtCacheerror) {
+      const cacheError = normalizeError(caughtCacheerror);
       console.warn('Cache invalidation failed (non-critical):', cacheError.message)
     }
 
@@ -434,7 +422,7 @@ export async function PUT(request: NextRequest) {
 
   } catch (error) {
     console.error('Error updating pricing plan:', error)
-    
+
     if (error instanceof z.ZodError) {
       return NextResponse.json({
         error: 'Validation error',
@@ -458,7 +446,7 @@ export async function DELETE(request: NextRequest) {
     }
 
     // Check if user is admin
-    if (!(await isAdmin(userId))) {
+    if (!(isPlatformAdmin(userId))) {
       return NextResponse.json({ error: 'Forbidden: Admin access required' }, { status: 403 })
     }
 
@@ -510,7 +498,8 @@ export async function DELETE(request: NextRequest) {
           active: false
         })
         console.log(`Archived Stripe monthly price: ${existingPlan.stripeMonthlyPriceId}`)
-      } catch (stripeError) {
+      } catch (caughtStripeerror) {
+      const stripeError = normalizeError(caughtStripeerror);
         console.error('Error archiving Stripe monthly price:', stripeError)
       }
     }
@@ -521,7 +510,8 @@ export async function DELETE(request: NextRequest) {
           active: false
         })
         console.log(`Archived Stripe yearly price: ${existingPlan.stripeYearlyPriceId}`)
-      } catch (stripeError) {
+      } catch (caughtStripeerror) {
+      const stripeError = normalizeError(caughtStripeerror);
         console.error('Error archiving Stripe yearly price:', stripeError)
       }
     }
@@ -534,7 +524,8 @@ export async function DELETE(request: NextRequest) {
     // Invalidate pricing cache (with error handling)
     try {
       await cacheManager.invalidate('pricing:plans')
-    } catch (cacheError) {
+    } catch (caughtCacheerror) {
+      const cacheError = normalizeError(caughtCacheerror);
       console.warn('Cache invalidation failed (non-critical):', cacheError.message)
     }
 
@@ -550,7 +541,7 @@ export async function DELETE(request: NextRequest) {
 
   } catch (error) {
     console.error('Error deleting pricing plan:', error)
-    
+
     return NextResponse.json({
       error: 'Failed to delete pricing plan',
       details: error instanceof Error ? error.message : 'Unknown error'

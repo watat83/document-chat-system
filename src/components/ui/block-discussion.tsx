@@ -12,16 +12,7 @@ import {
   MessagesSquareIcon,
   PencilLineIcon,
 } from 'lucide-react';
-import {
-  type AnyPluginConfig,
-  type NodeEntry,
-  type Path,
-  type TCommentText,
-  type TElement,
-  type TSuggestionText,
-  PathApi,
-  TextApi,
-} from 'platejs';
+import { type AnyPluginConfig, type NodeEntry, type Path, type TCommentText, type TElement, type TSuggestionText, PathApi, TextApi } from 'platejs';
 import {
   useEditorPlugin,
   useEditorRef,
@@ -75,7 +66,7 @@ export const BlockDiscussion: RenderNodeWrapper<AnyPluginConfig> = (props) => {
     return;
   }
 
-  return (props) => (
+  return function DiscussionWrapper(props) { return (
     <BlockCommentContent
       blockPath={blockPath}
       commentNodes={commentNodes}
@@ -83,7 +74,7 @@ export const BlockDiscussion: RenderNodeWrapper<AnyPluginConfig> = (props) => {
       suggestionNodes={suggestionNodes}
       {...props}
     />
-  );
+  ); };
 };
 
 const BlockCommentContent = ({

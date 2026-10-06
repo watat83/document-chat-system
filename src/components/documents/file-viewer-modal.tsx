@@ -1,4 +1,5 @@
 'use client'
+import { useDocumentFile } from '@/hooks/use-document-file'
 
 import React, { useState, useMemo, useEffect } from 'react'
 import dynamic from 'next/dynamic'
@@ -40,59 +41,16 @@ interface FileViewerModalProps {
 
 export function FileViewerModal({ open, onOpenChange, document }: FileViewerModalProps) {
   const [error, setError] = useState<string | null>(null)
-  const [fetchedFile, setFetchedFile] = useState<File | null>(null)
-  const [isLoading, setIsLoading] = useState(false)
 
   // Derive file type from mimeType if type is missing
   const documentType = useMemo(() => {
-    return document.type || getFileTypeFromMimeType(document.mimeType, document.name) || 'file'
+    return document.type || getFileTypeFromMimeType(document.mimeType || '', document.name) || 'file'
   }, [document.id, document.type, document.mimeType, document.name])
 
   const isPDF = documentType === 'pdf' || document.mimeType === 'application/pdf'
 
-  // Fetch file when modal opens for PDFs
-  useEffect(() => {
-    if (!open || !isPDF) {
-      setFetchedFile(null)
-      setError(null)
-      setIsLoading(false)
-      return
-    }
-
-    // Use original file if available
-    if (document.originalFile) {
-      setFetchedFile(document.originalFile)
-      setIsLoading(false)
-      return
-    }
-
-    // Fetch from API
-    const fetchFile = async () => {
-      setIsLoading(true)
-      setError(null)
-
-      try {
-        const response = await fetch(`/api/v1/documents/${document.id}/download`)
-        if (!response.ok) {
-          throw new Error(`Failed to fetch file: ${response.statusText}`)
-        }
-
-        const blob = await response.blob()
-        const file = new File([blob], document.name, {
-          type: document.mimeType || 'application/pdf'
-        })
-
-        setFetchedFile(file)
-        setIsLoading(false)
-      } catch (err) {
-        console.error('Error fetching file:', err)
-        setError(err instanceof Error ? err.message : 'Failed to load file')
-        setIsLoading(false)
-      }
-    }
-
-    fetchFile()
-  }, [open, document.id, isPDF])
+  const { fetchedFile, loading: isLoading, error: fileError } = useDocumentFile(document, open && isPDF)
+  const displayError = error || fileError
 
   const handleDownload = async () => {
     try {
@@ -161,7 +119,7 @@ export function FileViewerModal({ open, onOpenChange, document }: FileViewerModa
                 <div className="text-center max-w-md p-8">
                   <div className="text-6xl mb-4">⚠️</div>
                   <div className="text-base font-medium mb-2">Failed to load preview</div>
-                  <div className="text-sm text-muted-foreground mb-4">{error}</div>
+                  <div className="text-sm text-muted-foreground mb-4">{displayError}</div>
                   <Button onClick={handleDownload} variant="outline">
                     Download File
                   </Button>

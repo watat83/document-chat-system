@@ -1,4 +1,5 @@
 'use client'
+import { useDocumentFile } from '@/hooks/use-document-file';
 
 import React, { useCallback, useState, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
@@ -29,7 +30,7 @@ interface FilePreviewProps {
     id: string
     name: string
     type: string
-    size: string
+    size: string | number
     mimeType?: string
     filePath?: string // Add filePath to interface
     originalFile?: File
@@ -45,7 +46,7 @@ const getOriginalFileName = (docData: any): string => {
       console.warn('getOriginalFileName: docData is null/undefined');
       return 'unknown-file';
     }
-    
+
     // Try to extract filename from filePath first (most reliable for stored files)
     if (docData.filePath && typeof docData.filePath === 'string') {
       const pathParts = docData.filePath.split('/');
@@ -54,12 +55,12 @@ const getOriginalFileName = (docData: any): string => {
         return fileName;
       }
     }
-    
+
     // Fallback to docData.name
     if (docData.name && typeof docData.name === 'string') {
       return docData.name;
     }
-    
+
     console.warn('getOriginalFileName: No valid filename found', {
       filePath: docData.filePath,
       name: docData.name,
@@ -74,53 +75,7 @@ const getOriginalFileName = (docData: any): string => {
 
 // Component for handling canvas preview with fetched file content
 const CanvasPreviewWithFetch: React.FC<{ document: any; className?: string }> = ({ document: doc, className = '' }) => {
-  const [fetchedFile, setFetchedFile] = useState<File | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-
-  // Fetch file content when component mounts or document ID changes
-  useEffect(() => {
-    // If we already have the original file, use it
-    if (doc.originalFile) {
-      setFetchedFile(doc.originalFile);
-      setIsLoading(false);
-      return;
-    }
-
-    // Otherwise fetch from API
-    const fetchFile = async () => {
-      if (!doc.id) {
-        setError('No document ID available');
-        setIsLoading(false);
-        return;
-      }
-
-      setIsLoading(true);
-      setError(null);
-
-      try {
-        const response = await fetch(`/api/v1/documents/${doc.id}/download`);
-        if (!response.ok) {
-          throw new Error(`Failed to fetch file: ${response.statusText}`);
-        }
-
-        const blob = await response.blob();
-        const file = new File([blob], getOriginalFileName(doc), {
-          type: doc.mimeType || 'application/octet-stream'
-        });
-
-        setFetchedFile(file);
-        setIsLoading(false);
-      } catch (err) {
-        console.error('Error fetching file for preview:', err);
-        setError(err instanceof Error ? err.message : 'Failed to load file');
-        setIsLoading(false);
-      }
-    };
-
-    fetchFile();
-    // Only re-fetch when document ID changes (prevents infinite loops)
-  }, [doc.id]);
+  const { fetchedFile, error, loading: isLoading } = useDocumentFile({ ...doc, name: getOriginalFileName(doc) });
 
   // Show loading state
   if (isLoading) {
@@ -146,8 +101,7 @@ const CanvasPreviewWithFetch: React.FC<{ document: any; className?: string }> = 
       <div className={`w-full h-full ${className}`}>
         <ResponsiveCanvasPreview
           file={fetchedFile}
-          type={doc.type}
-          mimeType={doc.mimeType}
+          fileName={doc.name}
         />
       </div>
     );
@@ -164,14 +118,14 @@ const CanvasPreviewWithFetch: React.FC<{ document: any; className?: string }> = 
 export const FilePreview: React.FC<FilePreviewProps> = ({ document: doc, className = '', videoFit = 'contain' }) => {
   const [iframeLoading, setIframeLoading] = useState(true);
   const [iframeError, setIframeError] = useState(false);
-  
+
   // Get original filename for all operations (prevents preview breaking on title edits)
   const originalFileName = getOriginalFileName(doc)
-  
+
   // Check if this is a created document (no actual file)
-  const isCreatedDocument = doc.filePath?.startsWith('/documents/') || 
+  const isCreatedDocument = doc.filePath?.startsWith('/documents/') ||
     (!doc.originalFile && doc.filePath && !doc.filePath.includes('/api/v1/documents/') && !doc.filePath.includes('supabase'));
-  
+
   // Debug logging for created document detection (development only)
   if (process.env.NODE_ENV === 'development') {
     console.log('FilePreview - Created document check:', {
@@ -185,27 +139,14 @@ export const FilePreview: React.FC<FilePreviewProps> = ({ document: doc, classNa
       isCreatedDocument
     });
   }
-  
-  // If it's a created document, show "No file" message or hide preview
-  if (isCreatedDocument) {
-    return (
-      <div className="flex flex-col items-center justify-center text-muted-foreground h-full">
-        <div className="text-4xl mb-3">
-          <FileText />
-        </div>
-        <p className="text-sm">No file</p>
-        <p className="text-xs mt-1">Created Document</p>
-      </div>
-    );
-  }
-  
+
   // Removed debug logging to prevent continuous re-render logs
 
   // Check if file is valid (using duck typing only - no instanceof)
   const isValidFile = useCallback((file: any): file is File => {
     // Simple duck typing check - avoid instanceof completely
-    return file && 
-           typeof file.name === 'string' && 
+    return file &&
+           typeof file.name === 'string' &&
            typeof file.size === 'number' &&
            (typeof file.type === 'string' || file.type === undefined) &&
            typeof file.lastModified === 'number';
@@ -223,10 +164,12 @@ export const FilePreview: React.FC<FilePreviewProps> = ({ document: doc, classNa
   }, []);
 
   // Reset iframe states when document changes
-  useEffect(() => {
+  const [previousDocumentId, setPreviousDocumentId] = useState(doc.id);
+  if (previousDocumentId !== doc.id) {
+    setPreviousDocumentId(doc.id);
     setIframeLoading(true);
     setIframeError(false);
-  }, [doc.id]);
+  }
 
   // Get document icon based on type
   const getDocumentIcon = useCallback((type: string) => {
@@ -275,19 +218,19 @@ export const FilePreview: React.FC<FilePreviewProps> = ({ document: doc, classNa
     const svgContent = '<svg width="400" height="300" xmlns="http://www.w3.org/2000/svg">' +
       '<rect width="100%" height="100%" fill="#f3f4f6"/>' +
       '<text x="50%" y="50%" font-family="system-ui" font-size="16" fill="#6b7280" text-anchor="middle" dominant-baseline="middle">' +
-      text.replace(/[<>&"']/g, '') + 
+      text.replace(/[<>&"']/g, '') +
       '</text></svg>';
     return `data:image/svg+xml;base64,${btoa(svgContent)}`;
   };
 
   // Handle image types (both 'image' and specific formats like 'jpeg', 'png', etc.)
-  const isImageType = doc.type === 'image' || 
-                     doc.mimeType?.startsWith('image/') || 
+  const isImageType = doc.type === 'image' ||
+                     doc.mimeType?.startsWith('image/') ||
                      ['jpeg', 'jpg', 'png', 'gif', 'bmp', 'svg', 'webp'].includes(doc.type.toLowerCase());
 
   if (isImageType) {
       const imageUrl = getFileUrl(doc);
-      
+
       // For persisted images (no originalFile), use AuthenticatedImage
       if (!doc.originalFile) {
         return (
@@ -301,12 +244,12 @@ export const FilePreview: React.FC<FilePreviewProps> = ({ document: doc, classNa
           </div>
         );
       }
-      
+
       // For newly uploaded images with originalFile, use existing logic
       const handleImageLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
         const img = e.target as HTMLImageElement;
         const aspectRatio = img.naturalWidth / img.naturalHeight;
-        
+
         // Determine object-fit based on aspect ratio
         // If image is square-ish (0.8-1.2) or vertical (< 0.8), use cover
         // If image is horizontal (> 1.2), use contain to show full image
@@ -316,7 +259,7 @@ export const FilePreview: React.FC<FilePreviewProps> = ({ document: doc, classNa
           img.style.objectFit = 'contain';
         }
       };
-      
+
       return (
         <div className="w-full h-full bg-black relative">
           {imageUrl ? (
@@ -357,10 +300,10 @@ export const FilePreview: React.FC<FilePreviewProps> = ({ document: doc, classNa
   }
 
   // Handle video types
-  const isVideoType = doc.type === 'video' || 
-                     doc.mimeType?.startsWith('video/') || 
+  const isVideoType = doc.type === 'video' ||
+                     doc.mimeType?.startsWith('video/') ||
                      ['mp4', 'avi', 'mov', 'wmv', 'flv', 'mkv', 'webm'].includes(doc.type.toLowerCase());
-  
+
   // Debug video type detection (development only)
   if (process.env.NODE_ENV === 'development') {
     console.log('FilePreview - Video type check:', {
@@ -377,7 +320,7 @@ export const FilePreview: React.FC<FilePreviewProps> = ({ document: doc, classNa
 
   if (isVideoType) {
       const videoUrl = getDocumentUrl(doc);
-      
+
       // Debug logging for video URL generation
       console.log('FilePreview - Video debug:', {
         docId: doc.id,
@@ -388,7 +331,7 @@ export const FilePreview: React.FC<FilePreviewProps> = ({ document: doc, classNa
         mimeType: doc.mimeType,
         hasValidUrl: !!videoUrl
       });
-      
+
       // Only render video if we have a valid URL (same as main documents page)
       if (!videoUrl) {
         console.log('FilePreview - No video URL available, falling through to default');
@@ -434,10 +377,10 @@ export const FilePreview: React.FC<FilePreviewProps> = ({ document: doc, classNa
   }
 
   // Handle audio types
-  const isAudioType = doc.type === 'audio' || 
-                     doc.mimeType?.startsWith('audio/') || 
+  const isAudioType = doc.type === 'audio' ||
+                     doc.mimeType?.startsWith('audio/') ||
                      ['mp3', 'wav', 'ogg', 'flac', 'aac'].includes(doc.type.toLowerCase());
-  
+
   // Debug audio type detection (development only)
   if (process.env.NODE_ENV === 'development') {
     console.log('FilePreview - Audio type check:', {
@@ -454,7 +397,7 @@ export const FilePreview: React.FC<FilePreviewProps> = ({ document: doc, classNa
 
   if (isAudioType) {
       const audioUrl = getDocumentUrl(doc);
-      
+
       // Only render audio if we have a valid URL (same as main documents page)
       if (!audioUrl) {
         console.log('FilePreview - No audio URL available, falling through to default');
@@ -488,6 +431,19 @@ export const FilePreview: React.FC<FilePreviewProps> = ({ document: doc, classNa
       }
   }
 
+  // If it's a created document, show "No file" message or hide preview
+  if (isCreatedDocument) {
+    return (
+      <div className="flex flex-col items-center justify-center text-muted-foreground h-full">
+        <div className="text-4xl mb-3">
+          <FileText />
+        </div>
+        <p className="text-sm">No file</p>
+        <p className="text-xs mt-1">Created Document</p>
+      </div>
+    );
+  }
+
   // Handle PDF files
   const isPdfType = doc.type === 'pdf' || doc.mimeType === 'application/pdf';
 
@@ -501,9 +457,9 @@ export const FilePreview: React.FC<FilePreviewProps> = ({ document: doc, classNa
   }
 
   // Handle text files
-  const isTextType = doc.type === 'text' || 
+  const isTextType = doc.type === 'text' ||
                     doc.type === 'plain' || // Handle legacy 'plain' type files
-                    doc.mimeType?.startsWith('text/') || 
+                    doc.mimeType?.startsWith('text/') ||
                     ['txt', 'md', 'csv'].includes(doc.type.toLowerCase());
 
   if (isTextType) {
@@ -512,7 +468,7 @@ export const FilePreview: React.FC<FilePreviewProps> = ({ document: doc, classNa
                         doc.name?.toLowerCase().endsWith('.md') ||
                         doc.filePath?.toLowerCase().endsWith('.md') ||
                         doc.mimeType === 'text/markdown';
-      
+
       // Debug logging for markdown detection
       console.log('FilePreview - Markdown detection:', {
         docId: doc.id,
@@ -529,7 +485,7 @@ export const FilePreview: React.FC<FilePreviewProps> = ({ document: doc, classNa
           mimeTypeMarkdown: doc.mimeType === 'text/markdown'
         }
       });
-      
+
       if (isMarkdown) {
         // Use MarkdownViewer for .md files if we have originalFile
         if (doc.originalFile && isValidFile(doc.originalFile)) {
@@ -580,11 +536,12 @@ export const FilePreview: React.FC<FilePreviewProps> = ({ document: doc, classNa
               </div>
               <div className="flex gap-2">
                 {textUrl && (
-                  <Button 
-                    variant="outline" 
+                  <Button
+                    variant="outline"
                     size="sm"
                     onClick={() => {
                       const link = document.createElement('a');
+                      if (!textUrl) return;
                       link.href = textUrl;
                       link.download = originalFileName;
                       link.click();
@@ -610,7 +567,7 @@ export const FilePreview: React.FC<FilePreviewProps> = ({ document: doc, classNa
   }
 
   // Handle code files
-  const isCodeType = doc.type === 'code' || 
+  const isCodeType = doc.type === 'code' ||
                     ['js', 'ts', 'jsx', 'tsx', 'py', 'java', 'cpp', 'c', 'cs', 'php', 'rb', 'go', 'rs', 'swift', 'kt'].includes(doc.type.toLowerCase());
 
   if (isCodeType) {
@@ -626,8 +583,8 @@ export const FilePreview: React.FC<FilePreviewProps> = ({ document: doc, classNa
               </div>
               <div className="flex gap-2">
                 {codeUrl && (
-                  <Button 
-                    variant="outline" 
+                  <Button
+                    variant="outline"
                     size="sm"
                     onClick={() => {
                       const link = document.createElement('a');
@@ -667,8 +624,8 @@ export const FilePreview: React.FC<FilePreviewProps> = ({ document: doc, classNa
                 {codeUrl ? (
                   <div className="mt-6 space-y-3">
                     <p className="text-xs">Failed to load code preview</p>
-                    <Button 
-                      variant="default" 
+                    <Button
+                      variant="default"
                       size="sm"
                       onClick={() => {
                         const link = document.createElement('a');
@@ -693,8 +650,8 @@ export const FilePreview: React.FC<FilePreviewProps> = ({ document: doc, classNa
   }
 
   // Handle Microsoft Word documents
-  const isWordType = doc.type === 'word' || 
-                    doc.mimeType?.includes('word') || 
+  const isWordType = doc.type === 'word' ||
+                    doc.mimeType?.includes('word') ||
                     doc.mimeType?.includes('document') ||
                     ['doc', 'docx'].includes(doc.type.toLowerCase());
 
@@ -707,9 +664,9 @@ export const FilePreview: React.FC<FilePreviewProps> = ({ document: doc, classNa
       );
   }
 
-  // Handle Microsoft Excel documents  
-  const isExcelType = doc.type === 'excel' || 
-                     doc.mimeType?.includes('sheet') || 
+  // Handle Microsoft Excel documents
+  const isExcelType = doc.type === 'excel' ||
+                     doc.mimeType?.includes('sheet') ||
                      doc.mimeType?.includes('excel') ||
                      ['xls', 'xlsx'].includes(doc.type.toLowerCase());
 
@@ -723,8 +680,8 @@ export const FilePreview: React.FC<FilePreviewProps> = ({ document: doc, classNa
   }
 
   // Handle Microsoft PowerPoint documents
-  const isPowerPointType = doc.type === 'powerpoint' || 
-                          doc.mimeType?.includes('presentation') || 
+  const isPowerPointType = doc.type === 'powerpoint' ||
+                          doc.mimeType?.includes('presentation') ||
                           doc.mimeType?.includes('powerpoint') ||
                           ['ppt', 'pptx'].includes(doc.type.toLowerCase());
 
@@ -739,6 +696,7 @@ export const FilePreview: React.FC<FilePreviewProps> = ({ document: doc, classNa
 
   // Default fallback - use CanvasPreviewWithFetch for any other file types
   // This ensures all file types get some kind of preview
+
   return (
     <div className={`w-full h-full ${className}`}>
       <CanvasPreviewWithFetch document={doc} className="w-full h-full" />

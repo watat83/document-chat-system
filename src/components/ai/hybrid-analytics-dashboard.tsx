@@ -1,5 +1,6 @@
 'use client';
 
+import { useClock } from '@/hooks/use-clock';
 import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -106,6 +107,7 @@ export function HybridAnalyticsDashboard({
   demoMode?: boolean;
   organizationId?: string;
 }) {
+  const now = useClock();
   const { getToken } = useAuth();
   const [timeRange, setTimeRange] = useState('24h');
   const [selectedProvider, setSelectedProvider] = useState('all');
@@ -171,7 +173,7 @@ export function HybridAnalyticsDashboard({
       averageCost: 0.01224,
       uptime: 98.7,
       circuitBreakerStatus: 'degraded',
-      lastFailure: new Date(Date.now() - 45000)
+      lastFailure: new Date(now - 45000)
     },
     {
       provider: 'google',
@@ -182,7 +184,7 @@ export function HybridAnalyticsDashboard({
       averageCost: 0.01351,
       uptime: 97.2,
       circuitBreakerStatus: 'open',
-      lastFailure: new Date(Date.now() - 120000)
+      lastFailure: new Date(now - 120000)
     }
   ];
 
@@ -332,7 +334,11 @@ export function HybridAnalyticsDashboard({
   }, [organizationId, demoMode, timeRange, selectedProvider, getToken]);
 
   useEffect(() => {
-    fetchAnalyticsData();
+    const timeout = window.setTimeout(() => {
+      void fetchAnalyticsData();
+    }, 0);
+
+    return () => window.clearTimeout(timeout);
   }, [fetchAnalyticsData]);
 
   // Auto-refresh every 30 seconds if enabled
@@ -374,7 +380,7 @@ export function HybridAnalyticsDashboard({
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `hybrid-ai-analytics-${timeRange}-${Date.now()}.json`;
+    a.download = `hybrid-ai-analytics-${timeRange}-${now}.json`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -996,7 +1002,7 @@ export function HybridAnalyticsDashboard({
                           <span className="text-sm capitalize">{provider.provider}</span>
                         </div>
                         <span className="text-sm font-mono">
-                          {Math.floor(provider.successRate + Math.random() * 5)}%
+                          {Math.round(provider.successRate)}%
                         </span>
                       </div>
                     ))}

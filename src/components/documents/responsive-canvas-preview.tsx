@@ -29,14 +29,14 @@ export const ResponsiveCanvasPreview: React.FC<ResponsiveCanvasPreviewProps> = (
   // File type detection based on extension (more reliable than MIME type)
   const getFileTypeCategory = useCallback((fileName: string): string => {
     const extension = fileName.toLowerCase().split('.').pop() || ''
-    
+
     const extensionMap: Record<string, string> = {
       // Text files
       'txt': 'text', 'md': 'text', 'log': 'text', 'readme': 'text', 'rtf': 'text',
-      'text': 'text', 'conf': 'text', 'cfg': 'text', 'ini': 'text', 'env': 'text',
+      'text': 'text', 'conf': 'text', 'cfg': 'text',  'env': 'text',
       'gitignore': 'text', 'license': 'text', 'dockerfile': 'text', 'makefile': 'text',
       // Code files
-      'js': 'code', 'ts': 'code', 'jsx': 'code', 'tsx': 'code', 'mjs': 'code', 'cjs': 'code',
+      'js': 'code',  'jsx': 'code', 'tsx': 'code', 'mjs': 'code', 'cjs': 'code',
       'py': 'code', 'pyw': 'code', 'pyc': 'code', 'pyo': 'code', 'pyd': 'code',
       'java': 'code', 'class': 'code', 'jar': 'code', 'war': 'code',
       'cpp': 'code', 'cxx': 'code', 'cc': 'code', 'c': 'code', 'h': 'code', 'hpp': 'code',
@@ -57,8 +57,8 @@ export const ResponsiveCanvasPreview: React.FC<ResponsiveCanvasPreviewProps> = (
       'bat': 'code', 'cmd': 'code', 'ps1': 'code', 'psm1': 'code',
       'r': 'code', 'rmd': 'code', 'stata': 'code', 'sas': 'code',
       'matlab': 'code', 'm': 'code', 'scala': 'code', 'clj': 'code',
-      // Images  
-      'jpg': 'image', 'jpeg': 'image', 'png': 'image', 'gif': 'image', 'webp': 'image', 
+      // Images
+      'jpg': 'image', 'jpeg': 'image', 'png': 'image', 'gif': 'image', 'webp': 'image',
       'svg': 'image', 'bmp': 'image', 'tiff': 'image', 'tif': 'image', 'ico': 'image',
       'heic': 'image', 'heif': 'image', 'avif': 'image', 'jfif': 'image',
       'raw': 'image', 'cr2': 'image', 'nef': 'image', 'arw': 'image', 'dng': 'image',
@@ -67,7 +67,7 @@ export const ResponsiveCanvasPreview: React.FC<ResponsiveCanvasPreviewProps> = (
       'pdf': 'pdf',
       'docx': 'document', 'doc': 'document', 'docm': 'document', 'dotx': 'document', 'dotm': 'document',
       'odt': 'document', 'ott': 'document', 'fodt': 'document',
-      'pages': 'document', 'numbers': 'document', 'key': 'document',
+      'pages': 'document',
       'wpd': 'document', 'wps': 'document',
       // Spreadsheets
       'xlsx': 'spreadsheet', 'xls': 'spreadsheet', 'xlsm': 'spreadsheet', 'xlsb': 'spreadsheet',
@@ -83,21 +83,21 @@ export const ResponsiveCanvasPreview: React.FC<ResponsiveCanvasPreviewProps> = (
       'odp': 'presentation', 'otp': 'presentation', 'fodp': 'presentation',
       'key': 'presentation',
       // Video
-      'mp4': 'video', 'webm': 'video', 'mov': 'video', 'avi': 'video', 'wmv': 'video', 
-      'flv': 'video', 'mkv': 'video', '3gp': 'video', '3g2': 'video', 'm4v': 'video', 
+      'mp4': 'video', 'webm': 'video', 'mov': 'video', 'avi': 'video', 'wmv': 'video',
+      'flv': 'video', 'mkv': 'video', '3gp': 'video', '3g2': 'video', 'm4v': 'video',
       'ogv': 'video', 'mxf': 'video', 'ts': 'video', 'm2ts': 'video', 'vob': 'video',
       'asf': 'video', 'rm': 'video', 'rmvb': 'video', 'divx': 'video', 'xvid': 'video',
       // Audio
-      'mp3': 'audio', 'wav': 'audio', 'ogg': 'audio', 'oga': 'audio', 'aac': 'audio', 
+      'mp3': 'audio', 'wav': 'audio', 'ogg': 'audio', 'oga': 'audio', 'aac': 'audio',
       'flac': 'audio', 'm4a': 'audio', 'wma': 'audio', 'opus': 'audio',
       'aiff': 'audio', 'au': 'audio', 'ra': 'audio', 'amr': 'audio', 'awb': 'audio',
       'dsd': 'audio', 'dsf': 'audio', 'dff': 'audio',
       // Archives
       'zip': 'archive', 'rar': 'archive', 'tar': 'archive', 'gz': 'archive', 'tgz': 'archive',
       '7z': 'archive', 'bz2': 'archive', 'tbz2': 'archive', 'xz': 'archive', 'txz': 'archive',
-      'lz': 'archive', 'lzma': 'archive', 'lzo': 'archive', 'z': 'archive', 'deb': 'archive',
-      'rpm': 'archive', 'dmg': 'archive', 'iso': 'archive', 'img': 'archive',
-      'cab': 'archive', 'msi': 'archive', 'pkg': 'archive', 'ace': 'archive',
+      'lz': 'archive', 'lzma': 'archive', 'lzo': 'archive', 'z': 'archive',
+        'iso': 'archive', 'img': 'archive',
+      'cab': 'archive',   'ace': 'archive',
       // Fonts
       'ttf': 'font', 'otf': 'font', 'woff': 'font', 'woff2': 'font', 'eot': 'font',
       // Executables and binaries
@@ -111,7 +111,7 @@ export const ResponsiveCanvasPreview: React.FC<ResponsiveCanvasPreviewProps> = (
       'epub': 'ebook', 'mobi': 'ebook', 'azw': 'ebook', 'azw3': 'ebook', 'fb2': 'ebook',
       'lit': 'ebook', 'pdb': 'ebook', 'prc': 'ebook', 'lrf': 'ebook', 'ibooks': 'ebook'
     }
-    
+
     return extensionMap[extension] || 'unknown'
   }, [])
 
@@ -143,7 +143,7 @@ export const ResponsiveCanvasPreview: React.FC<ResponsiveCanvasPreviewProps> = (
   const generateGenericPreview = useCallback(async (file: File, category: string): Promise<{ dataURL: string; additionalInfo: any }> => {
     const canvas = document.createElement('canvas')
     const ctx = canvas.getContext('2d')
-    
+
     if (!ctx) {
       throw new Error('Cannot get canvas context')
     }
@@ -151,10 +151,10 @@ export const ResponsiveCanvasPreview: React.FC<ResponsiveCanvasPreviewProps> = (
     // Use reliable fixed dimensions
     const baseWidth = Math.max(400, dimensions.width)
     const baseHeight = Math.max(500, dimensions.height)
-    
+
     canvas.width = baseWidth
     canvas.height = baseHeight
-    
+
     // Category-specific styling
     const categoryStyles: Record<string, any> = {
       font: { bg: '#f0f9ff', icon: '🔤', color: '#0369a1' },
@@ -169,45 +169,45 @@ export const ResponsiveCanvasPreview: React.FC<ResponsiveCanvasPreviewProps> = (
       pdf: { bg: '#fef2f2', icon: '📋', color: '#dc2626' },
       default: { bg: '#f9fafb', icon: '📄', color: '#6b7280' }
     }
-    
+
     const style = categoryStyles[category] || categoryStyles.default
-    
+
     // Background
     ctx.fillStyle = style.bg
     ctx.fillRect(0, 0, baseWidth, baseHeight)
-    
+
     // Border
     ctx.strokeStyle = '#e5e7eb'
     ctx.lineWidth = 2
     ctx.strokeRect(0, 0, baseWidth, baseHeight)
-    
+
     // Icon
     ctx.font = 'bold 64px Arial'
     ctx.textAlign = 'center'
     ctx.fillText(style.icon, baseWidth / 2, 150)
-    
+
     // File type
     const extension = file.name.split('.').pop()?.toUpperCase() || 'FILE'
     ctx.fillStyle = style.color
     ctx.font = 'bold 32px Arial'
     ctx.fillText(extension, baseWidth / 2, 220)
-    
+
     // Category
     ctx.font = 'bold 18px Arial'
     ctx.fillText(category.charAt(0).toUpperCase() + category.slice(1) + ' File', baseWidth / 2, 250)
-    
+
     // File info
     ctx.fillStyle = '#6b7280'
     ctx.font = '16px Arial'
     ctx.fillText(file.name, baseWidth / 2, 300)
     ctx.fillText(`${(file.size / 1024).toFixed(1)} KB`, baseWidth / 2, 330)
-    
+
     // Additional info
     ctx.font = '14px Arial'
     ctx.fillStyle = '#9ca3af'
     ctx.fillText('Preview available', baseWidth / 2, 380)
     ctx.fillText('Click to view full content', baseWidth / 2, 400)
-    
+
     return {
       dataURL: canvas.toDataURL('image/png'),
       additionalInfo: {}
@@ -218,15 +218,15 @@ export const ResponsiveCanvasPreview: React.FC<ResponsiveCanvasPreviewProps> = (
   const generateImagePreview = useCallback(async (file: File): Promise<{ dataURL: string; additionalInfo: any }> => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader()
-      
+
       reader.onload = (e) => {
         const img = new Image()
-        
+
         img.onload = () => {
           // Create canvas to optimize image size and quality
           const canvas = document.createElement('canvas')
           const ctx = canvas.getContext('2d')
-          
+
           if (!ctx) {
             resolve({
               dataURL: e.target?.result as string,
@@ -234,33 +234,33 @@ export const ResponsiveCanvasPreview: React.FC<ResponsiveCanvasPreviewProps> = (
             })
             return
           }
-          
+
           // Calculate optimal dimensions for container while maintaining aspect ratio
           const maxWidth = dimensions.width
           const maxHeight = dimensions.height
-          
+
           let { width, height } = img
-          
+
           // Scale down large images for better performance
           if (width > maxWidth || height > maxHeight) {
             const ratio = Math.min(maxWidth / width, maxHeight / height)
             width = Math.floor(width * ratio)
             height = Math.floor(height * ratio)
           }
-          
+
           canvas.width = width
           canvas.height = height
-          
+
           // Use better image smoothing
           ctx.imageSmoothingEnabled = true
           ctx.imageSmoothingQuality = 'high'
-          
+
           ctx.drawImage(img, 0, 0, width, height)
-          
+
           resolve({
             dataURL: canvas.toDataURL('image/jpeg', 0.9), // Optimize quality/size
-            additionalInfo: { 
-              originalWidth: img.width, 
+            additionalInfo: {
+              originalWidth: img.width,
               originalHeight: img.height,
               displayWidth: width,
               displayHeight: height,
@@ -268,21 +268,21 @@ export const ResponsiveCanvasPreview: React.FC<ResponsiveCanvasPreviewProps> = (
             }
           })
         }
-        
+
         img.onerror = () => {
           resolve({
             dataURL: e.target?.result as string,
             additionalInfo: { error: 'Failed to process image' }
           })
         }
-        
+
         img.src = e.target?.result as string
       }
-      
+
       reader.onerror = () => {
         reject(new Error('Failed to read image file'))
       }
-      
+
       reader.readAsDataURL(file)
     })
   }, [dimensions.width, dimensions.height])
@@ -295,12 +295,12 @@ export const ResponsiveCanvasPreview: React.FC<ResponsiveCanvasPreviewProps> = (
         const script = document.createElement('script')
         script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js'
         document.head.appendChild(script)
-        
+
         await new Promise((resolve, reject) => {
           const timeout = setTimeout(() => {
             reject(new Error('PDF.js loading timeout'))
           }, 10000)
-          
+
           script.onload = () => {
             clearTimeout(timeout)
             resolve(true)
@@ -310,26 +310,26 @@ export const ResponsiveCanvasPreview: React.FC<ResponsiveCanvasPreviewProps> = (
             reject(new Error('Failed to load PDF.js'))
           }
         })
-        
+
         window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'
       }
-      
+
       const arrayBuffer = await file.arrayBuffer()
       const pdf = await window.pdfjsLib.getDocument({
         data: arrayBuffer,
         cMapUrl: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/cmaps/',
         cMapPacked: true
       }).promise
-      
+
       const page = await pdf.getPage(1)
-      
+
       const canvas = document.createElement('canvas')
       const context = canvas.getContext('2d')
-      
+
       if (!context) {
         throw new Error('Cannot get canvas context for PDF rendering')
       }
-      
+
       // Calculate optimal scale for container
       const viewport = page.getViewport({ scale: 1.0 })
       const scale = Math.min(
@@ -337,16 +337,16 @@ export const ResponsiveCanvasPreview: React.FC<ResponsiveCanvasPreviewProps> = (
         dimensions.height / viewport.height,
         2.0 // Max scale for quality
       )
-      
+
       const scaledViewport = page.getViewport({ scale })
       canvas.width = scaledViewport.width
       canvas.height = scaledViewport.height
-      
-      await page.render({ 
-        canvasContext: context, 
-        viewport: scaledViewport 
+
+      await page.render({
+        canvasContext: context,
+        viewport: scaledViewport
       }).promise
-      
+
       return {
         dataURL: canvas.toDataURL('image/png'),
         additionalInfo: { pages: pdf.numPages, scale }
@@ -371,10 +371,10 @@ export const ResponsiveCanvasPreview: React.FC<ResponsiveCanvasPreviewProps> = (
         const decoder = new TextDecoder('utf-8', { fatal: false })
         text = decoder.decode(arrayBuffer)
       }
-      
+
       const canvas = document.createElement('canvas')
       const ctx = canvas.getContext('2d')
-      
+
       if (!ctx) {
         throw new Error('Cannot get canvas context')
       }
@@ -382,36 +382,36 @@ export const ResponsiveCanvasPreview: React.FC<ResponsiveCanvasPreviewProps> = (
       // Responsive dimensions with minimum sizes
       const baseWidth = Math.max(400, dimensions.width)
       const baseHeight = Math.max(300, dimensions.height)
-      
+
       canvas.width = baseWidth
       canvas.height = baseHeight
-      
+
       // Background with subtle gradient
       const gradient = ctx.createLinearGradient(0, 0, 0, baseHeight)
       gradient.addColorStop(0, '#ffffff')
       gradient.addColorStop(1, '#fafafa')
       ctx.fillStyle = gradient
       ctx.fillRect(0, 0, baseWidth, baseHeight)
-      
+
       // Border
       ctx.strokeStyle = '#e5e7eb'
       ctx.lineWidth = 1
       ctx.strokeRect(0, 0, baseWidth, baseHeight)
-      
+
       // Header with file info
       ctx.fillStyle = '#1f2937'
       ctx.font = 'bold 14px Arial'
       ctx.fillText(`📄 ${fileName}`, 10, 25)
-      
+
       // Text content with better formatting
       ctx.fillStyle = '#374151'
       ctx.font = '11px "Monaco", "Consolas", monospace'
-      
+
       const lines = text.split('\n')
       const maxLines = Math.floor((baseHeight - 80) / 14) // Dynamic line count
       const displayLines = lines.slice(0, maxLines)
       const maxCharsPerLine = Math.floor((baseWidth - 20) / 7) // Dynamic line width
-      
+
       displayLines.forEach((line, index) => {
         // Handle long lines by wrapping
         if (line.length > maxCharsPerLine) {
@@ -421,7 +421,7 @@ export const ResponsiveCanvasPreview: React.FC<ResponsiveCanvasPreviewProps> = (
           ctx.fillText(line || ' ', 10, 50 + (index * 14)) // Handle empty lines
         }
       })
-      
+
       // File stats at bottom
       ctx.fillStyle = '#6b7280'
       ctx.font = '12px Arial'
@@ -429,18 +429,18 @@ export const ResponsiveCanvasPreview: React.FC<ResponsiveCanvasPreviewProps> = (
       const totalChars = text.length
       const fileSize = (file.size / 1024).toFixed(1)
       ctx.fillText(`${totalLines} lines • ${totalChars} chars • ${fileSize} KB`, 10, baseHeight - 15)
-      
+
       // Truncation indicator
       if (lines.length > maxLines) {
         ctx.fillStyle = '#f59e0b'
         ctx.font = 'italic 11px Arial'
         ctx.fillText(`... and ${lines.length - maxLines} more lines`, 10, baseHeight - 35)
       }
-      
+
       return {
         dataURL: canvas.toDataURL('image/png'),
-        additionalInfo: { 
-          lines: totalLines, 
+        additionalInfo: {
+          lines: totalLines,
           characters: totalChars,
           displayed: displayLines.length,
           truncated: lines.length > maxLines
@@ -458,7 +458,7 @@ export const ResponsiveCanvasPreview: React.FC<ResponsiveCanvasPreviewProps> = (
     const lines = text.split('\n')
     const canvas = document.createElement('canvas')
     const ctx = canvas.getContext('2d')
-    
+
     if (!ctx) {
       throw new Error('Cannot get canvas context')
     }
@@ -466,42 +466,42 @@ export const ResponsiveCanvasPreview: React.FC<ResponsiveCanvasPreviewProps> = (
     // Use reliable fixed dimensions that work, then scale responsively
     const baseWidth = Math.max(800, dimensions.width)
     const baseHeight = Math.max(500, dimensions.height)
-    
+
     canvas.width = baseWidth
     canvas.height = baseHeight
-    
+
     // Background
     ctx.fillStyle = '#ffffff'
     ctx.fillRect(0, 0, baseWidth, baseHeight)
-    
+
     // Border
     ctx.strokeStyle = '#e5e7eb'
     ctx.lineWidth = 1
     ctx.strokeRect(0, 0, baseWidth, baseHeight)
-    
+
     // Title
     ctx.fillStyle = '#374151'
     ctx.font = 'bold 16px Arial'
     ctx.textAlign = 'center'
     ctx.fillText('📊 CSV Data Preview', baseWidth / 2, 30)
-    
+
     // Parse CSV data (simple parsing) - use first 15 rows like example
-    const rows = lines.slice(0, 15).map(line => 
+    const rows = lines.slice(0, 15).map(line =>
       line.split(',').map(cell => cell.trim().replace(/"/g, ''))
     )
-    
+
     // Draw table - use fixed values that work
     ctx.font = '11px Monaco, monospace'
     ctx.textAlign = 'left'
-    
+
     const colWidth = 120
     const rowHeight = 25
     const startX = 20
     const startY = 60
-    
+
     rows.forEach((row, rowIndex) => {
       const isHeader = rowIndex === 0
-      
+
       // Header styling
       if (isHeader) {
         ctx.fillStyle = '#f3f4f6'
@@ -512,16 +512,16 @@ export const ResponsiveCanvasPreview: React.FC<ResponsiveCanvasPreviewProps> = (
         ctx.fillStyle = '#374151'
         ctx.font = '11px Monaco, monospace'
       }
-      
+
       // Draw grid lines
       ctx.strokeStyle = '#e5e7eb'
       ctx.lineWidth = 0.5
       ctx.strokeRect(startX, startY + rowIndex * rowHeight - 15, baseWidth - 40, rowHeight)
-      
+
       row.slice(0, 6).forEach((cell, colIndex) => {
         const truncated = cell.length > 15 ? cell.substring(0, 15) + '...' : cell
         ctx.fillText(truncated, startX + colIndex * colWidth + 5, startY + rowIndex * rowHeight)
-        
+
         // Vertical lines
         ctx.beginPath()
         ctx.moveTo(startX + (colIndex + 1) * colWidth, startY + rowIndex * rowHeight - 15)
@@ -529,19 +529,19 @@ export const ResponsiveCanvasPreview: React.FC<ResponsiveCanvasPreviewProps> = (
         ctx.stroke()
       })
     })
-    
+
     // Stats
     ctx.fillStyle = '#6b7280'
     ctx.font = '12px Arial'
     ctx.textAlign = 'center'
     ctx.fillText(`${lines.length} rows × ${rows[0]?.length || 0} columns`, baseWidth / 2, baseHeight - 20)
-    
+
     return {
       dataURL: canvas.toDataURL('image/png'),
-      additionalInfo: { 
-        rows: lines.length, 
+      additionalInfo: {
+        rows: lines.length,
         columns: rows[0]?.length || 0,
-        estimatedSize: text.length 
+        estimatedSize: text.length
       }
     }
   }, [dimensions.width, dimensions.height])
@@ -745,34 +745,34 @@ export const ResponsiveCanvasPreview: React.FC<ResponsiveCanvasPreviewProps> = (
   const generateVideoPreview = useCallback(async (file: File): Promise<{ dataURL: string; additionalInfo: any }> => {
     const canvas = document.createElement('canvas')
     const ctx = canvas.getContext('2d')
-    
+
     if (!ctx) {
       throw new Error('Cannot get canvas context')
     }
 
     const baseWidth = Math.max(400, dimensions.width)
     const baseHeight = Math.max(300, dimensions.height)
-    
+
     canvas.width = baseWidth
     canvas.height = baseHeight
-    
+
     // Video player-like background
     const gradient = ctx.createLinearGradient(0, 0, 0, baseHeight)
     gradient.addColorStop(0, '#1f2937')
     gradient.addColorStop(1, '#111827')
     ctx.fillStyle = gradient
     ctx.fillRect(0, 0, baseWidth, baseHeight)
-    
+
     // Play button circle
     const centerX = baseWidth / 2
     const centerY = baseHeight / 2
     const radius = 40
-    
+
     ctx.fillStyle = '#ef4444'
     ctx.beginPath()
     ctx.arc(centerX, centerY, radius, 0, 2 * Math.PI)
     ctx.fill()
-    
+
     // Play triangle
     ctx.fillStyle = '#ffffff'
     ctx.beginPath()
@@ -781,21 +781,21 @@ export const ResponsiveCanvasPreview: React.FC<ResponsiveCanvasPreviewProps> = (
     ctx.lineTo(centerX + 20, centerY)
     ctx.closePath()
     ctx.fill()
-    
+
     // Video info
     ctx.fillStyle = '#ffffff'
     ctx.font = 'bold 16px Arial'
     ctx.textAlign = 'center'
     ctx.fillText('🎬 Video File', centerX, centerY - 80)
-    
+
     ctx.font = '14px Arial'
     ctx.fillText(file.name, centerX, centerY + 80)
-    
+
     const duration = 'Unknown duration' // Would need video metadata
     ctx.font = '12px Arial'
     ctx.fillStyle = '#d1d5db'
     ctx.fillText(`${(file.size / (1024 * 1024)).toFixed(1)} MB • ${duration}`, centerX, centerY + 100)
-    
+
     return {
       dataURL: canvas.toDataURL('image/png'),
       additionalInfo: { fileSize: file.size }
@@ -806,31 +806,31 @@ export const ResponsiveCanvasPreview: React.FC<ResponsiveCanvasPreviewProps> = (
   const generateAudioPreview = useCallback(async (file: File): Promise<{ dataURL: string; additionalInfo: any }> => {
     const canvas = document.createElement('canvas')
     const ctx = canvas.getContext('2d')
-    
+
     if (!ctx) {
       throw new Error('Cannot get canvas context')
     }
 
     const baseWidth = Math.max(400, dimensions.width)
     const baseHeight = Math.max(300, dimensions.height)
-    
+
     canvas.width = baseWidth
     canvas.height = baseHeight
-    
+
     // Audio player background
     const gradient = ctx.createLinearGradient(0, 0, 0, baseHeight)
     gradient.addColorStop(0, '#7c3aed')
     gradient.addColorStop(1, '#5b21b6')
     ctx.fillStyle = gradient
     ctx.fillRect(0, 0, baseWidth, baseHeight)
-    
+
     // Waveform visualization (decorative)
     ctx.strokeStyle = '#e0e7ff'
     ctx.lineWidth = 3
     const centerY = baseHeight / 2
     const waveWidth = baseWidth - 40
     const waveStart = 20
-    
+
     for (let i = 0; i < 20; i++) {
       const x = waveStart + (i * (waveWidth / 20))
       const height = Math.random() * 40 + 10
@@ -839,24 +839,24 @@ export const ResponsiveCanvasPreview: React.FC<ResponsiveCanvasPreviewProps> = (
       ctx.lineTo(x, centerY + height / 2)
       ctx.stroke()
     }
-    
+
     // Audio icon
     ctx.fillStyle = '#ffffff'
     ctx.font = 'bold 48px Arial'
     ctx.textAlign = 'center'
     ctx.fillText('🎵', baseWidth / 2, centerY - 60)
-    
+
     // Audio info
     ctx.font = 'bold 16px Arial'
     ctx.fillText('Audio File', baseWidth / 2, centerY + 20)
-    
+
     ctx.font = '14px Arial'
     ctx.fillText(file.name, baseWidth / 2, centerY + 45)
-    
+
     ctx.font = '12px Arial'
     ctx.fillStyle = '#e0e7ff'
     ctx.fillText(`${(file.size / (1024 * 1024)).toFixed(1)} MB`, baseWidth / 2, centerY + 65)
-    
+
     return {
       dataURL: canvas.toDataURL('image/png'),
       additionalInfo: { fileSize: file.size }
@@ -867,67 +867,67 @@ export const ResponsiveCanvasPreview: React.FC<ResponsiveCanvasPreviewProps> = (
   const generateArchivePreview = useCallback(async (file: File): Promise<{ dataURL: string; additionalInfo: any }> => {
     const canvas = document.createElement('canvas')
     const ctx = canvas.getContext('2d')
-    
+
     if (!ctx) {
       throw new Error('Cannot get canvas context')
     }
 
     const baseWidth = Math.max(400, dimensions.width)
     const baseHeight = Math.max(400, dimensions.height)
-    
+
     canvas.width = baseWidth
     canvas.height = baseHeight
-    
+
     // Archive background
     ctx.fillStyle = '#f3f4f6'
     ctx.fillRect(0, 0, baseWidth, baseHeight)
-    
+
     // Border
     ctx.strokeStyle = '#d1d5db'
     ctx.lineWidth = 2
     ctx.strokeRect(0, 0, baseWidth, baseHeight)
-    
+
     // Archive icon stack effect
     const boxSize = 120
     const centerX = baseWidth / 2
     const centerY = baseHeight / 2
-    
+
     // Back boxes
     ctx.fillStyle = '#9ca3af'
     ctx.fillRect(centerX - boxSize/2 + 8, centerY - boxSize/2 + 8, boxSize, boxSize)
     ctx.fillStyle = '#6b7280'
     ctx.fillRect(centerX - boxSize/2 + 4, centerY - boxSize/2 + 4, boxSize, boxSize)
-    
+
     // Front box
     ctx.fillStyle = '#374151'
     ctx.fillRect(centerX - boxSize/2, centerY - boxSize/2, boxSize, boxSize)
-    
+
     // Archive icon
     ctx.fillStyle = '#ffffff'
     ctx.font = 'bold 40px Arial'
     ctx.textAlign = 'center'
     ctx.fillText('📦', centerX, centerY + 10)
-    
+
     // Archive info
     ctx.fillStyle = '#1f2937'
     ctx.font = 'bold 18px Arial'
     ctx.fillText('Archive File', centerX, centerY + 80)
-    
+
     const extension = file.name.split('.').pop()?.toUpperCase() || 'ARCHIVE'
     ctx.font = 'bold 16px Arial'
     ctx.fillStyle = '#ef4444'
     ctx.fillText(extension, centerX, centerY + 105)
-    
+
     ctx.font = '14px Arial'
     ctx.fillStyle = '#4b5563'
     ctx.fillText(file.name, centerX, centerY + 130)
-    
+
     ctx.font = '12px Arial'
     ctx.fillText(`${(file.size / (1024 * 1024)).toFixed(1)} MB compressed`, centerX, centerY + 150)
-    
+
     return {
       dataURL: canvas.toDataURL('image/png'),
-      additionalInfo: { 
+      additionalInfo: {
         fileSize: file.size,
         format: extension
       }
@@ -939,10 +939,10 @@ export const ResponsiveCanvasPreview: React.FC<ResponsiveCanvasPreviewProps> = (
     try {
       setLoading(true)
       setError(null)
-      
+
       const category = getFileTypeCategory(fileName)
       let result: { dataURL: string; additionalInfo: any }
-      
+
       switch (category) {
         case 'image':
           result = await generateImagePreview(file)
@@ -981,7 +981,7 @@ export const ResponsiveCanvasPreview: React.FC<ResponsiveCanvasPreviewProps> = (
           // For unsupported types, generate generic preview
           result = await generateGenericPreview(file, 'unknown')
       }
-      
+
       setPreview(result.dataURL)
       setLoading(false)
     } catch (error) {
@@ -1039,9 +1039,9 @@ export const ResponsiveCanvasPreview: React.FC<ResponsiveCanvasPreviewProps> = (
 
   return (
     <div ref={containerRef} className={`w-full h-full ${className}`}>
-      <img 
-        src={preview} 
-        alt={`Preview of ${fileName}`} 
+      <img
+        src={preview}
+        alt={`Preview of ${fileName}`}
         className="w-full h-full object-cover"
         style={{ maxWidth: '100%', maxHeight: '100%' }}
       />

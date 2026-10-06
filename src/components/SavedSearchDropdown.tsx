@@ -1,5 +1,7 @@
 'use client'
 
+import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
+import { useRef } from 'react'
 import React, { useState, useEffect, useCallback } from 'react'
 import { useUser } from '@clerk/nextjs'
 import { Button } from '@/components/ui/button'
@@ -24,15 +26,15 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Badge } from '@/components/ui/badge'
-import { 
-  Bookmark, 
-  BookmarkPlus, 
-  Search, 
-  Star, 
-  Share2, 
-  Edit3, 
-  Trash2, 
-  Clock, 
+import {
+  Bookmark,
+  BookmarkPlus,
+  Search,
+  Star,
+  Share2,
+  Edit3,
+  Trash2,
+  Clock,
   ChevronDown,
   Loader2,
   Users,
@@ -86,125 +88,62 @@ export function SavedSearchDropdown({
   prefetchedSearches = []
 }: SavedSearchDropdownProps) {
   const { user, isLoaded } = useUser()
-  const [savedSearches, setSavedSearches] = useState<SavedSearch[]>(prefetchedSearches)
-  const [isLoading, setIsLoading] = useState(false)
   const [isOpen, setIsOpen] = useState(false)
-  const [hasPrefetched, setHasPrefetched] = useState(prefetchedSearches.length > 0)
-  const [hasAppliedDefault, setHasAppliedDefault] = useState(false)
+  const hasAppliedDefault = useRef(false)
   const [deleteDialog, setDeleteDialog] = useState<{
     isOpen: boolean
     search?: SavedSearch
   }>({ isOpen: false })
   const notify = useNotify()
 
-  // Don't render for unauthenticated users
-  if (!isLoaded || !user) {
-    return null
-  }
-
-  // Load saved searches
-  const loadSavedSearches = useCallback(async () => {
-    setIsLoading(true)
-    try {
-      const response = await fetch('/api/v1/saved-searches?shared=true&limit=50')
-      
-      if (!response.ok) {
-        if (response.status === 401) {
-          console.log('User not authenticated - saved searches not available')
-          setSavedSearches([])
-          return
-        }
-        throw new Error(`HTTP ${response.status}`)
-      }
-
+  const queryClient = useQueryClient()
+  const queryKey = ['saved-searches', user?.id]
+  const query = useQuery({
+    queryKey, enabled: Boolean(user), gcTime: 0,
+    initialData: prefetchedSearches.length ? prefetchedSearches : undefined,
+    queryFn: async ({ signal }) => {
+      const response = await fetch('/api/v1/saved-searches?shared=true&limit=50', { signal })
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
       const result = await response.json()
-      
-      if (result.success) {
-        setSavedSearches(result.data || [])
-      } else {
-        console.error('Failed to load saved searches:', result.error)
-        notify.error('Error', 'Failed to load saved searches')
-      }
-    } catch (error) {
-      console.error('Error loading saved searches:', error)
-      // Don't show error notification for auth issues
-      if (error instanceof Error && !error.message.includes('401')) {
-        notify.error('Error', 'Failed to load saved searches')
-      }
-    } finally {
-      setIsLoading(false)
-    }
-  }, [notify])
-
-  // Use prefetched data if available
-  useEffect(() => {
-    if (prefetchedSearches.length > 0 && !hasPrefetched) {
-      setSavedSearches(prefetchedSearches)
-      setHasPrefetched(true)
-    }
-  }, [prefetchedSearches, hasPrefetched])
-
-  // Load searches if not prefetched
-  useEffect(() => {
-    if (user && !hasPrefetched && prefetchedSearches.length === 0) {
-      loadSavedSearches().then(() => {
-        setHasPrefetched(true)
-      })
-    }
-  }, [user, hasPrefetched, prefetchedSearches.length, loadSavedSearches])
-
-  // Apply favorite/default search on initial load
-  useEffect(() => {
-    if (hasPrefetched && !hasAppliedDefault && savedSearches.length > 0) {
-      // Find and apply favorite or default search
-      const favoriteSearch = savedSearches.find(s => s.isFavorite)
-      const defaultSearch = savedSearches.find(s => s.isDefault)
-      const searchToApply = favoriteSearch || defaultSearch
-      
-      if (searchToApply) {
-        console.log('🌟 Applying favorite/default search on load:', searchToApply.name)
-        executeSearch(searchToApply, true) // Silent execution on load
-        setHasAppliedDefault(true)
-      }
-    }
-  }, [hasPrefetched, hasAppliedDefault, savedSearches])
-
-  // Refresh searches when dropdown opens (in case they changed)
-  useEffect(() => {
-    if (isOpen && hasPrefetched) {
-      loadSavedSearches()
-    }
-  }, [isOpen])
-
-  // Execute/apply a saved search
+      if (!result.success) throw new Error(result.error || 'Failed to load saved searches')
+      return (result.data || []) as SavedSearch[]
+    },
+  })
+  const savedSearches = query.data ?? []
+  const isLoading = query.isFetching
+  const hasPrefetched = query.data !== undefined
+  const setSavedSearches = (update: SavedSearch[] | ((previous: SavedSearch[]) => SavedSearch[])) => {
+    queryClient.setQueryData<SavedSearch[]>(queryKey, previous => typeof update === 'function' ? update(previous ?? []) : update)
+  }
+  const loadSavedSearches = async () => { await query.refetch() }
+  const executeMutation = useMutation({
+    mutationFn: async ({ search }: { search: SavedSearch; silent: boolean }) => {
+      const response = await fetch(`/api/v1/saved-searches/${search.id}/execute`, { method: 'POST' })
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+      const result = await response.json()
+      if (!result.success) throw new Error(result.error || 'Failed to execute search')
+      return result.data
+    },
+    onSuccess: (data, { search, silent }) => {
+      onApplySearch(data.filters, data.name)
+      setIsOpen(false)
+      if (!silent) notify.success('Search Applied', `Applied search: ${search.name}`)
+    },
+    onError: (error, { silent }) => { if (!silent) notify.error('Error', 'Failed to execute saved search') },
+  })
   const executeSearch = async (search: SavedSearch, silent = false) => {
-    try {
-      const response = await fetch(`/api/v1/saved-searches/${search.id}/execute`, {
-        method: 'POST'
-      })
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`)
-      }
-
-      const result = await response.json()
-      
-      if (result.success) {
-        onApplySearch(result.data.filters, result.data.name)
-        setIsOpen(false)
-        if (!silent) {
-          notify.success('Search Applied', `Applied search: ${search.name}`)
-        }
-      } else {
-        throw new Error(result.error || 'Failed to execute search')
-      }
-    } catch (error) {
-      console.error('Error executing saved search:', error)
-      if (!silent) {
-        notify.error('Error', 'Failed to execute saved search')
+    try { await executeMutation.mutateAsync({ search, silent }) } catch { /* Mutation reports errors. */ }
+  }
+  useEffect(() => {
+    if (hasPrefetched && !hasAppliedDefault.current && savedSearches.length) {
+      const search = savedSearches.find(item => item.isFavorite) || savedSearches.find(item => item.isDefault)
+      if (search) {
+        hasAppliedDefault.current = true
+        executeMutation.mutate({ search, silent: true })
       }
     }
-  }
+  }, [hasPrefetched, savedSearches, executeMutation.mutate])
+  useEffect(() => { if (isOpen && hasPrefetched) void query.refetch() }, [isOpen, hasPrefetched, query.refetch])
 
   // Delete a saved search
   const deleteSavedSearch = async (search: SavedSearch) => {
@@ -218,7 +157,7 @@ export function SavedSearchDropdown({
       }
 
       const result = await response.json()
-      
+
       if (result.success) {
         setSavedSearches(prev => prev.filter(s => s.id !== search.id))
         notify.success('Deleted', `Deleted search: ${search.name}`)
@@ -234,7 +173,7 @@ export function SavedSearchDropdown({
   // Toggle favorite status
   const toggleFavorite = async (search: SavedSearch, e: React.MouseEvent) => {
     e.stopPropagation()
-    
+
     try {
       const response = await fetch(`/api/v1/saved-searches/${search.id}`, {
         method: 'PUT',
@@ -251,9 +190,9 @@ export function SavedSearchDropdown({
       }
 
       const result = await response.json()
-      
+
       if (result.success) {
-        setSavedSearches(prev => 
+        setSavedSearches(prev =>
           prev.map(s => s.id === search.id ? { ...s, isFavorite: !s.isFavorite } : s)
         )
       } else {
@@ -282,8 +221,8 @@ export function SavedSearchDropdown({
     return a.localeCompare(b)
   })
 
-  const hasActiveFilters = Object.values(currentFilters).some(value => 
-    (Array.isArray(value) && value.length > 0) || 
+  const hasActiveFilters = Object.values(currentFilters).some(value =>
+    (Array.isArray(value) && value.length > 0) ||
     (typeof value === 'string' && value) ||
     (typeof value === 'number' && value > 0)
   )
@@ -291,12 +230,17 @@ export function SavedSearchDropdown({
   const mySearches = savedSearches.filter(s => s.userId === s.user?.id)
   const sharedSearches = savedSearches.filter(s => s.isShared && s.userId !== s.user?.id)
 
+  // Don't render for unauthenticated users
+  if (!isLoaded || !user) {
+    return null
+  }
+
   return (
     <>
       <DropdownMenu open={isOpen} onOpenChange={setIsOpen}>
         <DropdownMenuTrigger asChild>
-          <Button 
-            variant="outline" 
+          <Button
+            variant="outline"
             className={cn("gap-2", className)}
           >
             <Bookmark className="w-4 h-4" />
@@ -309,7 +253,7 @@ export function SavedSearchDropdown({
             <ChevronDown className="w-3 h-3" />
           </Button>
         </DropdownMenuTrigger>
-        
+
         <DropdownMenuContent align="start" className="w-80 max-h-96 overflow-y-auto">
           <DropdownMenuLabel className="flex items-center justify-between">
             <div className="flex items-center gap-2">
@@ -318,9 +262,9 @@ export function SavedSearchDropdown({
             </div>
             {isLoading && <Loader2 className="w-4 h-4 animate-spin" />}
           </DropdownMenuLabel>
-          
+
           <DropdownMenuSeparator />
-          
+
           {/* Create New Search Option */}
           <DropdownMenuItem
             onClick={onCreateSearch}
@@ -331,8 +275,8 @@ export function SavedSearchDropdown({
               <div className="font-medium">Save Current Search</div>
               {hasActiveFilters && (
                 <div className="text-xs text-muted-foreground">
-                  {Object.values(currentFilters).filter(f => 
-                    (Array.isArray(f) && f.length > 0) || 
+                  {Object.values(currentFilters).filter(f =>
+                    (Array.isArray(f) && f.length > 0) ||
                     (typeof f === 'string' && f) ||
                     (typeof f === 'number' && f > 0)
                   ).length} active filters
@@ -341,7 +285,7 @@ export function SavedSearchDropdown({
             </div>
             <DropdownMenuShortcut>⌘S</DropdownMenuShortcut>
           </DropdownMenuItem>
-          
+
           <DropdownMenuSeparator />
 
           {/* No searches message */}
@@ -360,14 +304,14 @@ export function SavedSearchDropdown({
                 <User className="w-3 h-3" />
                 My Searches ({mySearches.length})
               </DropdownMenuLabel>
-              
+
               {mySearches
                 .sort((a, b) => {
                   if (a.isFavorite && !b.isFavorite) return -1
                   if (!a.isFavorite && b.isFavorite) return 1
                   if (a.isDefault && !b.isDefault) return -1
                   if (!a.isDefault && b.isDefault) return 1
-                  return new Date(b.lastUsedAt || b.updatedAt).getTime() - 
+                  return new Date(b.lastUsedAt || b.updatedAt).getTime() -
                          new Date(a.lastUsedAt || a.updatedAt).getTime()
                 })
                 .map((search) => (
@@ -378,7 +322,7 @@ export function SavedSearchDropdown({
                   >
                     <div className="flex items-center gap-1 mt-0.5">
                       {search.color && (
-                        <div 
+                        <div
                           className="w-2 h-2 rounded-full"
                           style={{ backgroundColor: search.color }}
                         />
@@ -387,7 +331,7 @@ export function SavedSearchDropdown({
                         <Sparkles className="w-3 h-3 text-yellow-500" />
                       )}
                     </div>
-                    
+
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
                         <span className="font-medium truncate">{search.name}</span>
@@ -395,13 +339,13 @@ export function SavedSearchDropdown({
                           <Share2 className="w-3 h-3 text-blue-500 flex-shrink-0" />
                         )}
                       </div>
-                      
+
                       {search.description && (
                         <div className="text-xs text-muted-foreground truncate mt-0.5">
                           {search.description}
                         </div>
                       )}
-                      
+
                       <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
                         {search.category && (
                           <div className="flex items-center gap-1">
@@ -415,7 +359,7 @@ export function SavedSearchDropdown({
                         </div>
                       </div>
                     </div>
-                    
+
                     <div className="flex items-center gap-1">
                       <Button
                         variant="ghost"
@@ -423,16 +367,16 @@ export function SavedSearchDropdown({
                         className="p-1 h-6 w-6"
                         onClick={(e) => toggleFavorite(search, e)}
                       >
-                        <Star 
+                        <Star
                           className={cn(
                             "w-3 h-3",
-                            search.isFavorite 
-                              ? "fill-yellow-400 text-yellow-400" 
+                            search.isFavorite
+                              ? "fill-yellow-400 text-yellow-400"
                               : "text-muted-foreground"
                           )}
                         />
                       </Button>
-                      
+
                       <Button
                         variant="ghost"
                         size="sm"
@@ -445,7 +389,7 @@ export function SavedSearchDropdown({
                       >
                         <Edit3 className="w-3 h-3" />
                       </Button>
-                      
+
                       <Button
                         variant="ghost"
                         size="sm"
@@ -467,14 +411,14 @@ export function SavedSearchDropdown({
           {sharedSearches.length > 0 && (
             <>
               {mySearches.length > 0 && <DropdownMenuSeparator />}
-              
+
               <DropdownMenuLabel className="flex items-center gap-2 text-xs">
                 <Users className="w-3 h-3" />
                 Shared Searches ({sharedSearches.length})
               </DropdownMenuLabel>
-              
+
               {sharedSearches
-                .sort((a, b) => new Date(b.lastUsedAt || b.updatedAt).getTime() - 
+                .sort((a, b) => new Date(b.lastUsedAt || b.updatedAt).getTime() -
                                new Date(a.lastUsedAt || a.updatedAt).getTime())
                 .map((search) => (
                   <DropdownMenuItem
@@ -484,23 +428,23 @@ export function SavedSearchDropdown({
                   >
                     <div className="flex items-center gap-1 mt-0.5">
                       {search.color && (
-                        <div 
+                        <div
                           className="w-2 h-2 rounded-full"
                           style={{ backgroundColor: search.color }}
                         />
                       )}
                       <Share2 className="w-3 h-3 text-blue-500" />
                     </div>
-                    
+
                     <div className="flex-1 min-w-0">
                       <div className="font-medium truncate">{search.name}</div>
-                      
+
                       {search.description && (
                         <div className="text-xs text-muted-foreground truncate mt-0.5">
                           {search.description}
                         </div>
                       )}
-                      
+
                       <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
                         <div>
                           by {search.user?.firstName || search.user?.email}
@@ -525,15 +469,15 @@ export function SavedSearchDropdown({
       </DropdownMenu>
 
       {/* Delete Confirmation Dialog */}
-      <AlertDialog 
-        open={deleteDialog.isOpen} 
+      <AlertDialog
+        open={deleteDialog.isOpen}
         onOpenChange={(open) => setDeleteDialog({ isOpen: open })}
       >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete Saved Search</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete "{deleteDialog.search?.name}"? 
+              Are you sure you want to delete &quot;{deleteDialog.search?.name}&quot;?
               This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>

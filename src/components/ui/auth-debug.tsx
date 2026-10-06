@@ -23,7 +23,7 @@ export function AuthDebug() {
     async function checkToken() {
       try {
         const token = await getToken()
-        setTokenInfo(token ? `Token available (${token.slice(0, 20)}...)` : 'No token available')
+        setTokenInfo(token ? 'Token available' : 'No token available')
       } catch (error) {
         setTokenInfo(`Token error: ${error}`)
       }
@@ -31,8 +31,6 @@ export function AuthDebug() {
     
     if (isLoaded && isSignedIn) {
       checkToken()
-    } else {
-      setTokenInfo('User not authenticated')
     }
   }, [isLoaded, isSignedIn, getToken])
 
@@ -145,7 +143,7 @@ export function AuthDebug() {
           </div>
           <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
             <code className="text-xs text-gray-600 dark:text-gray-400 break-all">
-              {tokenInfo}
+              {isLoaded && isSignedIn ? tokenInfo : 'User not authenticated'}
             </code>
           </div>
         </div>

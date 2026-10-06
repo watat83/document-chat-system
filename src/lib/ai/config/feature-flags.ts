@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import { prisma } from '@/lib/db';
 import { ai } from '@/lib/config/env';
 
@@ -7,23 +8,32 @@ export interface AIFeatureFlags {
   useVercelForChat: boolean;
   useVercelForNewFeatures: boolean;
   fallbackToVercel: boolean;
-  
+
   // Advanced Features
   enableDocumentChat: boolean;
   enableContentGeneration: boolean;
   enableAdvancedAnalytics: boolean;
   enableA11Testing: boolean;
-  
+
   // Performance & Cost
   enableCostOptimization: boolean;
   enablePerformanceAnalytics: boolean;
   maxCostPerRequest: number;
   maxDailyCost: number;
-  
+
   // Experimental Features
   enableExperimentalFeatures: boolean;
   enableBetaFeatures: boolean;
 }
+
+export const aiFeatureFlagsSchema = z.object({
+  useVercelForStreaming: z.boolean(), useVercelForChat: z.boolean(), useVercelForNewFeatures: z.boolean(), fallbackToVercel: z.boolean(),
+  enableDocumentChat: z.boolean(), enableContentGeneration: z.boolean(), enableAdvancedAnalytics: z.boolean(), enableA11Testing: z.boolean(),
+  enableCostOptimization: z.boolean(), enablePerformanceAnalytics: z.boolean(), maxCostPerRequest: z.number().finite().nonnegative(), maxDailyCost: z.number().finite().nonnegative(),
+  enableExperimentalFeatures: z.boolean(), enableBetaFeatures: z.boolean(),
+});
+const abTestSchema = z.object({ name: z.string().min(1), description: z.string(), variants: z.object({ control: aiFeatureFlagsSchema.partial(), treatment: aiFeatureFlagsSchema.partial() }),
+  targetPercentage: z.number().min(0).max(100), startDate: z.coerce.date(), endDate: z.coerce.date(), isActive: z.boolean() });
 
 export interface FeatureFlagConfig {
   organizationId: string;
@@ -43,19 +53,19 @@ export class AIFeatureFlagManager {
       useVercelForChat: false,
       useVercelForNewFeatures: false,
       fallbackToVercel: true,
-      
+
       // Feature enablement
       enableDocumentChat: true,
       enableContentGeneration: true,
       enableAdvancedAnalytics: false,
       enableA11Testing: false,
-      
+
       // Cost controls
       enableCostOptimization: true,
       enablePerformanceAnalytics: true,
       maxCostPerRequest: ai.perRequestCostLimit,
       maxDailyCost: ai.dailyCostLimit,
-      
+
       // Experimental features
       enableExperimentalFeatures: false,
       enableBetaFeatures: false
@@ -73,7 +83,7 @@ export class AIFeatureFlagManager {
       });
 
       if (orgFeatureFlags && orgFeatureFlags.settings) {
-        const savedFlags = orgFeatureFlags.settings as Partial<AIFeatureFlags>;
+        const savedFlags = aiFeatureFlagsSchema.partial().parse(orgFeatureFlags.settings);
         return {
           ...this.getDefaultFlags(),
           ...savedFlags
@@ -89,12 +99,12 @@ export class AIFeatureFlagManager {
   }
 
   async updateFlags(
-    updates: Partial<AIFeatureFlags>, 
+    updates: Partial<AIFeatureFlags>,
     updatedBy: string
   ): Promise<void> {
     try {
       const currentFlags = await this.getFlags();
-      const newFlags = { ...currentFlags, ...updates };
+      const newFlags = aiFeatureFlagsSchema.parse({ ...currentFlags, ...aiFeatureFlagsSchema.partial().strict().parse(updates) });
 
       await prisma.organizationSettings.upsert({
         where: {
@@ -132,8 +142,8 @@ export class AIFeatureFlagManager {
 
   async canUseVercelAI(): Promise<boolean> {
     const flags = await this.getFlags();
-    return flags.useVercelForStreaming || 
-           flags.useVercelForChat || 
+    return flags.useVercelForStreaming ||
+           flags.useVercelForChat ||
            flags.useVercelForNewFeatures ||
            flags.fallbackToVercel;
   }
@@ -158,7 +168,8 @@ export class AIFeatureFlagManager {
           action: 'FEATURE_FLAG_UPDATE',
           entityType: 'AI_FEATURES',
           entityId: this.organizationId,
-          details: {
+          eventType: 'FEATURE_FLAG_UPDATED', category: 'AI_SERVICES', source: 'feature-flags', description: 'AI feature flags updated', message: 'AI feature flags updated',
+          metadata: {
             changes,
             timestamp: new Date().toISOString(),
             category: 'AI_FEATURES'
@@ -174,20 +185,20 @@ export class AIFeatureFlagManager {
   // Utility methods for common flag combinations
   async shouldUseVercelForOperation(operation: string): Promise<boolean> {
     const flags = await this.getFlags();
-    
+
     switch (operation) {
       case 'streaming':
       case 'stream':
         return flags.useVercelForStreaming;
-        
+
       case 'chat':
       case 'document_chat':
         return flags.useVercelForChat;
-        
+
       case 'content_generation':
       case 'email_generation':
         return flags.useVercelForNewFeatures;
-        
+
       default:
         return flags.fallbackToVercel;
     }
@@ -199,7 +210,7 @@ export class AIFeatureFlagManager {
     costPriority: 'cost' | 'speed' | 'balanced';
   }> {
     const flags = await this.getFlags();
-    
+
     return {
       preferVercel: flags.useVercelForStreaming || flags.useVercelForChat,
       allowFallback: flags.fallbackToVercel,
@@ -237,8 +248,8 @@ export class GlobalFeatureFlagManager {
 
       return settings
         .filter(setting => {
-          const flags = setting.settings as AIFeatureFlags;
-          return flags[feature] === true;
+          const flags = aiFeatureFlagsSchema.partial().safeParse(setting.settings);
+          return flags.success && flags.data[feature] === true;
         })
         .map(setting => setting.organizationId);
     } catch (error) {
@@ -263,30 +274,30 @@ export interface ABTestConfig {
 }
 
 export class ABTestManager {
-  static async createABTest(config: ABTestConfig): Promise<void> {
+  static async createABTest(config: ABTestConfig, organizationId: string, createdBy: string): Promise<void> {
     // Implementation for creating A/B tests
     // This would involve storing test configuration and assigning organizations
     await prisma.organizationSettings.create({
       data: {
-        organizationId: 'GLOBAL',
+        organizationId,
         category: 'AB_TEST',
-        settings: config,
-        createdBy: 'SYSTEM'
+        settings: { ...abTestSchema.parse(config), startDate: config.startDate.toISOString(), endDate: config.endDate.toISOString() },
+        createdBy
       }
     });
   }
 
-  static async getActiveTests(): Promise<ABTestConfig[]> {
+  static async getActiveTests(organizationId: string): Promise<ABTestConfig[]> {
     const tests = await prisma.organizationSettings.findMany({
       where: {
         category: 'AB_TEST',
-        organizationId: 'GLOBAL'
+        organizationId
       }
     });
 
     return tests
-      .map(test => test.settings as ABTestConfig)
-      .filter(test => test.isActive && new Date() < test.endDate);
+      .map(test => abTestSchema.parse(test.settings))
+      .filter(test => test.isActive && new Date() >= test.startDate && new Date() < test.endDate);
   }
 
   static async getTestVariantForOrganization(
@@ -296,12 +307,12 @@ export class ABTestManager {
     // Simple hash-based assignment for consistent results
     const hash = this.hashString(organizationId + testName);
     const percentage = hash % 100;
-    
-    const tests = await this.getActiveTests();
+
+    const tests = await this.getActiveTests(organizationId);
     const test = tests.find(t => t.name === testName);
-    
+
     if (!test) return null;
-    
+
     return percentage < test.targetPercentage ? 'treatment' : 'control';
   }
 

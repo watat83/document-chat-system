@@ -1,3 +1,5 @@
+import { processingTransition, updateProcessingState } from '@/lib/documents/processing-state';
+import { guardDocumentMutation } from '@/lib/security/document-route-guard';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { prisma } from '@/lib/db';
@@ -51,6 +53,9 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const permissionError = await guardDocumentMutation((await params).id, 'WRITE');
+  if (permissionError) return permissionError;
+
   try {
     const { userId } = await auth();
     if (!userId) {
@@ -107,8 +112,8 @@ export async function POST(
     const processingStatus = (document.processing as any)?.currentStatus;
     if (processingStatus !== 'PROCESSING' && processingStatus !== 'QUEUED') {
       return NextResponse.json(
-        { 
-          error: `Cannot cancel processing. Document status is '${processingStatus}'. Only PROCESSING or QUEUED documents can be cancelled.` 
+        {
+          error: `Cannot cancel processing. Document status is '${processingStatus}'. Only PROCESSING or QUEUED documents can be cancelled.`
         },
         { status: 400 }
       );
@@ -116,16 +121,11 @@ export async function POST(
 
     console.log('🚫 Cancelling document processing for:', documentId);
 
-    // Cancel any ongoing AI operations in the document processor
-    try {
-      const { documentProcessor } = await import('@/lib/ai/document-processor');
-      documentProcessor.cancelDocumentOperations(documentId);
-      console.log('✅ Cancelled ongoing document processor operations');
-    } catch (processorError) {
-      console.warn('⚠️ Could not cancel document processor operations:', processorError);
-      // Continue with cancellation even if processor cancel fails
-    }
-    
+    await updateProcessingState(documentId, current => {
+      if (!['PROCESSING', 'QUEUED'].includes(current.currentStatus)) throw new Error('Document is no longer processing');
+      return processingTransition(current, 'CANCELLED');
+    }, user.organizationId);
+
     // Send cancellation event to Inngest
     try {
       await inngest.send({
@@ -134,6 +134,7 @@ export async function POST(
           documentId,
           organizationId: document.organizationId,
           userId: user.id,
+          runId: (document.processing as { runId?: string } | null)?.runId,
           cancelledAt: new Date().toISOString(),
           previousStatus: processingStatus
         }
@@ -143,19 +144,6 @@ export async function POST(
       // Continue with cancellation even if Inngest event fails
     }
 
-    // Update document processing status back to PENDING to allow reprocessing
-    const currentProcessing = (document.processing as any) || {};
-    await prisma.document.update({
-      where: { id: documentId },
-      data: { 
-        processing: {
-          ...currentProcessing,
-          currentStatus: 'PENDING',
-          completedAt: null,
-          error: null // Clear any processing errors
-        }
-      }
-    });
 
     console.log('✅ Document processing cancelled for:', documentId);
 
@@ -164,13 +152,13 @@ export async function POST(
       message: 'Document processing has been cancelled. You can now restart processing.',
       documentId,
       previousStatus: processingStatus,
-      newStatus: 'PENDING'
+      newStatus: 'CANCELLED'
     });
 
   } catch (error) {
     console.error('Document processing cancellation error:', error);
     return NextResponse.json(
-      { 
+      {
         error: 'Internal server error',
         details: error instanceof Error ? error.message : 'Unknown error'
       },

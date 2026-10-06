@@ -42,15 +42,7 @@ export function captureTreeState(
 
   const documentsBySize = documents.reduce(
     (acc, doc) => {
-      const sizeInBytes =
-        typeof doc.size === 'string'
-          ? parseInt(doc.size.replace(/[^0-9.]/g, '')) *
-            (doc.size.includes('MB')
-              ? 1024 * 1024
-              : doc.size.includes('KB')
-                ? 1024
-                : 1)
-          : doc.size || 0
+      const sizeInBytes = doc.size || 0
 
       if (sizeInBytes < 1024 * 1024) acc.small++
       else if (sizeInBytes < 10 * 1024 * 1024) acc.medium++
@@ -66,9 +58,11 @@ export function captureTreeState(
     if (!folderId) return []
 
     const path: Folder[] = []
-    let currentId = folderId
+    let currentId: string | null = folderId
 
-    while (currentId) {
+    const seen = new Set<string>();
+    while (currentId && !seen.has(currentId)) {
+      seen.add(currentId);
       const folder = folders.find((f) => f.id === currentId)
       if (folder) {
         path.unshift(folder)

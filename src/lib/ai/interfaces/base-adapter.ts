@@ -1,3 +1,4 @@
+import { AuthenticationError, RateLimitError, ValidationError, ProviderError } from './types';
 import {
   UnifiedCompletionRequest,
   UnifiedCompletionResponse,
@@ -32,11 +33,11 @@ export abstract class AIProviderAdapter {
   abstract refreshModels(): Promise<void>;
   abstract estimateCost(request: UnifiedCompletionRequest | UnifiedEmbeddingRequest): Promise<CostEstimate>;
   abstract estimateTokens(text: string, model?: string): Promise<TokenEstimate>;
-  
+
   // Core API methods
   abstract generateCompletion(request: UnifiedCompletionRequest): Promise<UnifiedCompletionResponse>;
   abstract generateEmbedding(request: UnifiedEmbeddingRequest): Promise<UnifiedEmbeddingResponse>;
-  abstract streamCompletion(request: UnifiedStreamRequest): Promise<AsyncIterable<UnifiedStreamChunk>>;
+  abstract streamCompletion(request: UnifiedStreamRequest): Promise<AsyncIterable<UnifiedStreamChunk>> | AsyncIterable<UnifiedStreamChunk>;
 
   // Health check methods
   abstract checkHealth(): Promise<boolean>;
@@ -69,30 +70,26 @@ export abstract class AIProviderAdapter {
   // Common error handling
   protected handleError(error: any, context: string): Error {
     const message = `[${this.name}] ${context}: ${error.message || error}`;
-    
+
     if (error.status === 401 || error.code === 'AUTHENTICATION_ERROR') {
-      const { AuthenticationError } = require('./types');
       return new AuthenticationError(message, this.name);
     }
-    
+
     if (error.status === 429 || error.code === 'RATE_LIMIT_ERROR') {
-      const { RateLimitError } = require('./types');
       return new RateLimitError(message, {
         provider: this.name,
         retryAfter: error.retryAfter
       });
     }
-    
+
     if (error.status >= 400 && error.status < 500) {
-      const { ValidationError } = require('./types');
       return new ValidationError(message, {
         provider: this.name,
         details: error
       });
     }
-    
+
     // Generic provider error
-    const { ProviderError } = require('./types');
     const providerError = new Error(message) as any;
     providerError.provider = this.name;
     providerError.retryable = error.status >= 500;

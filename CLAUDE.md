@@ -414,10 +414,13 @@ When creating git commits:
    - Any other Claude Code or Anthropic attribution
 
 2. **Commit messages should**:
+   - Read applicable `CLAUDE.md`, `gemini.md`/`GEMINI.md`, and `codex.md`/`CODEX.md` guidance before drafting each commit
    - Be clear and descriptive
    - Follow conventional commit format when appropriate
    - Focus on what changed and why
-   - Be professional and concise
+   - Use a concise subject and a detailed, professional body that helps the next developer understand the change
+   - Explain the problem, resulting behavior, significant implementation choices, and validation results
+   - Record known limitations, migration/configuration requirements, and follow-up work when relevant; distinguish passing checks from unresolved failures
 
 3. **Example of correct commit message**:
    ```

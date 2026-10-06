@@ -1,6 +1,9 @@
+import { sdkRequestOptions } from '../sdk-request';
+import { consumeSDKStream } from '../sdk-stream';
+import { completionUsage, metricTokens } from '../usage';
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { generateText, streamText } from 'ai';
-import { 
+import {
   AIProviderAdapter,
   UnifiedCompletionRequest,
   UnifiedCompletionResponse,
@@ -54,7 +57,7 @@ export class AnthropicAdapter extends AIProviderAdapter {
   private config: AnthropicConfig;
   private anthropic: ReturnType<typeof createAnthropic>;
   private aiMetricsIntegration: AIMetricsIntegration;
-  
+
   // Model mapping from unified names to Anthropic model IDs
   private modelMapping: Record<string, string> = {
     'fast': 'claude-3-haiku-20240307',
@@ -79,9 +82,10 @@ export class AnthropicAdapter extends AIProviderAdapter {
 
   constructor(config: AnthropicConfig) {
     super('anthropic');
+    if (!config.apiKey?.trim()) throw new ProviderConfigurationError('Anthropic API key is required');
     this.config = config;
     this.aiMetricsIntegration = new AIMetricsIntegration();
-    
+
     // Initialize Anthropic client with API key
     this.anthropic = createAnthropic({
       apiKey: config.apiKey,
@@ -93,7 +97,7 @@ export class AnthropicAdapter extends AIProviderAdapter {
     if (!this.config.apiKey) {
       throw new AuthenticationError('Anthropic API key is required');
     }
-    
+
     // Load available models from API
     try {
       await this.loadAvailableModels();
@@ -108,7 +112,7 @@ export class AnthropicAdapter extends AIProviderAdapter {
   async generateCompletion(request: UnifiedCompletionRequest): Promise<UnifiedCompletionResponse> {
     const organizationId = request.metadata?.organizationId;
     const startTime = Date.now();
-    
+
     try {
       // Security validation
       if (process.env.NODE_ENV === 'production' && request.metadata?.httpRequest) {
@@ -127,20 +131,20 @@ export class AnthropicAdapter extends AIProviderAdapter {
       const startTime = Date.now();
 
       // Transform messages to Anthropic format
-      const messages = this.transformMessages(request.messages);
-      
+
       const result = await generateText({
         model: this.anthropic(model),
-        messages,
+        abortSignal: request.signal,
+        ...sdkRequestOptions(request),
         temperature: request.temperature,
-        maxTokens: request.maxTokens,
+        maxOutputTokens: request.maxTokens,
       });
 
       const endTime = Date.now();
       const latency = endTime - startTime;
 
       // Calculate costs
-      const cost = this.calculateCost(model, result.usage);
+      const cost = this.calculateCost(model, completionUsage(result.usage));
 
       // Track usage after successful request (Layer 1: Billing)
       if (organizationId) {
@@ -154,9 +158,9 @@ export class AnthropicAdapter extends AIProviderAdapter {
             provider: 'anthropic',
             model: model,
             cost: cost,
-            promptTokens: result.usage.promptTokens,
-            completionTokens: result.usage.completionTokens,
-            totalTokens: result.usage.totalTokens,
+            promptTokens: completionUsage(result.usage).promptTokens,
+            completionTokens: completionUsage(result.usage).completionTokens,
+            totalTokens: completionUsage(result.usage).totalTokens,
             latency: latency
           }
         });
@@ -170,7 +174,7 @@ export class AnthropicAdapter extends AIProviderAdapter {
             model: model,
             operation: 'completion',
             latency: latency,
-            tokenCount: result.usage,
+            tokenCount: metricTokens(completionUsage(result.usage)),
             cost: cost,
             success: true,
             metadata: {
@@ -185,14 +189,16 @@ export class AnthropicAdapter extends AIProviderAdapter {
 
       return {
         content: result.text,
+        model,
         usage: {
-          promptTokens: result.usage.promptTokens,
-          completionTokens: result.usage.completionTokens,
-          totalTokens: result.usage.totalTokens
+          promptTokens: completionUsage(result.usage).promptTokens,
+          completionTokens: completionUsage(result.usage).completionTokens,
+          totalTokens: completionUsage(result.usage).totalTokens
         },
         metadata: {
           provider: 'anthropic',
-          finishReason: 'stop',
+          finishReason: result.finishReason,
+          ...(result.toolCalls?.length && { functionCall: { name: result.toolCalls[0].toolName, arguments: result.toolCalls[0].input } }),
           cost: cost,
           latency: latency
         }
@@ -233,7 +239,7 @@ export class AnthropicAdapter extends AIProviderAdapter {
   async *streamGenerator(request: UnifiedStreamRequest): AsyncGenerator<UnifiedStreamChunk> {
     const organizationId = request.metadata?.organizationId;
     const startTime = Date.now();
-    
+
     try {
       // Security validation
       if (process.env.NODE_ENV === 'production' && request.metadata?.httpRequest) {
@@ -252,28 +258,16 @@ export class AnthropicAdapter extends AIProviderAdapter {
       const startTime = Date.now();
 
       // Transform messages to Anthropic format
-      const messages = this.transformMessages(request.messages);
 
       const stream = await streamText({
         model: this.anthropic(model),
-        messages,
+        abortSignal: request.signal,
+        ...sdkRequestOptions(request),
         temperature: request.temperature,
-        maxTokens: request.maxTokens,
+        maxOutputTokens: request.maxTokens,
       });
 
-      for await (const chunk of stream.textStream) {
-        yield {
-          content: chunk,
-          metadata: {
-            provider: 'anthropic',
-            model
-          }
-        };
-      }
-
-      // Final chunk with usage information
-      const finalResult = await stream.text;
-      const usage = await stream.usage;
+      const { usage, finishReason } = yield* consumeSDKStream(stream.stream, this.name, model, request.signal);
       const endTime = Date.now();
       const latency = endTime - startTime;
       const cost = this.calculateCost(model, usage);
@@ -307,7 +301,7 @@ export class AnthropicAdapter extends AIProviderAdapter {
             model: model,
             operation: 'stream',
             latency: latency,
-            tokenCount: usage,
+            tokenCount: metricTokens(usage),
             cost: cost,
             success: true,
             metadata: {
@@ -325,7 +319,8 @@ export class AnthropicAdapter extends AIProviderAdapter {
         metadata: {
           provider: 'anthropic',
           model,
-          finishReason: 'stop',
+          finishReason,
+          usage,
           cost: cost,
           latency: latency
         }
@@ -356,6 +351,7 @@ export class AnthropicAdapter extends AIProviderAdapter {
         );
       }
 
+      if (error instanceof Error && error.name === 'AbortError') throw error;
       throw this.handleError(error, 'streamCompletion');
     }
   }
@@ -368,7 +364,7 @@ export class AnthropicAdapter extends AIProviderAdapter {
   async estimateTokens(text: string, model?: string): Promise<TokenEstimate> {
     // Rough estimation: ~4 characters per token for Claude models
     const estimatedTokens = Math.ceil(text.length / 4);
-    
+
     return {
       prompt: Math.floor(estimatedTokens * 0.5),
       completion: Math.ceil(estimatedTokens * 0.5),
@@ -381,7 +377,7 @@ export class AnthropicAdapter extends AIProviderAdapter {
     const model = request.model;
     const anthropicModel = this.getAnthropicModel(model);
     const pricing = this.fallbackCostPerToken[anthropicModel];
-    
+
     if (!pricing) {
       throw new ValidationError(`Unknown Anthropic model: ${anthropicModel}`);
     }
@@ -401,7 +397,7 @@ export class AnthropicAdapter extends AIProviderAdapter {
     // Assume 50/50 split between prompt and completion tokens for estimation
     const promptTokens = Math.floor(totalTokens * 0.5);
     const completionTokens = Math.ceil(totalTokens * 0.5);
-    
+
     const promptCost = (promptTokens / 1000) * pricing.prompt;
     const completionCost = (completionTokens / 1000) * pricing.completion;
     const totalCost = promptCost + completionCost;
@@ -452,7 +448,7 @@ export class AnthropicAdapter extends AIProviderAdapter {
     if (this.availableModels.length > 0) {
       return this.availableModels;
     }
-    
+
     // Return fallback models if no cached models are available
     return this.loadFallbackModels();
   }
@@ -460,34 +456,34 @@ export class AnthropicAdapter extends AIProviderAdapter {
   async loadAvailableModels(): Promise<ModelInfo[]> {
     const cacheKey = `ai:anthropic:models`;
     const now = Date.now();
-    
+
     try {
       // Check cache first
       const cachedModels = await cacheManager.get<ModelInfo[]>(cacheKey);
-      if (cachedModels && (now - this.modelsLastFetched) < this.modelsCacheDuration) {
+      if (cachedModels) {
         this.availableModels = cachedModels;
         return cachedModels;
       }
 
       // Fetch from Anthropic API
       const models = await this.fetchModelsFromAPI();
-      
+
       // Cache the results
       await cacheManager.set(cacheKey, models, 86400); // 24 hours
       this.availableModels = models;
       this.modelsLastFetched = now;
-      
+
       return models;
     } catch (error) {
       console.error('Failed to fetch Anthropic models from API:', error);
-      
+
       // Try to use cached models if available
       const cachedModels = await cacheManager.get<ModelInfo[]>(cacheKey);
       if (cachedModels) {
         this.availableModels = cachedModels;
         return cachedModels;
       }
-      
+
       // Final fallback to hardcoded models
       const fallbackModels = this.loadFallbackModels();
       this.availableModels = fallbackModels;
@@ -497,7 +493,7 @@ export class AnthropicAdapter extends AIProviderAdapter {
 
   private async fetchModelsFromAPI(): Promise<ModelInfo[]> {
     console.log('🔄 Fetching Anthropic models from API...');
-    
+
     const response = await fetch('https://api.anthropic.com/v1/models', {
       method: 'GET',
       headers: {
@@ -512,21 +508,21 @@ export class AnthropicAdapter extends AIProviderAdapter {
     }
 
     const data: AnthropicModelResponse = await response.json();
-    
+
     console.log(`✅ Fetched ${data.data.length} Anthropic models from API`);
-    
+
     return data.data.map(model => this.transformAnthropicModel(model));
   }
 
   private transformAnthropicModel(model: AnthropicModel): ModelInfo {
     // Get fallback pricing for this model
     const pricing = this.fallbackCostPerToken[model.id] || this.fallbackCostPerToken['claude-3-5-sonnet-20241022'];
-    
+
     // Determine model tier based on name
     let tier: 'fast' | 'balanced' | 'powerful' = 'balanced';
     let qualityScore = 0.90;
     let averageLatency = 1200;
-    
+
     if (model.id.includes('haiku')) {
       tier = 'fast';
       qualityScore = 0.85;
@@ -566,23 +562,23 @@ export class AnthropicAdapter extends AIProviderAdapter {
 
   private getModelFeatures(modelId: string): string[] {
     const baseFeatures = ['chat', 'text-generation', 'reasoning'];
-    
+
     // Add vision capabilities for models that support it
     if (modelId.includes('3-5') || modelId.includes('opus') || modelId.includes('sonnet')) {
       baseFeatures.push('vision');
     }
-    
+
     // Add function calling for newer models
     if (modelId.includes('3-5') || modelId.includes('opus')) {
       baseFeatures.push('function-calling');
     }
-    
+
     return baseFeatures;
   }
 
   private loadFallbackModels(): ModelInfo[] {
     console.log('⚠️  Loading fallback Anthropic models (hardcoded)');
-    
+
     return [
       {
         name: 'claude-3-5-sonnet-20241022',
@@ -649,20 +645,24 @@ export class AnthropicAdapter extends AIProviderAdapter {
 
   async refreshModels(): Promise<void> {
     const cacheKey = `ai:anthropic:models`;
-    await cacheManager.del(cacheKey);
+    await cacheManager.delete(cacheKey);
     await this.loadAvailableModels();
   }
 
   async checkHealth(): Promise<boolean> {
     try {
       const startTime = Date.now();
-      
+
       await generateText({
         model: this.anthropic(this.modelMapping.fast),
-        messages: [{ role: 'user', content: 'Hello' }],
-        maxTokens: 10
+        messages: [{
+          role: 'user',
+
+          content: 'Hello'
+        }],
+        maxOutputTokens: 10
       });
-      
+
       this.updateHealth(true);
       return true;
     } catch (error) {
@@ -676,18 +676,18 @@ export class AnthropicAdapter extends AIProviderAdapter {
     if (this.modelMapping[unifiedModel]) {
       return this.modelMapping[unifiedModel];
     }
-    
+
     // If it's already a valid Anthropic model, use it
     const validAnthropicModels = [
-      'claude-3-5-sonnet-20241022', 
-      'claude-3-opus-20240229', 
-      'claude-3-sonnet-20240229', 
+      'claude-3-5-sonnet-20241022',
+      'claude-3-opus-20240229',
+      'claude-3-sonnet-20240229',
       'claude-3-haiku-20240307'
     ];
     if (validAnthropicModels.includes(unifiedModel)) {
       return unifiedModel;
     }
-    
+
     // If it's an OpenAI model that fell back to Anthropic, map to equivalent
     if (unifiedModel.includes('gpt')) {
       if (unifiedModel.includes('gpt-4o')) {
@@ -696,7 +696,7 @@ export class AnthropicAdapter extends AIProviderAdapter {
         return 'claude-3-haiku-20240307'; // Fast model
       }
     }
-    
+
     // Default fallback
     return this.modelMapping.balanced;
   }
@@ -714,7 +714,7 @@ export class AnthropicAdapter extends AIProviderAdapter {
 
     const promptCost = (usage.promptTokens / 1000) * pricing.prompt;
     const completionCost = (usage.completionTokens / 1000) * pricing.completion;
-    
+
     return promptCost + completionCost;
   }
 
@@ -726,39 +726,39 @@ export class AnthropicAdapter extends AIProviderAdapter {
       }
       return new AuthenticationError('Invalid Anthropic API key', 'anthropic');
     }
-    
+
     // Handle rate limiting
     if (error.status === 429) {
       return new RateLimitError('anthropic', error.retryAfter);
     }
-    
+
     // Handle validation errors
     if (error.status === 400) {
       return new ValidationError(`Anthropic API validation error: ${error.message}`);
     }
-    
+
     // Handle quota/billing issues specifically
-    if (error.message?.includes('credit balance is too low') || 
+    if (error.message?.includes('credit balance is too low') ||
         error.message?.includes('billing') ||
         error.message?.includes('quota')) {
       return new QuotaExceededError('anthropic', 'credit balance');
     }
-    
+
     // Handle network/connection errors
     if (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT' || error.code === 'ENOTFOUND') {
       return new NetworkError(`Anthropic API connection error: ${error.message}`, 'anthropic');
     }
-    
+
     // Handle service unavailable
     if (error.status >= 500) {
       return new ProviderUnavailableError('anthropic', `Service error: ${error.status}`);
     }
-    
+
     // Handle configuration errors
     if (error.status === 403) {
       return new ProviderConfigurationError('Access forbidden - check API key permissions', 'anthropic');
     }
-    
+
     // Generic error fallback
     return new NetworkError(`Anthropic API error: ${error.message || 'Unknown error'}`);
   }

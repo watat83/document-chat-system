@@ -103,9 +103,9 @@ export async function GET(request: NextRequest) {
     // Get user and verify admin access
     const user = await db.user.findUnique({
       where: { clerkId: userId },
-      select: { 
-        id: true, 
-        organizationId: true, 
+      select: {
+        id: true,
+        organizationId: true,
         role: true,
         firstName: true,
         lastName: true
@@ -156,7 +156,7 @@ export async function GET(request: NextRequest) {
         `Security Dashboard Access`,
         {
           organizationId: user.organizationId,
-          severity: 'LOW' as const,
+
           targetOrganization: targetOrganizationId,
           timeframe: queryData.timeframe,
           severity: queryData.severity,
@@ -189,10 +189,10 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     if (error instanceof z.ZodError) {
       return NextResponse.json(
-        { 
-          success: false, 
-          error: 'Invalid query parameters', 
-          details: error.errors 
+        {
+          success: false,
+          error: 'Invalid query parameters',
+          details: error.errors
         },
         { status: 400 }
       );

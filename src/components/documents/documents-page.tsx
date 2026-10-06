@@ -1,4 +1,6 @@
 'use client'
+import { useMounted } from '@/hooks/use-mounted';
+import { normalizeError } from '@/lib/errors/normalize-error';
 
 import React, { useState, useRef, useCallback, useMemo, useEffect } from 'react'
 import Link from 'next/link'
@@ -27,21 +29,21 @@ import {
   SheetTitle,
   SheetTrigger,
 } from '@/components/ui/sheet'
-import { 
-  Search, 
-  Upload, 
-  MoreHorizontal, 
-  Grid3X3, 
-  List, 
-  ChevronDown, 
-  ChevronRight, 
-  Folder, 
-  FileText, 
-  File, 
-  X, 
-  Edit3, 
-  Move, 
-  Trash2, 
+import {
+  Search,
+  Upload,
+  MoreHorizontal,
+  Grid3X3,
+  List,
+  ChevronDown,
+  ChevronRight,
+  Folder,
+  FileText,
+  File,
+  X,
+  Edit3,
+  Move,
+  Trash2,
   Download,
   Share,
   Eye,
@@ -85,7 +87,7 @@ import { FolderDeleteInfoModal } from './folder-delete-info-modal'
 import { useTree, useTreeNavigation, useFolderOperations, useDocumentOperations, useDocumentChatStore } from '@/stores/document-chat-store'
 import { useFileManager, FileManagerProvider } from '@/lib/providers/file-manager-provider'
 import { useNotify } from '@/contexts/notification-context'
-import type { Document, AIProcessingStatus } from '@/types/documents'
+import type { Document, Folder as FolderData } from '@/types/documents'
 import { captureTreeState, logTreeStateChange } from '@/lib/utils/tree-state-utils'
 import { TREE_OPERATIONS, UI_CONSTANTS, DOCUMENT_TYPES } from '@/lib/constants'
 import { ResponsiveCanvasPreview } from './responsive-canvas-preview'
@@ -100,16 +102,16 @@ const useSearch = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearching, setIsSearching] = useState(false);
   const { searchDocuments, setSearchQuery: setStoreSearchQuery, setSearchResults, clearSearch: clearStoreSearch } = useDocumentOperations();
-  
+
   const searchResults = useMemo(() => {
     if (!searchQuery.trim()) return [];
     return searchDocuments(searchQuery);
   }, [searchQuery, searchDocuments]);
-  
-  const handleSearchChange = useCallback((query) => {
+
+  const handleSearchChange = useCallback((query: string) => {
     setSearchQuery(query);
     setIsSearching(!!query.trim());
-    
+
     // Update store state separately, not during render
     if (query.trim()) {
       const results = searchDocuments(query);
@@ -119,13 +121,13 @@ const useSearch = () => {
       clearStoreSearch();
     }
   }, [searchDocuments, setStoreSearchQuery, setSearchResults, clearStoreSearch]);
-  
+
   const clearSearch = useCallback(() => {
     setSearchQuery('');
     setIsSearching(false);
     clearStoreSearch();
   }, [clearStoreSearch]);
-  
+
   return {
     searchQuery,
     isSearching,
@@ -140,10 +142,10 @@ const DocumentsPage = () => {
   // Force remount when auth state changes to avoid hooks order issues
   const { userId, isSignedIn, isLoaded: authLoaded } = useAuth()
   const { user, isLoaded: userLoaded } = useUser()
-  
+
   // Use a key to force component remount if auth state changes significantly
   const componentKey = `${userId}-${isSignedIn}-${authLoaded}-${userLoaded}`
-  
+
   return (
     <FileManagerProvider>
       <DocumentsPageContent key={componentKey} />
@@ -153,8 +155,8 @@ const DocumentsPage = () => {
 
 const DocumentsPageContent = () => {
   // Prevent hydration mismatches
-  const [mounted, setMounted] = useState(false)
-  
+  const mounted = useMounted();
+
   // ALL HOOKS MUST BE CALLED FIRST - before any conditional returns
   const { userId, isSignedIn, isLoaded: authLoaded } = useAuth()
   const { user, isLoaded: userLoaded } = useUser()
@@ -162,33 +164,33 @@ const DocumentsPageContent = () => {
   const router = useRouter()
   const notify = useNotify()
   const { fileOps, storageOps, isUploading, uploadProgress } = useFileManager()
-  
+
   // Tree state and operations - MOVED UP: Must be called before conditional returns
   const { state, createDocument } = useTree()
   const store = useDocumentChatStore()
   const { currentFolderId, currentFolder, folderPath, navigateToFolder: storeNavigateToFolder, navigateToRoot } = useTreeNavigation()
   const { createFolder, updateFolder, deleteFolder, moveFolder, getFolderChildren, findFolder } = useFolderOperations()
   const { updateDocument, moveDocument, deleteDocument, getFolderDocuments, findDocument, searchDocuments } = useDocumentOperations()
-  
+
   // Store setter functions for data loading
   const setFolders = useDocumentChatStore((state) => state.documents.setFolders)
   const setDocuments = useDocumentChatStore((state) => state.documents.setDocuments)
   const setLoading = useDocumentChatStore((state) => state.documents.setLoading)
   const setError = useDocumentChatStore((state) => state.documents.setError)
-  
+
   // Sound effects
   const { play: playSound } = useSoundEffects()
-  
+
   // Search functionality
-  const { 
-    searchQuery, 
-    isSearching, 
-    searchResults, 
-    handleSearchChange, 
-    clearSearch 
+  const {
+    searchQuery,
+    isSearching,
+    searchResults,
+    handleSearchChange,
+    clearSearch
   } = useSearch();
 
-  // All useState hooks  
+  // All useState hooks
   const [viewMode, setViewMode] = useState('grid');
   const [showRecursive, setShowRecursive] = useState(false);
   const [mobileControlsOpen, setMobileControlsOpen] = useState(false);
@@ -196,52 +198,52 @@ const DocumentsPageContent = () => {
   const [newFolderName, setNewFolderName] = useState('');
   const [newFolderDescription, setNewFolderDescription] = useState('');
   const [newFolderColor, setNewFolderColor] = useState('#6b7280');
-  const [editingFolder, setEditingFolder] = useState(null);
+  const [editingFolder, setEditingFolder] = useState<FolderData | null>(null);
   const [showEditFolderDialog, setShowEditFolderDialog] = useState(false);
-  const [selectedDocument, setSelectedDocument] = useState(null);
+  const [selectedDocument, setSelectedDocument] = useState<Document | null>(null);
   const [showDocumentModal, setShowDocumentModal] = useState(false);
   const [showCreateDocumentModal, setShowCreateDocumentModal] = useState(false);
   const [isCreatingDocument, setIsCreatingDocument] = useState(false);
   const [draggedFileForModal, setDraggedFileForModal] = useState<File | null>(null);
-  const [draggedDocument, setDraggedDocument] = useState(null);
-  const [draggedFolder, setDraggedFolder] = useState(null);
-  const [dragOverFolder, setDragOverFolder] = useState(null);
-  const [documentToDelete, setDocumentToDelete] = useState(null);
+  const [draggedDocument, setDraggedDocument] = useState<Document | null>(null);
+  const [draggedFolder, setDraggedFolder] = useState<FolderData | null>(null);
+  const [dragOverFolder, setDragOverFolder] = useState<string | null>(null);
+  const [documentToDelete, setDocumentToDelete] = useState<Document | null>(null);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
-  const [folderToDelete, setFolderToDelete] = useState(null);
+  const [folderToDelete, setFolderToDelete] = useState<FolderData | null>(null);
   const [showFolderDeleteModal, setShowFolderDeleteModal] = useState(false);
   const [showFolderInfoModal, setShowFolderInfoModal] = useState(false);
   const [isDeletingFolder, setIsDeletingFolder] = useState(false);
   const [isSystemDragOver, setIsSystemDragOver] = useState(false);
-  const [dragTargetFolder, setDragTargetFolder] = useState(null);
+  const [dragTargetFolder, setDragTargetFolder] = useState<string | null>(null);
   const [isDragOverSpecificFolder, setIsDragOverSpecificFolder] = useState(false);
   const [isEditingMetadata, setIsEditingMetadata] = useState(false);
   const [editedFileName, setEditedFileName] = useState('');
-  const [editedTags, setEditedTags] = useState([]);
+  const [editedTags, setEditedTags] = useState<string[]>([]);
   const [newTagInput, setNewTagInput] = useState('');
   const [uploadCounter, setUploadCounter] = useState(0);
-  const [selectedDocuments, setSelectedDocuments] = useState(new Set());
+  const [selectedDocuments, setSelectedDocuments] = useState<Set<string>>(new Set());
   const [isBulkActionMode, setIsBulkActionMode] = useState(false);
-  const [sortBy, setSortBy] = useState(UI_CONSTANTS.SORT_NEWEST);
-  const [filterType, setFilterType] = useState(UI_CONSTANTS.ALL_FILTER);
-  const [filterSize, setFilterSize] = useState(UI_CONSTANTS.ALL_FILTER);
+  const [sortBy, setSortBy] = useState<string>(UI_CONSTANTS.SORT_NEWEST);
+  const [filterType, setFilterType] = useState<string>(UI_CONSTANTS.ALL_FILTER);
+  const [filterSize, setFilterSize] = useState<string>(UI_CONSTANTS.ALL_FILTER);
   const [showFilters, setShowFilters] = useState(false);
-  const [activeFilterPanel, setActiveFilterPanel] = useState(null);
+  const [activeFilterPanel, setActiveFilterPanel] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [pendingUpdate, setPendingUpdate] = useState(null);
+  const [pendingUpdate, setPendingUpdate] = useState<{ documentId: string; beforeLastModified: string; originalName: string; originalTags: string[]; beforeState: ReturnType<typeof captureTreeState> } | null>(null);
   const [userOrganizationId, setUserOrganizationId] = useState<string | null>(null);
 
   // useRef hooks
-  const fileInputRef = useRef(null);
-  
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   // ALL useCallback hooks - MUST be called before any early returns
   const toggleBulkActionMode = useCallback(() => {
     setIsBulkActionMode(!isBulkActionMode);
     setSelectedDocuments(new Set());
   }, [isBulkActionMode]);
-  
-  const toggleDocumentSelection = useCallback((documentId) => {
+
+  const toggleDocumentSelection = useCallback((documentId: string) => {
     const newSelection = new Set(selectedDocuments);
     if (newSelection.has(documentId)) {
       newSelection.delete(documentId);
@@ -250,29 +252,27 @@ const DocumentsPageContent = () => {
     }
     setSelectedDocuments(newSelection);
   }, [selectedDocuments]);
-  
+
   const clearSelection = useCallback(() => {
     setSelectedDocuments(new Set());
   }, []);
-  
+
   // Simplified folder navigation - just update state, no routing
   const navigateToFolder = useCallback((folderId: string | null) => {
     console.log('🗂️ [NAVIGATION] SIMPLE NAVIGATION - Updating state only:', {
       from: currentFolderId,
       to: folderId
     })
-    
+
     // Only update store state - keep it simple
     storeNavigateToFolder(folderId)
-    
+
     console.log('🗂️ [NAVIGATION] State updated. Current folder should now be:', folderId)
   }, [storeNavigateToFolder, currentFolderId])
-  
+
   // Set mounted state to prevent hydration mismatches
-  useEffect(() => {
-    setMounted(true)
-  }, [])
-  
+
+
   // Initialize folder navigation from URL parameters
   useEffect(() => {
     if (mounted && searchParams) {
@@ -283,22 +283,15 @@ const DocumentsPageContent = () => {
       }
     }
   }, [mounted, searchParams, currentFolderId, storeNavigateToFolder])
-  
+
   // Debug: Log when currentFolderId changes
   useEffect(() => {
     console.log('📁 [FOLDER STATE] currentFolderId changed to:', currentFolderId)
   }, [currentFolderId])
-  
+
   // Fetch organization ID from profile API if not available from Clerk
   useEffect(() => {
     const fetchUserOrganization = async () => {
-      // Try Clerk first
-      const clerkOrgId = user?.organizationMemberships?.[0]?.organization?.id || user?.publicMetadata?.organizationId
-      if (clerkOrgId) {
-        setUserOrganizationId(clerkOrgId)
-        return
-      }
-      
       // Fall back to profile API only once
       try {
         const response = await fetch('/api/v1/profile')
@@ -308,11 +301,12 @@ const DocumentsPageContent = () => {
             setUserOrganizationId(profileData.data.organizationId)
           }
         }
-      } catch (error) {
+      } catch (caughtError) {
+      const error = normalizeError(caughtError);
         console.error('Failed to fetch user organization:', error)
       }
     }
-    
+
     // Only fetch if signed in and we don't have an organization ID yet
     // FIXED: Removed problematic dependencies that caused loops
     if (isSignedIn && !userOrganizationId && authLoaded && userLoaded) {
@@ -322,13 +316,11 @@ const DocumentsPageContent = () => {
 
   // Get organization ID from user - will be set up properly with hooks above
   // Simple organization ID resolution without fallback
-  const organizationId = userOrganizationId || 
-    user?.organizationMemberships?.[0]?.organization?.id || 
-    user?.publicMetadata?.organizationId
+  const organizationId = userOrganizationId;
 
   // Load documents and folders data when organization ID becomes available
   const hasLoadedDataRef = useRef(false)
-  
+
   useEffect(() => {
     const loadDocumentsData = async () => {
       // Prevent multiple loads
@@ -393,7 +385,7 @@ const DocumentsPageContent = () => {
         setFolders(folders);
         setDocuments(documents);
         setLoading(false);
-        
+
         console.log('📊 After loading - store state:', {
           'state.loading': false, // We just set this
           'folders': folders.length,
@@ -401,7 +393,8 @@ const DocumentsPageContent = () => {
           'organizationId': organizationId
         });
 
-      } catch (error) {
+      } catch (caughtError) {
+      const error = normalizeError(caughtError);
         console.error('❌ Failed to load documents data:', error);
         setError(`Failed to load documents: ${error.message}`);
         setLoading(false);
@@ -419,7 +412,7 @@ const DocumentsPageContent = () => {
       console.log(`📄 Documents loaded: ${(state.documents || []).length} total, ${imageCount} images`);
     }
   }, [(state.documents || []).length])
-  
+
   // Debug: Monitor store state changes
   useEffect(() => {
     console.log('📊 Store state changed:', {
@@ -443,7 +436,7 @@ const DocumentsPageContent = () => {
       });
     }
   }, [state.folders.length, (state.documents || []).length, getFolderChildren, getFolderDocuments])
-  
+
   console.log('🏢 Organization ID Debug:', {
     userId,
     isSignedIn,
@@ -454,60 +447,29 @@ const DocumentsPageContent = () => {
     orgId: organizationId,
     userMetadata: user?.publicMetadata
   })
-  
+
   // Skip early returns to avoid hooks order issues - render loading states in JSX instead
   const isLoading = !authLoaded || !userLoaded
   const isNotSignedIn = !isSignedIn
   const isMissingUser = !user
   const isOrgIdMissing = !organizationId
-  
+
   // Add timeout for auth loading - if it takes too long, proceed anyway if we have data
   const [authTimeout, setAuthTimeout] = useState(false);
   useEffect(() => {
     const timer = setTimeout(() => {
       setAuthTimeout(true);
     }, 3000); // 3 second timeout
-    
+
     if (authLoaded && userLoaded) {
       clearTimeout(timer);
     }
-    
+
     return () => clearTimeout(timer);
   }, [authLoaded, userLoaded]);
-  
+
   // If we have data available or auth has timed out, bypass auth loading
   const hasDataOrTimeout = (state.documents?.length > 0 || state.folders?.length > 0) || authTimeout;
-  
-  // Render loading/error states without early returns
-  if (isLoading && !hasDataOrTimeout) {
-    return <div className="flex items-center justify-center min-h-screen">
-      <div className="text-center">
-        <Folder className="h-12 w-12 text-gray-400 mx-auto mb-4 animate-pulse" />
-        <h2 className="text-xl font-semibold text-gray-900 mb-2">Loading...</h2>
-        <p className="text-gray-600">Please wait while we set up your workspace.</p>
-      </div>
-    </div>
-  }
-  
-  if (isNotSignedIn) {
-    return <div className="flex items-center justify-center min-h-screen">
-      <div className="text-center">
-        <p className="text-xl font-semibold mb-4">Authentication Required</p>
-        <p className="text-sm text-muted-foreground">Please sign in to access this page.</p>
-      </div>
-    </div>
-  }
-  
-  if (isMissingUser) {
-    return <div className="flex items-center justify-center min-h-screen">
-      <div className="text-center">
-        <p className="text-xl font-semibold mb-4">User Data Missing</p>
-        <p className="text-sm text-muted-foreground">Unable to load user information. Please try refreshing the page.</p>
-      </div>
-    </div>
-  }
-
-  // All hooks have been moved to the top to prevent React Hooks order violations
 
   // Computed data using store selectors
   const currentFolders = useMemo(() => {
@@ -521,30 +483,30 @@ const DocumentsPageContent = () => {
       firstFolder: state.folders?.[0]?.name || 'none',
       sampleFolderParentId: state.folders?.[0]?.parentId || 'none'
     });
-    
+
     return result;
   }, [getFolderChildren, currentFolderId, state.folders]);
-  
+
   // Get all documents recursively if showRecursive is true
-  const getAllDocumentsRecursively = useCallback((folderId) => {
-    let allDocs = [];
-    
+  const getAllDocumentsRecursively = useCallback(function getAllDocumentsRecursively(folderId: string | null): Document[] {
+    let allDocs: Document[] = [];
+
     // Get documents in current folder - use state directly
     const currentDocs = (state.documents || []).filter(doc => doc.folderId === folderId);
     allDocs = [...currentDocs];
-    
+
     // Get all subfolders and their documents recursively
     const subfolders = getFolderChildren(folderId);
     subfolders.forEach(subfolder => {
       const subfolderDocs = getAllDocumentsRecursively(subfolder.id);
       allDocs = [...allDocs, ...subfolderDocs];
     });
-    
+
     return allDocs;
   }, [state.documents, getFolderChildren]);
 
   // Utility function to get document URL for display/download
-  const getDocumentUrl = useCallback((document) => {
+  const getDocumentUrl = useCallback((document: Document) => {
     // For newly uploaded files, use the original file object
     if (document.originalFile && isValidFile(document.originalFile)) {
       return URL.createObjectURL(document.originalFile);
@@ -557,7 +519,7 @@ const DocumentsPageContent = () => {
   }, []);
 
   // Create authenticated blob URLs for images (to fix authentication issue)
-  const getAuthenticatedImageUrl = useCallback(async (document) => {
+  const getAuthenticatedImageUrl = useCallback(async (document: Document) => {
     try {
       const response = await fetch(`/api/v1/documents/${document.id}/download`);
       if (response.ok) {
@@ -566,7 +528,8 @@ const DocumentsPageContent = () => {
       }
       console.error('Failed to fetch authenticated image:', response.statusText);
       return null;
-    } catch (error) {
+    } catch (caughtError) {
+      const error = normalizeError(caughtError);
       console.error('Error fetching authenticated image:', error);
       return null;
     }
@@ -576,24 +539,24 @@ const DocumentsPageContent = () => {
   const getFolderStats = useCallback((folderId: string) => {
     const directDocuments = getFolderDocuments(folderId)
     const directFolders = getFolderChildren(folderId)
-    
+
     // Recursive counting
     const getAllDescendantStats = (currentFolderId: string) => {
       const childFolders = getFolderChildren(currentFolderId)
       let totalDocs = getFolderDocuments(currentFolderId).length
       let totalFolders = childFolders.length
-      
+
       childFolders.forEach(childFolder => {
         const childStats = getAllDescendantStats(childFolder.id)
         totalDocs += childStats.documents
         totalFolders += childStats.folders
       })
-      
+
       return { documents: totalDocs, folders: totalFolders }
     }
-    
+
     const recursiveStats = getAllDescendantStats(folderId)
-    
+
     return {
       directDocuments: directDocuments.length,
       directFolders: directFolders.length,
@@ -611,13 +574,13 @@ const DocumentsPageContent = () => {
       firstDocument: state.documents?.[0]?.name || 'none',
       timestamp: new Date().toISOString()
     });
-    
+
     let documents;
-    
+
     if (showRecursive) {
       // Get all documents recursively from current folder and all subfolders
       documents = getAllDocumentsRecursively(currentFolderId);
-      
+
       // Add folder path information for context
       documents = documents.map(doc => {
         if (doc.folderId && doc.folderId !== currentFolderId) {
@@ -654,7 +617,7 @@ const DocumentsPageContent = () => {
         documents: documents.map(d => ({ id: d.id, name: d.name, folderId: d.folderId }))
       });
     }
-    
+
     console.log('🔍 Computing currentDocuments (DEPENDENCY TRIGGERED):', {
       currentFolderId,
       showRecursive,
@@ -665,18 +628,16 @@ const DocumentsPageContent = () => {
       resultLength: documents.length,
       timestamp: new Date().toISOString()
     });
-    
+
     // Apply filters
     if (filterType !== UI_CONSTANTS.ALL_FILTER) {
       documents = documents.filter(doc => doc.type === filterType);
     }
-    
+
     if (filterSize !== UI_CONSTANTS.ALL_FILTER) {
       documents = documents.filter(doc => {
-        const sizeInBytes = typeof doc.size === 'string' ? 
-          parseInt(doc.size.replace(/[^0-9.]/g, '')) * (doc.size.includes('MB') ? 1024 * 1024 : doc.size.includes('KB') ? 1024 : 1) :
-          doc.size || 0;
-          
+        const sizeInBytes = doc.size || 0;
+
         switch (filterSize) {
           case 'small': return sizeInBytes < 1024 * 1024; // < 1MB
           case 'medium': return sizeInBytes >= 1024 * 1024 && sizeInBytes < 10 * 1024 * 1024; // 1MB - 10MB
@@ -685,7 +646,7 @@ const DocumentsPageContent = () => {
         }
       });
     }
-    
+
     // Apply sorting
     documents = [...documents].sort((a, b) => {
       switch (sortBy) {
@@ -698,20 +659,12 @@ const DocumentsPageContent = () => {
         case UI_CONSTANTS.SORT_NAME_DESC:
           return b.name.localeCompare(a.name);
         case UI_CONSTANTS.SORT_SIZE_ASC:
-          const sizeA = typeof a.size === 'string' ? 
-            parseInt(a.size.replace(/[^0-9.]/g, '')) * (a.size.includes('MB') ? 1024 * 1024 : a.size.includes('KB') ? 1024 : 1) :
-            a.size || 0;
-          const sizeB = typeof b.size === 'string' ? 
-            parseInt(b.size.replace(/[^0-9.]/g, '')) * (b.size.includes('MB') ? 1024 * 1024 : b.size.includes('KB') ? 1024 : 1) :
-            b.size || 0;
+          const sizeA = a.size || 0;
+          const sizeB = b.size || 0;
           return sizeA - sizeB;
         case UI_CONSTANTS.SORT_SIZE_DESC:
-          const sizeA2 = typeof a.size === 'string' ? 
-            parseInt(a.size.replace(/[^0-9.]/g, '')) * (a.size.includes('MB') ? 1024 * 1024 : a.size.includes('KB') ? 1024 : 1) :
-            a.size || 0;
-          const sizeB2 = typeof b.size === 'string' ? 
-            parseInt(b.size.replace(/[^0-9.]/g, '')) * (b.size.includes('MB') ? 1024 * 1024 : b.size.includes('KB') ? 1024 : 1) :
-            b.size || 0;
+          const sizeA2 = a.size || 0;
+          const sizeB2 = b.size || 0;
           return sizeB2 - sizeA2;
         case UI_CONSTANTS.SORT_TYPE:
           return a.type.localeCompare(b.type);
@@ -719,21 +672,21 @@ const DocumentsPageContent = () => {
           return new Date(b.uploadDate).getTime() - new Date(a.uploadDate).getTime();
       }
     });
-    
+
     console.log('🔍 currentDocuments result:', {
       documentsLength: documents?.length || 0,
       firstDocument: documents?.[0]?.name || 'none'
     });
-    
+
     return documents;
   }, [currentFolderId, showRecursive, getAllDocumentsRecursively, getFolderDocuments, filterType, filterSize, sortBy, state.documents, (state.documents || []).length, uploadCounter]);
-  
+
   // Helper function to check if document is ready for AI analysis
   const isDocumentReadyForAnalysis = useCallback((document: any) => {
     const processingStatus = (document.processing as any)?.currentStatus;
     return processingStatus === 'COMPLETED' && document.analysis?.content?.extractedText;
   }, []);
-  
+
   // Select all processed documents - only documents ready for AI analysis
   const selectAllDocuments = useCallback(() => {
     const processedDocumentIds = new Set(
@@ -743,44 +696,44 @@ const DocumentsPageContent = () => {
     );
     setSelectedDocuments(processedDocumentIds);
   }, [currentDocuments, isDocumentReadyForAnalysis]);
-  
+
   // Handle bulk AI analysis
   const handleBulkAIAnalysis = useCallback(async () => {
     if (selectedDocuments.size === 0) {
       notify.info('No Selection', 'Please select documents to analyze');
       return;
     }
-    
+
     const selectedDocs = currentDocuments.filter(doc => selectedDocuments.has(doc.id));
     const processedDocs = selectedDocs.filter(doc => {
       const processingStatus = (doc.processing as any)?.status;
-      return processingStatus === 'COMPLETED' && doc.analysis?.content?.extractedText;
+      return processingStatus === 'COMPLETED' && doc.extractedText;
     });
     const unprocessedDocs = selectedDocs.filter(doc => {
       const processingStatus = (doc.processing as any)?.status;
-      return processingStatus !== 'COMPLETED' || !doc.analysis?.content?.extractedText;
+      return processingStatus !== 'COMPLETED' || !doc.extractedText;
     });
-    
+
     if (processedDocs.length === 0) {
-      notify.warning('Documents Not Ready', 
+      notify.warning('Documents Not Ready',
         `None of the selected documents are ready for analysis. Documents must be fully processed first.\n` +
         `${unprocessedDocs.length} documents are still processing or failed.`
       );
       return;
     }
-    
+
     if (unprocessedDocs.length > 0) {
-      notify.info('Partial Analysis', 
+      notify.info('Partial Analysis',
         `Only ${processedDocs.length} of ${selectedDocs.length} documents are ready for analysis. ` +
         `${unprocessedDocs.length} documents are still processing.`
       );
     }
-    
+
     notify.info('Processing', `Queuing ${processedDocs.length} documents for AI analysis...`);
-    
-    playSound(SoundEffect.CLICK);
+
+    playSound(SoundEffect.NOTIFICATION);
     setIsAnalyzing(true);
-    
+
     try {
       // Call the batch scoring API (uses Clerk session-based auth)
       const response = await fetch('/api/v1/documents/batch-score', {
@@ -806,9 +759,9 @@ const DocumentsPageContent = () => {
           statusText: response.statusText,
           error: errorData
         });
-        
+
         let errorMessage = `Failed to queue documents for analysis: ${response.status} ${response.statusText}`;
-        
+
         // Try to parse error details
         try {
           const errorJson = JSON.parse(errorData);
@@ -818,22 +771,23 @@ const DocumentsPageContent = () => {
         } catch (e) {
           // Fallback to generic error
         }
-        
+
         throw new Error(errorMessage);
       }
 
       const result = await response.json();
-      
+
       notify.success('Analysis Queued', `Successfully queued ${processedDocs.length} documents. Batch ID: ${result.batchId}`);
-      
+
       // Clear selection and exit bulk mode
       clearSelection();
       setIsBulkActionMode(false);
-      
+
       // Optionally, show tracking info
       console.log('Batch processing started:', result);
-      
-    } catch (error) {
+
+    } catch (caughtError) {
+      const error = normalizeError(caughtError);
       console.error('Failed to queue bulk analysis:', error);
       notify.error('Analysis Failed', 'Failed to queue documents for analysis. Please try again.');
     } finally {
@@ -847,7 +801,7 @@ const DocumentsPageContent = () => {
     const selectedDocs = currentDocuments.filter(doc => selectedDocuments.has(doc.id));
     return selectedDocs.filter(doc => {
       const processingStatus = (doc.processing as any)?.status;
-      return processingStatus === 'COMPLETED' && doc.analysis?.content?.extractedText;
+      return processingStatus === 'COMPLETED' && doc.extractedText;
     }).length;
   }, [selectedDocuments, currentDocuments]);
 
@@ -880,79 +834,9 @@ const DocumentsPageContent = () => {
 
   // Calculate stats from state
   const stats = useMemo(() => {
-    const totalBytes = (state.documents || []).reduce((acc, doc) => {
-      // Handle various size formats: number (bytes), string with units (KB/MB), or string numbers
-      let size = 0;
-      
-      if (typeof doc.size === 'number') {
-        size = doc.size;
-      } else if (typeof doc.size === 'string') {
-        // Try to parse formatted size strings like "389.7 KB" or "73.3 B"
-        const match = doc.size.match(/^(\d+(?:\.\d+)?)\s*(B|KB|MB|GB)?$/i);
-        if (match) {
-          const value = parseFloat(match[1]);
-          const unit = (match[2] || 'B').toUpperCase();
-          
-          switch (unit) {
-            case 'GB': size = value * 1024 * 1024 * 1024; break;
-            case 'MB': size = value * 1024 * 1024; break;
-            case 'KB': size = value * 1024; break;
-            case 'B': 
-            default: size = value; break;
-          }
-        } else {
-          // Try to parse as plain number string
-          const parsed = parseFloat(doc.size);
-          if (!isNaN(parsed)) {
-            size = parsed;
-          }
-        }
-      }
-      
-      return acc + size;
-    }, 0);
-    
-    // Debug logging for document sizes (can be removed once issues are resolved)
-    if (process.env.NODE_ENV === 'development') {
-      console.log('📊 [DOCUMENTS PAGE] Size calculation:', {
-        documentsCount: state.documents?.length || 0,
-        totalBytes,
-        allSizes: state.documents?.map(doc => {
-          let processedSize = 0;
-          if (typeof doc.size === 'number') {
-            processedSize = doc.size;
-          } else if (typeof doc.size === 'string') {
-            const match = doc.size.match(/^(\d+(?:\.\d+)?)\s*(B|KB|MB|GB)?$/i);
-            if (match) {
-              const value = parseFloat(match[1]);
-              const unit = (match[2] || 'B').toUpperCase();
-              switch (unit) {
-                case 'GB': processedSize = value * 1024 * 1024 * 1024; break;
-                case 'MB': processedSize = value * 1024 * 1024; break;
-                case 'KB': processedSize = value * 1024; break;
-                case 'B': 
-                default: processedSize = value; break;
-              }
-            } else {
-              const parsed = parseFloat(doc.size);
-              if (!isNaN(parsed)) {
-                processedSize = parsed;
-              }
-            }
-          }
-          
-          return {
-            name: doc.name,
-            size: doc.size,
-            sizeType: typeof doc.size,
-            processedSize,
-            folderId: doc.folderId
-          };
-        }) || []
-      });
-    }
-    
-    const formatBytes = (bytes) => {
+    const totalBytes = (state.documents || []).reduce((total, document) => total + document.size, 0);
+
+    const formatBytes = (bytes: number) => {
       if (bytes === 0) return '0 B';
       const k = 1024;
       const sizes = ['B', 'KB', 'MB', 'GB'];
@@ -984,12 +868,12 @@ const DocumentsPageContent = () => {
       lastFiveDocumentIds: state.documents?.map(d => d.id).slice(-5) || []
     })
   }, [state, currentFolderId, currentFolder, currentFolders, currentDocuments])
-  
+
   // Replace the useEffect that uses logTreeStructureJSON
   React.useEffect(() => {
     // Capture initial state
     const initialState = captureTreeState(state.folders, state.documents || [], currentFolderId);
-    
+
     // Log initial tree structure on component mount
     logTreeStateChange(
       TREE_OPERATIONS.COMPONENT_MOUNT,
@@ -1003,11 +887,11 @@ const DocumentsPageContent = () => {
   }, [state.folders, state.documents, currentFolderId]);
 
   // Check if originalFile is a valid File object by checking for File-specific properties
-  const isValidFile = useCallback((file) => {
-    return file && 
-           typeof file === 'object' && 
-           'size' in file && 
-           'type' in file && 
+  const isValidFile = useCallback((file: File) => {
+    return file &&
+           typeof file === 'object' &&
+           'size' in file &&
+           'type' in file &&
            'name' in file &&
            typeof file.size === 'number' &&
            typeof file.type === 'string' &&
@@ -1031,7 +915,7 @@ const DocumentsPageContent = () => {
   // Event handlers
   const handleCreateFolder = useCallback(() => {
     if (!newFolderName.trim()) return;
-    
+
     createFolder(newFolderName, currentFolderId, newFolderDescription, newFolderColor);
     setNewFolderName('');
     setNewFolderDescription('');
@@ -1039,7 +923,7 @@ const DocumentsPageContent = () => {
     setShowNewFolderDialog(false);
   }, [newFolderName, newFolderDescription, newFolderColor, currentFolderId, createFolder]);
 
-  const handleEditFolder = useCallback((folder) => {
+  const handleEditFolder = useCallback((folder: FolderData) => {
     setEditingFolder(folder);
     setNewFolderName(folder.name);
     setNewFolderDescription(folder.description || '');
@@ -1049,13 +933,13 @@ const DocumentsPageContent = () => {
 
   const handleUpdateFolder = useCallback(() => {
     if (!editingFolder || !newFolderName.trim()) return;
-    
+
     updateFolder(editingFolder.id, {
       name: newFolderName,
       description: newFolderDescription,
       color: newFolderColor
     });
-    
+
     setEditingFolder(null);
     setNewFolderName('');
     setNewFolderDescription('');
@@ -1064,19 +948,19 @@ const DocumentsPageContent = () => {
   }, [editingFolder, newFolderName, newFolderDescription, newFolderColor, updateFolder]);
 
   // File upload handler with future Supabase support
-  const handleFileUpload = useCallback(async (event) => {
+  const handleFileUpload = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
     console.log('🚀 handleFileUpload called!')
-    const uploadedFiles = Array.from(event.target.files)
+    const uploadedFiles = Array.from(event.target.files ?? [])
     console.log('📁 Files selected:', uploadedFiles.length, uploadedFiles.map(f => f.name))
-    
+
     // Feature flag - set to true when Supabase is configured
     const ENABLE_REAL_UPLOADS = true
     console.log('⚙️ ENABLE_REAL_UPLOADS:', ENABLE_REAL_UPLOADS)
-    
+
     for (const file of uploadedFiles) {
       try {
         console.log(`🔄 Processing file: ${file.name} (${file.size} bytes)`)
-        
+
         // Debug: Log current folder info
         console.log('🔍 Upload Debug:', {
           currentFolderId,
@@ -1084,10 +968,10 @@ const DocumentsPageContent = () => {
           folderPath: folderPath.map(f => f.name).join(' > ') || 'Root',
           organizationId
         })
-        
+
         // Capture BEFORE state
         const beforeState = captureTreeState(state.folders, state.documents || [], currentFolderId)
-        
+
         // Validate file using FileManagerProvider
         const validation = fileOps.validateFile(file)
         console.log('🔍 File validation result:', validation)
@@ -1111,18 +995,18 @@ const DocumentsPageContent = () => {
             organizationId,
             folderId: currentFolderId
           })
-          
+
           // Real upload to Supabase storage
-          uploadResult = await storageOps.uploadFile(file, organizationId, currentFolderId)
+          uploadResult = await storageOps.uploadFile(file, organizationId!, currentFolderId ?? undefined)
           console.log('📤 Upload result:', uploadResult)
-          
+
           if (!uploadResult.success) {
             console.error('❌ Upload failed:', uploadResult.error)
             console.error('❌ Full upload result:', uploadResult)
             notify.error('Upload Failed', uploadResult.error || 'Failed to upload file')
             continue
           }
-          
+
           console.log('✅ File uploaded to storage:', uploadResult.data)
         } else {
           console.log('🔧 Using mock upload...')
@@ -1134,59 +1018,29 @@ const DocumentsPageContent = () => {
 
         // Wait for upload to complete, then update tree state
         console.log('✅ Upload completed, now updating tree state...')
-        
+
         // Use the REAL document data from upload API response
         const apiDocument = uploadResult.data
         console.log('📋 API returned document data:', apiDocument)
         console.log('📋 Upload result structure:', JSON.stringify(uploadResult, null, 2))
-        
-        // Create proper document structure for the store using API response
-        const fileType = getFileTypeFromMimeType(apiDocument.type || file.type, file.name)
-        const formattedSize = formatFileSize(file.size)
-        
-        const realDocument: Document = {
-          id: apiDocument.id,
-          name: apiDocument.name || file.name,
-          folderId: currentFolderId,
-          type: fileType,
-          size: formattedSize,
-          mimeType: apiDocument.type || file.type,
-          filePath: `/api/v1/documents/${apiDocument.id}/download`, // Use download endpoint
-          uploadDate: apiDocument.uploadedAt || new Date().toISOString(),
-          lastModified: new Date().toISOString(),
-          updatedBy: 'current_user',
-          originalFile: undefined, // Clear since now uploaded
-          isEditable: false, // Required field: uploaded documents are not editable
-          
-          // NO metadata field - removed as agreed
-          
-          // Processing status from upload
-          processing: {
-            status: 'PENDING',
-            startedAt: new Date().toISOString(),
-            completedAt: null,
-            error: null
-          },
-          analysis: {},
-          content: {},
-          embeddings: { documentId: '', documentTitle: '', organizationNamespace: '', chunks: [], model: '', dimensions: 0, totalChunks: 0, lastProcessed: '' },
-          entities: {},
-        }
-        
+
+        const realDocument: Document = apiDocument.document;
+        if (!realDocument?.id) throw new Error('Upload response is missing the document');
+
         // Add the document to the store immediately
         // Use Zustand's immer-style update for proper reactivity
         useDocumentChatStore.setState((state) => {
           state.documents.documents.push(realDocument)
         })
-        
+
         console.log('✅ Document added to store immediately')
-        
+
         // Force component re-render by incrementing counter
         setUploadCounter(prev => prev + 1)
-        
+
         console.log('✅ Real document added to store:', realDocument.id)
         console.log('📋 Full realDocument structure:', realDocument)
-        
+
         // Debug: Check what's actually in the store after adding
         setTimeout(() => {
           const currentStore = useDocumentChatStore.getState()
@@ -1203,7 +1057,7 @@ const DocumentsPageContent = () => {
               analysis: !!lastDoc?.analysis
             }
           })
-          
+
           // Also check what the UI component sees
           console.log('🎯 What component state sees:', {
             stateDocuments: (state.documents || []).length,
@@ -1213,7 +1067,7 @@ const DocumentsPageContent = () => {
 
         // Success notification
         notify.success('Upload Successful', `${file.name} has been uploaded successfully`)
-        
+
         // Play file drop sound effect for successful upload
         playSound(SoundEffect.FILE_DROP)
 
@@ -1221,12 +1075,12 @@ const DocumentsPageContent = () => {
         // Create updated documents array with the new document to avoid timing issues
         const updatedDocuments = [...(state.documents || []), realDocument]
         const afterState = captureTreeState(state.folders, updatedDocuments, currentFolderId)
-        
+
         // Log the tree state change
         const stateChangeLog = logTreeStateChange(
           TREE_OPERATIONS.UPLOAD_FILE,
-          beforeState, 
-          afterState, 
+          beforeState,
+          afterState,
           {
             uploadedFile: file.name,
             fileSize: file.size,
@@ -1282,7 +1136,7 @@ const DocumentsPageContent = () => {
         setTimeout(async () => {
           try {
             console.log(`🔄 Refreshing document data for ${realDocument.id} after processing...`)
-            
+
             // Fetch the updated document data from the API
             const response = await fetch(`/api/v1/documents/${realDocument.id}`, {
               method: 'GET',
@@ -1291,11 +1145,11 @@ const DocumentsPageContent = () => {
               },
               credentials: 'include',
             })
-            
+
             if (response.ok) {
               const updatedDocumentData = await response.json()
               console.log('✅ Got updated document data:', updatedDocumentData)
-              
+
               // Update the document in the store with the processed data
               useDocumentChatStore.setState((state) => {
                 const docIndex = state.documents.documents.findIndex(d => d.id === realDocument.id)
@@ -1313,19 +1167,21 @@ const DocumentsPageContent = () => {
                   console.log('✅ Updated document in store with processed data')
                 }
               })
-              
+
               // Force a re-render to update the preview
               setUploadCounter(prev => prev + 1)
-              
+
             } else {
               console.warn('⚠️ Failed to fetch updated document data:', response.status)
             }
-          } catch (error) {
+          } catch (caughtError) {
+      const error = normalizeError(caughtError);
             console.error('❌ Error refreshing document data:', error)
           }
         }, 3000) // Wait 3 seconds for processing to complete
 
-      } catch (error) {
+      } catch (caughtError) {
+      const error = normalizeError(caughtError);
         console.error('❌ Upload error in handleFileUpload:', error)
         console.error('❌ Error details:', {
           message: error.message,
@@ -1337,10 +1193,10 @@ const DocumentsPageContent = () => {
         notify.error('Upload Error', `Failed to upload ${file.name}: ${error.message || 'Unknown error'}`)
       }
     }
-    
+
     // Clear the input
     event.target.value = ''
-    
+
     // Force a re-render by updating a dummy state
     // This ensures the UI reflects the new documents immediately
     if (uploadedFiles.length > 0) {
@@ -1355,9 +1211,9 @@ const DocumentsPageContent = () => {
   }, [currentFolderId, organizationId, fileOps, storageOps, createDocument, state, notify, playSound, setUploadCounter])
 
   // File drop upload handler - now opens New Document modal
-  const handleFileDropUpload = useCallback(async (files: FileList, targetFolderId: string) => {
+  const handleFileDropUpload = useCallback(async (files: FileList, targetFolderId: string | null) => {
     const uploadedFiles = Array.from(files);
-    
+
     console.log('📁 Processing dropped files:', {
       fileCount: uploadedFiles.length,
       targetFolderId,
@@ -1367,7 +1223,7 @@ const DocumentsPageContent = () => {
     if (uploadedFiles.length === 1) {
       // Single file - open modal with file pre-loaded
       const file = uploadedFiles[0];
-      
+
       // Basic validation
       const validation = fileOps.validateFile(file);
       if (!validation.isValid) {
@@ -1378,13 +1234,13 @@ const DocumentsPageContent = () => {
       // Set the dragged file and open modal
       setDraggedFileForModal(file);
       setShowCreateDocumentModal(true);
-      
+
       console.log('📄 Opening New Document modal with file:', file.name);
-      
+
     } else if (uploadedFiles.length > 1) {
       // Multiple files - show notification and open modal for first file
       notify.info('Multiple Files', `${uploadedFiles.length} files dropped. Processing first file. Upload others individually.`);
-      
+
       const firstFile = uploadedFiles[0];
       const validation = fileOps.validateFile(firstFile);
       if (!validation.isValid) {
@@ -1397,12 +1253,12 @@ const DocumentsPageContent = () => {
     }
   }, [fileOps, notify]);
 
-  const handleSearchInput = useCallback((e) => {
+  const handleSearchInput = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     handleSearchChange(e.target.value);
   }, [handleSearchChange]);
 
 
-  const openDocumentModal = useCallback((document) => {
+  const openDocumentModal = useCallback((document: Document) => {
     console.log('🔍 openDocumentModal called with:', document);
     setSelectedDocument(document);
     setShowDocumentModal(true);
@@ -1437,9 +1293,9 @@ const DocumentsPageContent = () => {
 
   const cancelEditingMetadataMain = useCallback(() => {
     setIsEditingMetadata(false);
-    setEditedFileName(selectedDocument.name);
+    setEditedFileName(selectedDocument?.name ?? '');
     // setEditedCustomMetadataFields([]); // Custom fields not supported in current interface
-    setEditedTags(selectedDocument.tags || []);
+    setEditedTags(selectedDocument?.tags || []);
     setNewTagInput('');
     // setIsAddingMetadata(false);
     // setNewMetadataKey('');
@@ -1457,18 +1313,18 @@ const DocumentsPageContent = () => {
         console.log('✅ State has updated - Document found:', updatedDoc)
         console.log('📝 Name changed:', pendingUpdate.originalName !== updatedDoc.name)
         console.log('📝 Tags changed:', JSON.stringify(pendingUpdate.originalTags) !== JSON.stringify(updatedDoc.tags))
-        
+
         // Capture AFTER state
         const afterState = captureTreeState(state.folders, state.documents || [], currentFolderId)
-        
+
         console.log('🌳 Tree State Before:', pendingUpdate.beforeState)
         console.log('🌳 Tree State After:', afterState)
-        
+
         // Log the tree state change with detailed information
         const stateChangeLog = logTreeStateChange(
           TREE_OPERATIONS.UPDATE_DOCUMENT_METADATA,
-          pendingUpdate.beforeState, 
-          afterState, 
+          pendingUpdate.beforeState,
+          afterState,
           {
             updatedDocumentId: pendingUpdate.documentId,
             documentName: updatedDoc.name,
@@ -1483,9 +1339,9 @@ const DocumentsPageContent = () => {
             }
           }
         );
-        
+
         console.log('🔄 State change log:', stateChangeLog)
-        
+
         // Clear the pending update
         setPendingUpdate(null)
       }
@@ -1509,17 +1365,17 @@ const DocumentsPageContent = () => {
       try {
         // Poll status for each processing document
         await Promise.all(
-          processingDocuments.map(async (doc) => {
+          processingDocuments.map(async (doc: Document) => {
             try {
               const response = await fetch(`/api/v1/documents/${doc.id}/status`);
               if (response.ok) {
                 const statusData = await response.json();
-                
+
                 // Update the document status in the store if it changed
                 const currentProcessingStatus = (doc.processing as any)?.currentStatus;
                 if (statusData.status !== currentProcessingStatus) {
                   console.log(`📊 Status update for ${doc.name}: ${currentProcessingStatus} -> ${statusData.status}`);
-                  
+
                   // Trigger store refresh to get updated documents
                   // This will cause the component to re-render with new status
                   if (statusData.status === 'COMPLETED' || statusData.status === 'FAILED') {
@@ -1527,7 +1383,7 @@ const DocumentsPageContent = () => {
                     console.log('🔄 Refreshing documents due to status change');
                     // Force refresh by updating a dependency
                     setUploadCounter(prev => prev + 1);
-                    
+
                     // Show toast notification
                     if (statusData.status === 'COMPLETED') {
                       notify.success('Processing Complete', `"${doc.name}" has been processed successfully`);
@@ -1539,12 +1395,14 @@ const DocumentsPageContent = () => {
                   }
                 }
               }
-            } catch (error) {
+            } catch (caughtError) {
+      const error = normalizeError(caughtError);
               console.error(`Error polling status for document ${doc.id}:`, error);
             }
           })
         );
-      } catch (error) {
+      } catch (caughtError) {
+      const error = normalizeError(caughtError);
         console.error('Error in polling loop:', error);
       }
     }, 5000); // Poll every 5 seconds
@@ -1559,20 +1417,20 @@ const DocumentsPageContent = () => {
     if (selectedDocument) {
       console.log('🔄 Starting metadata update...')
       console.log('📋 Before update - Document:', selectedDocument)
-      
+
       // Capture BEFORE state
       const beforeState = captureTreeState(state.folders, state.documents || [], currentFolderId)
-      
+
       const updates = {
         name: editedFileName,
         tags: editedTags
       }
-      
+
       console.log('📝 Updates to apply:', updates)
       console.log('📝 Original name:', selectedDocument.name)
       console.log('📝 New name:', updates.name)
       console.log('📝 Names are different:', selectedDocument.name !== updates.name)
-      
+
       // Set pending update to track when state changes
       setPendingUpdate({
         documentId: selectedDocument.id,
@@ -1581,16 +1439,16 @@ const DocumentsPageContent = () => {
         originalTags: selectedDocument.tags,
         beforeState
       })
-      
+
       // Use the new updateDocument method
       console.log('🔄 Calling updateDocument...')
       const updateResult = await updateDocument(selectedDocument.id, updates)
-      
+
       console.log('📋 Update result:', updateResult)
-      
+
       if (updateResult.success) {
         console.log('✅ Update successful')
-        
+
         // Create the updated document object with all current data
         const updatedDocumentData = {
           ...selectedDocument,
@@ -1598,7 +1456,7 @@ const DocumentsPageContent = () => {
           tags: editedTags,
           lastModified: new Date().toISOString()
         }
-        
+
         setSelectedDocument(updatedDocumentData)
         setIsEditingMetadata(false)
       } else {
@@ -1617,38 +1475,38 @@ const DocumentsPageContent = () => {
     }
   }, [newTagInput, editedTags]);
 
-  const removeTag = useCallback((tagToRemove) => {
+  const removeTag = useCallback((tagToRemove: string) => {
     setEditedTags(prev => prev.filter(tag => tag !== tagToRemove));
   }, []);
 
-  const handleTagInputKeyPress = useCallback((e) => {
+  const handleTagInputKeyPress = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
       e.preventDefault();
       addTag();
     }
   }, [addTag]);
 
-  const handleModalBackdropClick = useCallback((e) => {
+  const handleModalBackdropClick = useCallback((e: React.MouseEvent<HTMLElement>) => {
     if (e.target === e.currentTarget) {
       closeDocumentModal();
     }
   }, [closeDocumentModal]);
 
-  const handleMoveDocument = useCallback((docId, targetFolderId) => {
+  const handleMoveDocument = useCallback((docId: string, targetFolderId: string | null) => {
     const actualTargetId = targetFolderId === UI_CONSTANTS.ROOT_FOLDER_ID ? null : targetFolderId;
     moveDocument(docId, actualTargetId);
     closeDocumentModal();
   }, [moveDocument, closeDocumentModal]);
 
-  const handleDeleteDocument = useCallback((docId) => {
+  const handleDeleteDocument = useCallback((docId: string) => {
     deleteDocument(docId);
     closeDocumentModal();
   }, [deleteDocument, closeDocumentModal]);
 
-  const handleAnalyzeDocument = useCallback(async (document) => {
+  const handleAnalyzeDocument = useCallback(async (document: Document) => {
     try {
       notify.info('AI Analysis', `Starting full AI analysis for "${document.name}"...`);
-      
+
       const result = await triggerDocumentAnalysis(document.id, {
         includeSecurityAnalysis: true,
         includeEntityExtraction: true,
@@ -1663,14 +1521,15 @@ const DocumentsPageContent = () => {
         notify.error('AI Analysis', result.message || 'Failed to start analysis');
         playSound(SoundEffect.ERROR);
       }
-    } catch (error) {
+    } catch (caughtError) {
+      const error = normalizeError(caughtError);
       console.error('Error triggering document analysis:', error);
       notify.error('AI Analysis', 'Failed to start analysis. Please try again.');
       playSound(SoundEffect.ERROR);
     }
   }, [notify, playSound]);
 
-  const openDeleteModal = useCallback((document) => {
+  const openDeleteModal = useCallback((document: Document) => {
     console.log('🗑️ openDeleteModal called with:', document);
     setDocumentToDelete(document);
     setShowDeleteModal(true);
@@ -1683,33 +1542,29 @@ const DocumentsPageContent = () => {
     setIsDeleting(false);
   }, []);
 
-  const handleCreateDocument = useCallback(async (data) => {
+  const handleCreateDocument = useCallback(async (data: Parameters<React.ComponentProps<typeof CreateDocumentModal>['onSubmit']>[0]) => {
     try {
       // Check if organization ID is available
       if (!organizationId) {
         console.warn('Organization ID not available, retrying...');
-        notify({
-          title: 'Please wait',
-          description: 'Organization data is still loading. Please try again in a moment.',
-          type: 'warning'
-        });
+        notify.warning('Please wait', 'Organization data is still loading. Please try again in a moment.');
         return;
       }
-      
+
       console.log('Creating document with data:', data);
-      
+
       // Set loading state
       setIsCreatingDocument(true);
-      
+
       // Show loading notification
       notify.info('Creating Document', `Creating "${data.title}"...`);
-      
+
       let newDocumentId;
-      
+
       if (data.file) {
         // Handle file upload
         console.log('📄 Creating document from file upload:', data.file.name);
-        
+
         // Upload file to Supabase storage first
         const formData = new FormData();
         formData.append('file', data.file);
@@ -1720,63 +1575,48 @@ const DocumentsPageContent = () => {
         }
         // Include tags and document type
         formData.append('tags', JSON.stringify(data.tags || []));
-        formData.append('documentType', data.type);
-        
+        formData.append('documentType', data.type.toUpperCase());
+
         const uploadResponse = await fetch('/api/v1/documents/upload', {
           method: 'POST',
           body: formData,
         });
-        
+
         if (!uploadResponse.ok) {
           const error = await uploadResponse.json();
           throw new Error(error.error || 'File upload failed');
         }
-        
+
         const uploadResult = await uploadResponse.json();
         console.log('✅ File upload successful:', uploadResult);
         newDocumentId = uploadResult.id;
-        
-        // Create document object for the store (same format as existing documents)
-        const newDocument = {
-          id: uploadResult.id,
-          name: data.title, // Use the user-provided title
-          folderId: targetFolderId,
-          type: data.type,
-          size: uploadResult.size,
-          mimeType: data.file.type,
-          filePath: `/api/v1/documents/${uploadResult.id}/download`,
-          uploadDate: uploadResult.uploadedAt,
-          lastModified: uploadResult.uploadedAt,
-          organizationId,
-          isEditable: false, // Uploaded files are not editable 
-          status: uploadResult.status,
-          tags: data.tags || [],
-          documentType: data.type,
-        };
-        
+
+        const newDocument: Document = uploadResult.document;
+        if (!newDocument?.id) throw new Error('The server did not return a document');
+
         // Add to store immediately using proper Immer methods
         useDocumentChatStore.setState((state) => {
           state.documents.documents.push(newDocument);
         });
-        
+
         // Force component re-render
         setUploadCounter(prev => prev + 1);
-        
+
         console.log('📄 Added file upload document to store:', newDocument);
-        
+
       } else {
         // Handle text-based document creation
         console.log('📝 Creating text-based document');
-        
+
         // Validate required fields before sending request
         if (!organizationId) {
           throw new Error('Organization ID is required but not found. Please refresh the page and try again.');
         }
-        
+
         const targetFolderId = data.selectedFolderId || currentFolderId;
         const requestData = {
           name: data.title,
-          type: data.type, // API now expects uppercase values to match DocumentCreationRequest
+          type: data.type.toUpperCase(), // API now expects uppercase values to match DocumentCreationRequest
           content: data.content || '',
           organizationId,
           folderId: targetFolderId,
@@ -1786,9 +1626,9 @@ const DocumentsPageContent = () => {
           urgencyLevel: data.urgencyLevel || 'medium',
           complexityScore: data.complexityScore || 5
         };
-        
+
         console.log('📝 Request data:', requestData);
-        
+
         const createResponse = await fetch('/api/v1/documents/create', {
           method: 'POST',
           headers: {
@@ -1796,56 +1636,40 @@ const DocumentsPageContent = () => {
           },
           body: JSON.stringify(requestData),
         });
-        
+
         if (!createResponse.ok) {
           const error = await createResponse.json();
           console.error('❌ API Error Details:', error);
           console.error('❌ Full Error Object:', JSON.stringify(error, null, 2));
           throw new Error(`${error.error || 'Document creation failed'}. Details: ${JSON.stringify(error.details || {})}`);
         }
-        
+
         const createResult = await createResponse.json();
         console.log('✅ Document creation successful:', createResult);
         newDocumentId = createResult.id;
-        
-        // Create document object for the store (same format as existing documents)
-        // targetFolderId is already declared above
-        const newDocument = {
-          id: createResult.id,
-          name: createResult.name,
-          folderId: targetFolderId,
-          type: 'document',
-          size: createResult.content?.length || 0,
-          mimeType: 'text/plain',
-          filePath: `/documents/${createResult.id}`,
-          uploadDate: createResult.createdAt,
-          lastModified: createResult.createdAt,
-          organizationId,
-          isEditable: true, // Created documents are editable
-          status: 'COMPLETED',
-          tags: data.tags || [],
-          documentType: data.type,
-          analysis: createResult.analysis,
-        };
-        
+
+        const newDocument: Document = createResult.document;
+        if (!newDocument?.id) throw new Error('The server did not return a document');
+
         // Add to store immediately using proper Immer methods
         useDocumentChatStore.setState((state) => {
           state.documents.documents.push(newDocument);
         });
-        
+
         // Force component re-render
         setUploadCounter(prev => prev + 1);
-        
+
         console.log('📝 Added text document to store:', newDocument);
       }
-      
+
       // Success notification
       notify.success('Document Created', `"${data.title}" has been created successfully!`);
-      
+
       // Close modal
       setShowCreateDocumentModal(false);
-      
-    } catch (error) {
+
+    } catch (caughtError) {
+      const error = normalizeError(caughtError);
       console.error('Error creating document:', error);
       notify.error('Error', error.message || 'Failed to create document. Please try again.');
     } finally {
@@ -1856,25 +1680,26 @@ const DocumentsPageContent = () => {
 
   const confirmDelete = useCallback(async () => {
     if (!documentToDelete) return;
-    
+
     setIsDeleting(true);
     try {
       await deleteDocument(documentToDelete.id);
       closeDeleteModal();
-    } catch (error) {
+    } catch (caughtError) {
+      const error = normalizeError(caughtError);
       console.error('Failed to delete document:', error);
       setIsDeleting(false);
     }
   }, [documentToDelete, deleteDocument, closeDeleteModal]);
 
   // Folder deletion handlers
-  const openFolderDeleteModal = useCallback((folder) => {
+  const openFolderDeleteModal = useCallback((folder: FolderData) => {
     setFolderToDelete(folder);
-    
+
     // Count documents and subfolders in this folder
     const folderDocuments = getFolderDocuments(folder.id);
     const folderChildren = getFolderChildren(folder.id);
-    
+
     // If folder has contents, show info modal, otherwise show confirmation modal
     if (folderDocuments.length > 0 || folderChildren.length > 0) {
       setShowFolderInfoModal(true);
@@ -1896,7 +1721,7 @@ const DocumentsPageContent = () => {
 
   const confirmFolderDelete = useCallback(async () => {
     if (!folderToDelete) return;
-    
+
     setIsDeletingFolder(true);
     try {
       const result = await deleteFolder(folderToDelete.id);
@@ -1908,7 +1733,8 @@ const DocumentsPageContent = () => {
         console.error('Failed to delete folder:', result.error);
         setIsDeletingFolder(false);
       }
-    } catch (error) {
+    } catch (caughtError) {
+      const error = normalizeError(caughtError);
       console.error('Failed to delete folder:', error);
       setIsDeletingFolder(false);
     }
@@ -1917,26 +1743,26 @@ const DocumentsPageContent = () => {
   // System-to-UI drag and drop handlers
   const handleSystemDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
-    
+
     // Only handle file drags from system (not internal document moves)
     const hasFiles = e.dataTransfer.types.includes('Files');
     if (hasFiles) {
       e.dataTransfer.dropEffect = 'copy';
       setIsSystemDragOver(true);
-      
+
       const target = e.target as HTMLElement;
-      
+
       // Check if dragging over a specific folder
       // Look for folder card container (has both 'group' and 'relative' classes)
       const folderCard = target.closest('.group.relative[data-folder-id]');
       const specificFolderId = folderCard?.getAttribute('data-folder-id');
-      
+
       if (specificFolderId && specificFolderId !== UI_CONSTANTS.ROOT_FOLDER_ID) {
         // Dragging over a specific folder
         setIsDragOverSpecificFolder(true);
         setDragTargetFolder(specificFolderId);
         setDragOverFolder(specificFolderId); // Highlight the specific folder
-        
+
         console.log('🎯 Dragging over specific folder:', {
           folderId: specificFolderId,
           folderName: findFolder(specificFolderId)?.name || 'Unknown'
@@ -1946,7 +1772,7 @@ const DocumentsPageContent = () => {
         setIsDragOverSpecificFolder(false);
         setDragTargetFolder(currentFolderId || UI_CONSTANTS.ROOT_FOLDER_ID);
         setDragOverFolder(null); // Clear specific folder highlight
-        
+
         console.log('🎯 Dragging over empty area, targeting:', {
           currentFolderId: currentFolderId || 'root',
           currentFolderName: currentFolderId ? findFolder(currentFolderId)?.name : 'Root'
@@ -1957,11 +1783,11 @@ const DocumentsPageContent = () => {
 
   const handleSystemDragLeave = useCallback((e: React.DragEvent) => {
     e.preventDefault();
-    
+
     // Only reset if leaving the main container (not child elements)
     const relatedTarget = e.relatedTarget as HTMLElement;
     const mainContainer = e.currentTarget;
-    
+
     if (!mainContainer.contains(relatedTarget)) {
       setIsSystemDragOver(false);
       setDragTargetFolder(null);
@@ -1976,12 +1802,12 @@ const DocumentsPageContent = () => {
     setDragTargetFolder(null);
     setDragOverFolder(null);
     setIsDragOverSpecificFolder(false);
-    
+
     const files = e.dataTransfer.files;
     if (files.length > 0) {
       // Determine target folder - use the dragTargetFolder we already determined in dragOver
       const targetFolderId = dragTargetFolder || currentFolderId || UI_CONSTANTS.ROOT_FOLDER_ID;
-      
+
       console.log('🎯 System file drop detected:', {
         fileCount: files.length,
         targetFolderId,
@@ -1989,13 +1815,13 @@ const DocumentsPageContent = () => {
         currentFolderId,
         files: Array.from(files).map(f => f.name)
       });
-      
+
       // Use existing file drop upload logic
       handleFileDropUpload(files, targetFolderId);
     }
   }, [dragTargetFolder, currentFolderId, handleFileDropUpload]);
 
-  const navigateToDocumentLocation = useCallback((document) => {
+  const navigateToDocumentLocation = useCallback((document: Document) => {
     if (document.folderId) {
       navigateToFolder(document.folderId);
     } else {
@@ -2005,7 +1831,7 @@ const DocumentsPageContent = () => {
   }, [navigateToFolder, navigateToRoot, clearSearch]);
 
   // Create a custom drag image for better visual feedback
-  const createDragImage = useCallback((itemName, itemType, itemIcon = '📄') => {
+  const createDragImage = useCallback((itemName: string, itemType: string, itemIcon = '📄') => {
     const dragElement = document.createElement('div');
     dragElement.style.cssText = `
       position: absolute;
@@ -2030,26 +1856,26 @@ const DocumentsPageContent = () => {
     `;
     dragElement.innerHTML = `${itemIcon} ${itemName}`;
     document.body.appendChild(dragElement);
-    
+
     return dragElement;
   }, []);
 
   // Drag and drop handlers
-  const handleDocumentDragStart = useCallback((e, doc) => {
+  const handleDocumentDragStart = useCallback((e: React.DragEvent<HTMLElement>, doc: Document) => {
     setDraggedDocument(doc);
     e.dataTransfer.effectAllowed = UI_CONSTANTS.DRAG_EFFECT_MOVE;
-    
+
     // Create custom drag image with document icon
-    const fileIcon = doc.type === 'image' ? '🖼️' : 
-                    doc.type === 'video' ? '🎥' : 
-                    doc.type === 'audio' ? '🎵' : 
-                    doc.name.endsWith('.pdf') ? '📄' : 
-                    doc.name.endsWith('.doc') || doc.name.endsWith('.docx') ? '📝' : 
+    const fileIcon = doc.type === 'image' ? '🖼️' :
+                    doc.type === 'video' ? '🎥' :
+                    doc.type === 'audio' ? '🎵' :
+                    doc.name.endsWith('.pdf') ? '📄' :
+                    doc.name.endsWith('.doc') || doc.name.endsWith('.docx') ? '📝' :
                     doc.name.endsWith('.xls') || doc.name.endsWith('.xlsx') ? '📊' : '📄';
-    
+
     const dragImage = createDragImage(doc.name, 'document', fileIcon);
     e.dataTransfer.setDragImage(dragImage, 20, 20);
-    
+
     // Clean up drag image after drag starts
     setTimeout(() => {
       if (document.body.contains(dragImage)) {
@@ -2058,15 +1884,15 @@ const DocumentsPageContent = () => {
     }, 0);
   }, [createDragImage]);
 
-  const handleFolderDragStart = useCallback((e, folder) => {
+  const handleFolderDragStart = useCallback((e: React.DragEvent<HTMLElement>, folder: FolderData) => {
     setDraggedFolder(folder);
     e.dataTransfer.effectAllowed = UI_CONSTANTS.DRAG_EFFECT_MOVE;
-    
+
     // Create custom drag image with folder icon
     const folderIcon = folder.isProtected ? '🔒' : '📁';
     const dragImage = createDragImage(folder.name, 'folder', folderIcon);
     e.dataTransfer.setDragImage(dragImage, 20, 20);
-    
+
     // Clean up drag image after drag starts
     setTimeout(() => {
       if (document.body.contains(dragImage)) {
@@ -2075,12 +1901,12 @@ const DocumentsPageContent = () => {
     }, 0);
   }, [createDragImage]);
 
-  const handleDragOver = useCallback((e, folderId) => {
+  const handleDragOver = useCallback((e: React.DragEvent<HTMLElement>, folderId: string | null) => {
     e.preventDefault();
-    
+
     // Check if files are being dragged (for upload) vs internal drag (for move)
     const hasFiles = e.dataTransfer.types.includes('Files');
-    
+
     if (hasFiles) {
       // File upload drag
       e.dataTransfer.dropEffect = 'copy';
@@ -2089,13 +1915,13 @@ const DocumentsPageContent = () => {
       // Document/folder move drag
       e.dataTransfer.dropEffect = UI_CONSTANTS.DRAG_EFFECT_MOVE;
       e.currentTarget.style.cursor = 'move';
-      
+
       // Add visual feedback for valid drop zones
       if (draggedDocument || draggedFolder) {
         // Check if this is a valid drop target
         const isDraggedItem = (draggedDocument?.folderId === folderId) || (draggedFolder?.id === folderId);
         const isParentToSelf = draggedFolder && folderId === draggedFolder.parentId;
-        
+
         if (!isDraggedItem && !isParentToSelf) {
           // Valid drop target - enhance existing blue background
           const currentBg = e.currentTarget.style.background;
@@ -2111,11 +1937,11 @@ const DocumentsPageContent = () => {
         }
       }
     }
-    
+
     setDragOverFolder(folderId);
   }, [draggedDocument, draggedFolder]);
 
-  const handleDragLeave = useCallback((e) => {
+  const handleDragLeave = useCallback((e: React.DragEvent<HTMLElement>) => {
     setDragOverFolder(null);
     e.currentTarget.style.cursor = 'default';
     // Reset drag over styles
@@ -2129,7 +1955,8 @@ const DocumentsPageContent = () => {
     setDragOverFolder(null);
   }, []);
 
-  const handleDrop = useCallback((e, targetFolderId) => {
+  const handleDrop = useCallback((e: React.DragEvent<HTMLElement>, targetFolderId: string | null) => {
+    const beforeState = captureTreeState(state.folders, state.documents || [], currentFolderId);
     e.preventDefault();
     e.stopPropagation(); // Prevent event bubbling to parent elements
     setDragOverFolder(null);
@@ -2138,7 +1965,7 @@ const DocumentsPageContent = () => {
 
     // Check if files are being dropped from external source
     const hasFiles = e.dataTransfer.files && e.dataTransfer.files.length > 0;
-    
+
     if (hasFiles) {
       // Handle external file drop
       handleFileDropUpload(e.dataTransfer.files, targetFolderId);
@@ -2148,35 +1975,35 @@ const DocumentsPageContent = () => {
     if (draggedDocument) {
       const actualTargetId = targetFolderId === UI_CONSTANTS.ROOT_FOLDER_ID ? null : targetFolderId;
       const targetFolderName = actualTargetId ? findFolder(actualTargetId)?.name : 'Root';
-      
+
       if (draggedDocument.folderId !== actualTargetId) {
         moveDocument(draggedDocument.id, actualTargetId);
-        
+
         // Play file drop sound effect
         playSound(SoundEffect.FILE_DROP);
-        
+
         // Remove the setTimeout logging - it's causing confusion
         // The document store will log the state change automatically
       }
     } else if (draggedFolder) {
       const actualTargetId = targetFolderId === UI_CONSTANTS.ROOT_FOLDER_ID ? null : targetFolderId;
       const targetFolderName = actualTargetId ? findFolder(actualTargetId)?.name : 'Root';
-      
+
       if (draggedFolder.id !== actualTargetId && !draggedFolder.isProtected) {
-        const isDescendant = (folderId, potentialAncestorId) => {
+        const isDescendant = (folderId: string | null, potentialAncestorId: string): boolean => {
           if (!folderId) return false;
           const folder = findFolder(folderId);
           if (!folder) return false;
           if (folder.parentId === potentialAncestorId) return true;
           return isDescendant(folder.parentId, potentialAncestorId);
         };
-        
+
         if (!isDescendant(actualTargetId, draggedFolder.id)) {
           moveFolder(draggedFolder.id, actualTargetId);
-          
+
           // Play file drop sound effect for folder movement too
           playSound(SoundEffect.FILE_DROP);
-          
+
           // Remove the setTimeout logging - it's causing confusion
           // The document store will log the state change automatically
         } else {
@@ -2229,20 +2056,20 @@ const DocumentsPageContent = () => {
   }, [draggedDocument, draggedFolder, moveDocument, moveFolder, state, currentFolderId, findFolder, playSound, handleFileDropUpload]);
 
   // Utility functions
-  const buildFolderHierarchy = useCallback((folders, parentId = null, level = 0) => {
-    const result = [];
+  const buildFolderHierarchy = useCallback(function buildFolderHierarchy(folders: FolderData[], parentId: string | null = null, level = 0): Array<FolderData & { level: number }> {
+    const result: Array<FolderData & { level: number }> = [];
     const children = folders.filter(f => f.parentId === parentId);
-    
+
     children.forEach(folder => {
       result.push({ ...folder, level });
       const subFolders = buildFolderHierarchy(folders, folder.id, level + 1);
       result.push(...subFolders);
     });
-    
+
     return result;
   }, []);
 
-  const formatDate = useCallback((dateString) => {
+  const formatDate = useCallback((dateString: string) => {
     return new Date(dateString).toLocaleDateString('en-US', {
       year: 'numeric',
       month: 'short',
@@ -2252,7 +2079,7 @@ const DocumentsPageContent = () => {
     });
   }, []);
 
-  const getDocumentIcon = useCallback((type) => {
+  const getDocumentIcon = useCallback((type: string) => {
     switch (type) {
       case 'pdf': return <File size={16} className="text-red-500" />;
       case 'word': return <FileText size={16} className="text-blue-500" />;
@@ -2268,7 +2095,7 @@ const DocumentsPageContent = () => {
     }
   }, []);
 
-  const getFileTypeBadge = useCallback((type) => {
+  const getFileTypeBadge = useCallback((type: string) => {
     switch (type) {
       case DOCUMENT_TYPES.PDF:
         return <Badge className="text-xs bg-red-500 hover:bg-red-600">PDF</Badge>;
@@ -2299,17 +2126,17 @@ const DocumentsPageContent = () => {
 
   const renderBreadcrumbs = useCallback(() => {
     const breadcrumbItems = [];
-    
+
     breadcrumbItems.push(
-      <button 
+      <button
         key={UI_CONSTANTS.ROOT_FOLDER_ID}
         onClick={() => navigateToFolder(null)}
         onDragOver={(e) => handleDragOver(e, UI_CONSTANTS.ROOT_FOLDER_ID)}
         onDragLeave={handleDragLeave}
         onDrop={(e) => handleDrop(e, UI_CONSTANTS.ROOT_FOLDER_ID)}
         className={`text-sm px-2 py-1 rounded transition-colors ${
-          folderPath.length === 0 
-            ? 'text-foreground' 
+          folderPath.length === 0
+            ? 'text-foreground'
             : 'text-blue-600 hover:text-blue-800 cursor-pointer hover:bg-blue-50'
         } ${
           dragOverFolder === UI_CONSTANTS.ROOT_FOLDER_ID ? 'bg-blue-100 text-blue-800' : ''
@@ -2331,8 +2158,8 @@ const DocumentsPageContent = () => {
           onDragLeave={handleDragLeave}
           onDrop={(e) => handleDrop(e, pathItem.id)}
           className={`text-sm px-2 py-1 rounded transition-colors ${
-            index === folderPath.length - 1 
-              ? 'text-foreground' 
+            index === folderPath.length - 1
+              ? 'text-foreground'
               : 'text-blue-600 hover:text-blue-800 cursor-pointer hover:bg-blue-50'
           } ${
             dragOverFolder === pathItem.id ? 'bg-blue-100 text-blue-800' : ''
@@ -2346,11 +2173,11 @@ const DocumentsPageContent = () => {
     return breadcrumbItems;
   }, [folderPath, navigateToFolder, handleDragOver, handleDragLeave, handleDrop, dragOverFolder]);
 
-  const renderFilePreview = useCallback((doc) => {
+  const renderFilePreview = useCallback((doc: Document) => {
     // Check if this is a created document (no actual file)
-    const isCreatedDocument = doc.filePath?.startsWith('/documents/') || 
+    const isCreatedDocument = doc.filePath?.startsWith('/documents/') ||
       (!doc.originalFile && doc.filePath && !doc.filePath.includes('/api/v1/documents/') && !doc.filePath.includes('supabase'));
-    
+
     // Debug logging for created document detection
     console.log('renderFilePreview - Created document check:', {
       id: doc.id,
@@ -2359,7 +2186,7 @@ const DocumentsPageContent = () => {
       hasOriginalFile: !!doc.originalFile,
       isCreatedDocument
     });
-    
+
     // If it's a created document, show "No file" message
     if (isCreatedDocument) {
       return (
@@ -2375,7 +2202,7 @@ const DocumentsPageContent = () => {
     }
 
     // Create object URL for uploaded files or use placeholder for demo files
-    const getFileUrl = (doc) => {
+    const getFileUrl = (doc: Document) => {
       if (doc.originalFile && isValidFile(doc.originalFile)) {
         return URL.createObjectURL(doc.originalFile);
       }
@@ -2383,7 +2210,7 @@ const DocumentsPageContent = () => {
     };
 
     // Enhanced function to get document URL for both new and persisted documents (same as main grid)
-    const getDocumentUrlForPreview = (document) => {
+    const getDocumentUrlForPreview = (document: Document) => {
       // For newly uploaded files, use the original file object
       if (document.originalFile && isValidFile(document.originalFile)) {
         return URL.createObjectURL(document.originalFile);
@@ -2395,7 +2222,7 @@ const DocumentsPageContent = () => {
       return null;
     };
 
-    const createPlaceholder = (text) => {
+    const createPlaceholder = (text: string) => {
       return `data:image/svg+xml;base64,${btoa(`
         <svg width="400" height="300" xmlns="http://www.w3.org/2000/svg">
           <rect width="100%" height="100%" fill="#f3f4f6"/>
@@ -2409,11 +2236,11 @@ const DocumentsPageContent = () => {
     switch (doc.type) {
       case 'image':
         const imageUrl = getFileUrl(doc);
-        
-        const handleImageLoad = (e) => {
-          const img = e.target;
+
+        const handleImageLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
+          const img = e.currentTarget;
           const aspectRatio = img.naturalWidth / img.naturalHeight;
-          
+
           // Determine object-fit based on aspect ratio
           // If image is square-ish (0.8-1.2) or vertical (< 0.8), use cover
           // If image is horizontal (> 1.2), use contain to show full image
@@ -2423,7 +2250,7 @@ const DocumentsPageContent = () => {
             img.style.objectFit = 'contain';
           }
         };
-        
+
         return (
           <div className="w-full h-full bg-black relative">
             <AuthenticatedImage
@@ -2506,8 +2333,8 @@ const DocumentsPageContent = () => {
                 </div>
                 <div className="flex gap-2">
                   {pdfUrl && (
-                    <Button 
-                      variant="outline" 
+                    <Button
+                      variant="outline"
                       size="sm"
                       onClick={() => window.open(pdfUrl, '_blank')}
                     >
@@ -2516,8 +2343,8 @@ const DocumentsPageContent = () => {
                     </Button>
                   )}
                   {pdfUrl && (
-                    <Button 
-                      variant="outline" 
+                    <Button
+                      variant="outline"
                       size="sm"
                       onClick={() => {
                         const link = document.createElement('a');
@@ -2570,8 +2397,8 @@ const DocumentsPageContent = () => {
                 {textUrl ? (
                   <div className="mt-4">
                     <p className="text-xs mb-3">Text file ready for download</p>
-                    <Button 
-                      variant="default" 
+                    <Button
+                      variant="default"
                       size="sm"
                       onClick={() => {
                         const link = document.createElement('a');
@@ -2609,8 +2436,8 @@ const DocumentsPageContent = () => {
                 {codeUrl ? (
                   <div className="mt-4">
                     <p className="text-xs mb-3">Code file ready for download</p>
-                    <Button 
-                      variant="default" 
+                    <Button
+                      variant="default"
                       size="sm"
                       onClick={() => {
                         const link = document.createElement('a');
@@ -2649,7 +2476,7 @@ const DocumentsPageContent = () => {
   // Check for loading conditions (this now runs only on client after hydration)
   // If we have data in state but no org ID, try to proceed anyway (development fallback)
   const hasDataButNoOrgId = !organizationId && (state.documents?.length > 0 || state.folders?.length > 0);
-  
+
   console.log('📋 Loading Check Debug:', {
     'mounted': mounted,
     'state.loading': state.loading,
@@ -2665,7 +2492,7 @@ const DocumentsPageContent = () => {
     'documentsLength': state.documents?.length,
     'foldersLength': state.folders?.length
   });
-  
+
   // Show loading only if we're actually loading AND don't have data to display AND component is mounted
   if (!mounted || (state.loading && !hasDataButNoOrgId && !(state.documents?.length > 0 || state.folders?.length > 0))) {
     return (
@@ -2679,9 +2506,40 @@ const DocumentsPageContent = () => {
     );
   }
 
+  // Render loading/error states without early returns
+  if (isLoading && !hasDataOrTimeout) {
+    return <div className="flex items-center justify-center min-h-screen">
+      <div className="text-center">
+        <Folder className="h-12 w-12 text-gray-400 mx-auto mb-4 animate-pulse" />
+        <h2 className="text-xl font-semibold text-gray-900 mb-2">Loading...</h2>
+        <p className="text-gray-600">Please wait while we set up your workspace.</p>
+      </div>
+    </div>
+  }
+
+  if (isNotSignedIn) {
+    return <div className="flex items-center justify-center min-h-screen">
+      <div className="text-center">
+        <p className="text-xl font-semibold mb-4">Authentication Required</p>
+        <p className="text-sm text-muted-foreground">Please sign in to access this page.</p>
+      </div>
+    </div>
+  }
+
+  if (isMissingUser) {
+    return <div className="flex items-center justify-center min-h-screen">
+      <div className="text-center">
+        <p className="text-xl font-semibold mb-4">User Data Missing</p>
+        <p className="text-sm text-muted-foreground">Unable to load user information. Please try refreshing the page.</p>
+      </div>
+    </div>
+  }
+
+  // All hooks have been moved to the top to prevent React Hooks order violations
+
   return (
     <AppLayout>
-      <div 
+      <div
         className={`relative h-full transition-all duration-200 ${
           isSystemDragOver ? 'bg-primary/5' : ''
         }`}
@@ -2721,7 +2579,7 @@ const DocumentsPageContent = () => {
           <div className="mx-4 bg-background/95 border border-primary/50 rounded-lg p-6 shadow-xl max-w-sm">
             <div className="text-center">
               <div className="flex items-center justify-center mb-4">
-                <div 
+                <div
                   className="p-3 rounded-lg mr-3"
                   style={{ backgroundColor: `${findFolder(dragTargetFolder)?.color || '#6b7280'}20`, border: `2px solid ${findFolder(dragTargetFolder)?.color || '#6b7280'}` }}
                 >
@@ -2730,7 +2588,7 @@ const DocumentsPageContent = () => {
                 <Upload className="h-6 w-6 text-primary" />
               </div>
               <p className="text-lg font-medium text-foreground mb-2">
-                Drop in "{findFolder(dragTargetFolder)?.name || 'Unknown Folder'}"
+                Drop in &quot;{findFolder(dragTargetFolder)?.name || 'Unknown Folder'}&quot;
               </p>
               <p className="text-sm text-muted-foreground">
                 Files will be uploaded to this folder
@@ -2773,7 +2631,7 @@ const DocumentsPageContent = () => {
               size="sm"
               onClick={() => {
                 setShowCreateDocumentModal(true);
-                playSound(SoundEffect.CLICK);
+                playSound(SoundEffect.NOTIFICATION);
               }}
               className="h-8 md:h-9 px-2 md:px-3"
             >
@@ -2814,11 +2672,11 @@ const DocumentsPageContent = () => {
                 </Button>
               )}
             </div>
-            
+
             {/* Sort Dropdown Menu */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button 
+                <Button
                   variant="outline"
                   size="sm"
                   className="flex items-center gap-2"
@@ -2864,11 +2722,11 @@ const DocumentsPageContent = () => {
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-            
+
             {/* Filter Dropdown Menu */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button 
+                <Button
                   variant={(filterType !== 'all' || filterSize !== 'all') ? 'default' : 'outline'}
                   size="sm"
                   className="flex items-center gap-2"
@@ -2886,7 +2744,7 @@ const DocumentsPageContent = () => {
               <DropdownMenuContent align="end" className="w-56">
                 <DropdownMenuLabel>Filter Documents</DropdownMenuLabel>
                 <DropdownMenuSeparator />
-                
+
                 {/* File Type Filter */}
                 <DropdownMenuSub>
                   <DropdownMenuSubTrigger>
@@ -2933,7 +2791,7 @@ const DocumentsPageContent = () => {
                     </DropdownMenuItem>
                   </DropdownMenuSubContent>
                 </DropdownMenuSub>
-                
+
                 {/* File Size Filter */}
                 <DropdownMenuSub>
                   <DropdownMenuSubTrigger>
@@ -2961,7 +2819,7 @@ const DocumentsPageContent = () => {
                     </DropdownMenuItem>
                   </DropdownMenuSubContent>
                 </DropdownMenuSub>
-                
+
                 {/* Quick Filters */}
                 <DropdownMenuSub>
                   <DropdownMenuSubTrigger>
@@ -2993,11 +2851,11 @@ const DocumentsPageContent = () => {
                     </DropdownMenuItem>
                   </DropdownMenuSubContent>
                 </DropdownMenuSub>
-                
+
                 <DropdownMenuSeparator />
-                
+
                 {/* Clear Filters */}
-                <DropdownMenuItem 
+                <DropdownMenuItem
                   onClick={() => {
                     setFilterType('all');
                     setFilterSize('all');
@@ -3009,9 +2867,9 @@ const DocumentsPageContent = () => {
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-            
+
             <div className="flex items-center gap-2">
-              <Button 
+              <Button
                 variant={showRecursive ? 'default' : 'outline'}
                 size="sm"
                 onClick={() => setShowRecursive(!showRecursive)}
@@ -3019,7 +2877,7 @@ const DocumentsPageContent = () => {
               >
                 {showRecursive ? 'All Files' : 'Current Only'}
               </Button>
-              
+
               <div className="flex items-center border rounded-lg">
                 <Button
                   variant={viewMode === 'grid' ? 'default' : 'ghost'}
@@ -3214,13 +3072,13 @@ const DocumentsPageContent = () => {
           {isSearching && searchQuery && (
             <div className="mb-8">
               <h2 className="text-lg font-medium mb-4">
-                Search Results for "{searchQuery}" ({searchResults.length} found)
+                Search Results for &quot;{searchQuery}&quot; ({searchResults.length} found)
               </h2>
-              
+
               {searchResults.length === 0 ? (
                 <div className="text-center py-12 animate-in fade-in duration-300">
                   <Search size={48} className="mx-auto text-muted-foreground mb-4" />
-                  <p className="text-muted-foreground">No documents found matching "{searchQuery}"</p>
+                  <p className="text-muted-foreground">No documents found matching &quot;{searchQuery}&quot;</p>
                   <p className="text-sm text-muted-foreground mt-2">Try a different search term</p>
                   <div className="flex gap-2 justify-center mt-4">
                     <Button onClick={() => handleSearchChange('')} variant="outline" size="sm">
@@ -3252,7 +3110,7 @@ const DocumentsPageContent = () => {
                             />
                           </div>
                         )}
-                        <Link 
+                        <Link
                           href={`/documents/${document.id}`}
                           className="flex items-center gap-4 flex-1 cursor-pointer"
                           onClick={(e) => {
@@ -3284,7 +3142,7 @@ const DocumentsPageContent = () => {
                                   }
                                 }}
                               >
-                                <source src={getDocumentUrl(document)} type={document.mimeType} />
+                                <source src={getDocumentUrl(document) ?? undefined} type={document.mimeType} />
                               </video>
                             ) : document.mimeType?.startsWith('audio/') && getDocumentUrl(document) ? (
                               <div className="w-full h-full flex flex-col items-center justify-center bg-pink-50 p-3">
@@ -3303,7 +3161,7 @@ const DocumentsPageContent = () => {
                                     }
                                   }}
                                 >
-                                  <source src={getDocumentUrl(document)} type={document.mimeType} />
+                                  <source src={getDocumentUrl(document) ?? undefined} type={document.mimeType} />
                                 </audio>
                               </div>
                             ) : null}
@@ -3311,13 +3169,13 @@ const DocumentsPageContent = () => {
                               {getDocumentIcon(document.type)}
                             </div>
                           </div>
-                          
+
                           <div className="flex-1 min-w-0">
                             <h3 className="text-sm font-medium truncate">{document.name}</h3>
                             <p className="text-xs text-muted-foreground mt-1">{formatFileSize(document.size)}</p>
                             <div className="flex items-center gap-2 mt-2">
                               <Folder size={12} className="text-muted-foreground" />
-                              <span className="text-xs text-muted-foreground">{document.location}</span>
+                              <span className="text-xs text-muted-foreground">{document.folderPath}</span>
                             </div>
                             <div className="flex gap-1 mt-2">
                               {!document.filePath?.startsWith('/documents/') && getFileTypeBadge(document.type)}
@@ -3329,7 +3187,7 @@ const DocumentsPageContent = () => {
                             </div>
                           </div>
                         </Link>
-                        
+
                         <div className="flex items-center gap-2">
                           <Button
                             variant="outline"
@@ -3361,12 +3219,6 @@ const DocumentsPageContent = () => {
           )}
 
           {/* Regular folder/document view - only show when not searching */}
-          {console.log('🔍 RENDER CONDITIONS:', { 
-            isSearching, 
-            shouldRender: !isSearching,
-            mounted,
-            hasData: (state.documents?.length || 0) > 0 || (state.folders?.length || 0) > 0
-          })}
           {!isSearching && (
             <>
               {/* Folders Grid */}
@@ -3374,15 +3226,15 @@ const DocumentsPageContent = () => {
                 {currentFolders.map(folder => {
                   const stats = getFolderStats(folder.id);
                   return (
-                    <div 
-                      key={folder.id} 
+                    <div
+                      key={folder.id}
                       className="group relative"
                       data-folder-id={folder.id}
                       onDragOver={(e) => handleDragOver(e, folder.id)}
                       onDragLeave={handleDragLeave}
                       onDrop={(e) => handleDrop(e, folder.id)}
                     >
-                      <div 
+                      <div
                         onClick={() => navigateToFolder(folder.id)}
                         draggable={!folder.isProtected}
                         onDragStart={(e) => {
@@ -3397,11 +3249,11 @@ const DocumentsPageContent = () => {
                         className={`bg-muted rounded-lg p-4 hover:bg-muted/80 transition-all duration-200 cursor-pointer border-l-4 ${
                           dragOverFolder === folder.id ? 'bg-blue-100 border-2 border-blue-300' : ''
                         } ${
-                          draggedFolder?.id === folder.id 
-                            ? 'opacity-50 scale-95 shadow-lg ring-2 ring-blue-500' 
+                          draggedFolder?.id === folder.id
+                            ? 'opacity-50 scale-95 shadow-lg ring-2 ring-blue-500'
                             : ''
                         }`}
-                        style={{ 
+                        style={{
                           borderLeftColor: folder.color || '#6b7280',
                           cursor: folder.isProtected ? 'pointer' : (draggedFolder?.id === folder.id ? 'grabbing' : 'grab')
                         }}
@@ -3410,7 +3262,7 @@ const DocumentsPageContent = () => {
                           <Folder size={20} style={{ color: folder.color || '#6b7280' }} />
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
-                              <Button 
+                              <Button
                                 variant="ghost"
                                 size="sm"
                                 onClick={(e) => {
@@ -3422,7 +3274,7 @@ const DocumentsPageContent = () => {
                               </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end" side="bottom" className="w-48">
-                              <DropdownMenuItem 
+                              <DropdownMenuItem
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   handleEditFolder(folder);
@@ -3431,7 +3283,7 @@ const DocumentsPageContent = () => {
                                 <Edit3 size={14} className="mr-2" />
                                 {folder.isProtected ? 'Edit Folder Settings' : 'Edit Folder'}
                               </DropdownMenuItem>
-                              
+
                               {!folder.isProtected && (
                                 <DropdownMenuSub>
                                   <DropdownMenuSubTrigger>
@@ -3439,7 +3291,7 @@ const DocumentsPageContent = () => {
                                     Move to Folder
                                   </DropdownMenuSubTrigger>
                                 <DropdownMenuSubContent>
-                                  <DropdownMenuItem 
+                                  <DropdownMenuItem
                                     onClick={(e) => {
                                       e.stopPropagation();
                                       moveFolder(folder.id, null);
@@ -3462,15 +3314,15 @@ const DocumentsPageContent = () => {
                                         disabled={targetFolder.id === folder.parentId}
                                         className="relative"
                                       >
-                                        <div 
+                                        <div
                                           className="flex items-center w-full"
                                           style={{ paddingLeft: `${targetFolder.level * 16}px` }}
                                         >
                                           {targetFolder.level > 0 && (
                                             <div className="flex items-center mr-1">
-                                              <div 
+                                              <div
                                                 className="w-3 h-3 border-l-2 border-b-2 border-gray-300 mr-1"
-                                                style={{ 
+                                                style={{
                                                   borderBottomLeftRadius: '3px',
                                                   marginTop: '-6px',
                                                   marginBottom: '6px'
@@ -3478,9 +3330,9 @@ const DocumentsPageContent = () => {
                                               />
                                             </div>
                                           )}
-                                          <Folder 
-                                            size={14} 
-                                            className="mr-2 flex-shrink-0" 
+                                          <Folder
+                                            size={14}
+                                            className="mr-2 flex-shrink-0"
                                             style={{ color: targetFolder.color || '#6b7280' }}
                                           />
                                           <span className="truncate">{targetFolder.name}</span>
@@ -3491,13 +3343,13 @@ const DocumentsPageContent = () => {
                                 </DropdownMenuSubContent>
                                 </DropdownMenuSub>
                               )}
-                              
+
                               {!folder.isProtected && <DropdownMenuSeparator />}
-                              
+
                               {!folder.isProtected && (
                                 <>
                                   <DropdownMenuSeparator />
-                                  <DropdownMenuItem 
+                                  <DropdownMenuItem
                                     onClick={(e) => {
                                       e.stopPropagation();
                                       openFolderDeleteModal(folder);
@@ -3523,7 +3375,7 @@ const DocumentsPageContent = () => {
                     </div>
                   );
                 })}
-                
+
                 {/* Add New Folder Button */}
                 <div className="group relative">
                   <Button
@@ -3542,12 +3394,12 @@ const DocumentsPageContent = () => {
               {/* Documents Section */}
               <div className="mb-4">
                 <h2 className="text-lg font-medium mb-4">
-                  {showRecursive 
-                    ? (currentFolderId ? `All documents in ${currentFolder?.name} and subfolders` : 'All documents') 
+                  {showRecursive
+                    ? (currentFolderId ? `All documents in ${currentFolder?.name} and subfolders` : 'All documents')
                     : (currentFolderId ? 'Documents in this folder' : 'Documents')
                   }
                 </h2>
-                
+
                 {currentDocuments.length === 0 ? (
                   <div className="text-center py-12 animate-in fade-in duration-500">
                     <Folder size={48} className="mx-auto text-muted-foreground mb-4 animate-bounce" />
@@ -3555,7 +3407,7 @@ const DocumentsPageContent = () => {
                       {currentFolderId ? 'No documents in this folder yet' : 'No documents uploaded yet'}
                     </p>
                     <p className="text-sm text-muted-foreground mt-2">
-                      Click "Create Document" to add documents or drag & drop files here
+                      Click &quot;Create Document&quot; to add documents or drag & drop files here
                     </p>
                     <div className="flex gap-3 justify-center mt-6">
                       <Button onClick={() => setShowCreateDocumentModal(true)} className="hover:scale-105 transition-transform">
@@ -3579,11 +3431,11 @@ const DocumentsPageContent = () => {
                     {viewMode === 'grid' ? (
                       <div className="grid grid-cols-1 xs:grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-4">
                         {currentDocuments.map(document => (
-                          <div 
-                            key={document.id} 
+                          <div
+                            key={document.id}
                             className={`group relative bg-card rounded-lg overflow-hidden shadow-sm border hover:shadow-lg hover:border-primary/20 transition-all duration-200 ${
-                              draggedDocument?.id === document.id 
-                                ? 'opacity-50 scale-95 shadow-lg ring-2 ring-blue-500' 
+                              draggedDocument?.id === document.id
+                                ? 'opacity-50 scale-95 shadow-lg ring-2 ring-blue-500'
                                 : ''
                             } ${
                               selectedDocuments.has(document.id) ? 'ring-2 ring-primary shadow-primary/25' : ''
@@ -3607,7 +3459,7 @@ const DocumentsPageContent = () => {
                                 />
                               </div>
                             )}
-                            <Link 
+                            <Link
                               href={`/documents/${document.id}`}
                               className="block cursor-pointer"
                               onClick={(e) => {
@@ -3641,7 +3493,7 @@ const DocumentsPageContent = () => {
                                       }
                                     }}
                                   >
-                                    <source src={getDocumentUrl(document)} type={document.mimeType} />
+                                    <source src={getDocumentUrl(document) ?? undefined} type={document.mimeType} />
                                   </video>
                                 ) : document.mimeType?.startsWith('audio/') && getDocumentUrl(document) ? (
                                   <div className="w-full h-full flex flex-col items-center justify-center bg-pink-50 p-4">
@@ -3660,14 +3512,14 @@ const DocumentsPageContent = () => {
                                         }
                                       }}
                                     >
-                                      <source src={getDocumentUrl(document)} type={document.mimeType} />
+                                      <source src={getDocumentUrl(document) ?? undefined} type={document.mimeType} />
                                     </audio>
                                   </div>
-                                ) : (document.name.toLowerCase().endsWith('.csv') || 
+                                ) : (document.name.toLowerCase().endsWith('.csv') ||
                                      document.name.toLowerCase().endsWith('.txt') ||
                                      document.name.toLowerCase().endsWith('.pdf') ||
                                      document.name.toLowerCase().endsWith('.doc') ||
-                                     document.name.toLowerCase().endsWith('.docx')) && 
+                                     document.name.toLowerCase().endsWith('.docx')) &&
                                      !document.filePath?.startsWith('/documents/') ? (
                                   <CanvasPreviewWithFetch document={document} className="w-full h-full" />
                                 ) : null}
@@ -3693,7 +3545,7 @@ const DocumentsPageContent = () => {
                                     </span>
                                   )}
                                 </div>
-                                
+
                                 {/* Processing Status */}
                                 {(() => {
                                   const processingStatus = (document.processing as any)?.currentStatus;
@@ -3708,12 +3560,12 @@ const DocumentsPageContent = () => {
                                     </div>
                                   );
                                 })()}
-                                
+
                               </div>
                             </Link>
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
-                                <Button 
+                                <Button
                                   variant="ghost"
                                   size="sm"
                                   onClick={(e) => e.stopPropagation()}
@@ -3724,7 +3576,7 @@ const DocumentsPageContent = () => {
                               </DropdownMenuTrigger>
                               <DropdownMenuContent align="end" side="bottom">
                                 <DropdownMenuItem asChild>
-                                  <Link 
+                                  <Link
                                     href={`/documents/${document.id}`}
                                     className="flex items-center gap-2"
                                   >
@@ -3749,7 +3601,7 @@ const DocumentsPageContent = () => {
                                     Move to Folder
                                   </DropdownMenuSubTrigger>
                                   <DropdownMenuSubContent>
-                                    <DropdownMenuItem 
+                                    <DropdownMenuItem
                                       onClick={(e) => {
                                         e.stopPropagation();
                                         handleMoveDocument(document.id, UI_CONSTANTS.ROOT_FOLDER_ID);
@@ -3769,15 +3621,15 @@ const DocumentsPageContent = () => {
                                         disabled={folder.id === document.folderId}
                                         className="relative"
                                       >
-                                        <div 
+                                        <div
                                           className="flex items-center w-full"
                                           style={{ paddingLeft: `${folder.level * 16}px` }}
                                         >
                                           {folder.level > 0 && (
                                             <div className="flex items-center mr-1">
-                                              <div 
+                                              <div
                                                 className="w-3 h-3 border-l-2 border-b-2 border-gray-300 mr-1"
-                                                style={{ 
+                                                style={{
                                                   borderBottomLeftRadius: '3px',
                                                   marginTop: '-6px',
                                                   marginBottom: '6px'
@@ -3832,9 +3684,9 @@ const DocumentsPageContent = () => {
                                       e.stopPropagation();
                                       try {
                                         notify.info('Cancelling', `Cancelling processing for "${document.name}"...`)
-                                        
+
                                         const result = await cancelDocumentProcessing(document.id)
-                                        
+
                                         if (result.success) {
                                           notify.success('Processing Cancelled', result.message)
                                           playSound(SoundEffect.SUCCESS)
@@ -3844,7 +3696,8 @@ const DocumentsPageContent = () => {
                                           notify.error('Cancel Failed', result.message || 'Failed to cancel processing')
                                           playSound(SoundEffect.ERROR)
                                         }
-                                      } catch (error) {
+                                      } catch (caughtError) {
+      const error = normalizeError(caughtError);
                                         console.error('Error cancelling document processing:', error)
                                         notify.error('Cancel Failed', 'Failed to cancel processing. Please try again.')
                                         playSound(SoundEffect.ERROR)
@@ -3875,13 +3728,13 @@ const DocumentsPageContent = () => {
                     ) : (
                       <div className="bg-card rounded-lg border">
                         {currentDocuments.map((document, index) => (
-                          <div 
-                            key={document.id} 
+                          <div
+                            key={document.id}
                             className={`group relative transition-all duration-200 ${
                               index !== currentDocuments.length - 1 ? 'border-b' : ''
                             } ${
-                              draggedDocument?.id === document.id 
-                                ? 'opacity-50 bg-blue-50 border-blue-200' 
+                              draggedDocument?.id === document.id
+                                ? 'opacity-50 bg-blue-50 border-blue-200'
                                 : ''
                             } ${
                               selectedDocuments.has(document.id) ? 'bg-primary/5' : ''
@@ -3893,7 +3746,7 @@ const DocumentsPageContent = () => {
                             onDragEnd={handleDragEnd}
                             style={{ cursor: isBulkActionMode ? 'pointer' : (draggedDocument?.id === document.id ? 'grabbing' : 'grab') }}
                           >
-                            <Link 
+                            <Link
                               href={`/documents/${document.id}`}
                               className="flex items-center gap-4 p-4 hover:bg-muted/50 cursor-pointer"
                               onClick={(e) => {
@@ -3939,7 +3792,7 @@ const DocumentsPageContent = () => {
                                       }
                                     }}
                                   >
-                                    <source src={getDocumentUrl(document)} type={document.mimeType} />
+                                    <source src={getDocumentUrl(document) ?? undefined} type={document.mimeType} />
                                   </video>
                                 ) : document.mimeType?.startsWith('audio/') && getDocumentUrl(document) ? (
                                   <div className="w-12 h-12 bg-pink-50 rounded flex items-center justify-center">
@@ -3979,7 +3832,7 @@ const DocumentsPageContent = () => {
                                 </div>
                               </div>
                             </Link>
-                            
+
                             {/* Audio Player for List View */}
                             {document.mimeType?.startsWith('audio/') && getDocumentUrl(document) && (
                               <div className="px-4 pb-3 -mt-1">
@@ -3996,14 +3849,14 @@ const DocumentsPageContent = () => {
                                   }}
                                   style={{ height: '32px' }}
                                 >
-                                  <source src={getDocumentUrl(document)} type={document.mimeType} />
+                                  <source src={getDocumentUrl(document) ?? undefined} type={document.mimeType} />
                                 </audio>
                               </div>
                             )}
-                            
+
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
-                                <Button 
+                                <Button
                                   variant="ghost"
                                   size="sm"
                                   onClick={(e) => e.stopPropagation()}
@@ -4014,7 +3867,7 @@ const DocumentsPageContent = () => {
                               </DropdownMenuTrigger>
                               <DropdownMenuContent align="end" side="bottom">
                                 <DropdownMenuItem asChild>
-                                  <Link 
+                                  <Link
                                     href={`/documents/${document.id}`}
                                     className="flex items-center gap-2"
                                   >
@@ -4039,7 +3892,7 @@ const DocumentsPageContent = () => {
                                     Move to Folder
                                   </DropdownMenuSubTrigger>
                                   <DropdownMenuSubContent>
-                                    <DropdownMenuItem 
+                                    <DropdownMenuItem
                                       onClick={(e) => {
                                         e.stopPropagation();
                                         handleMoveDocument(document.id, UI_CONSTANTS.ROOT_FOLDER_ID);
@@ -4059,15 +3912,15 @@ const DocumentsPageContent = () => {
                                         disabled={folder.id === document.folderId}
                                         className="relative"
                                       >
-                                        <div 
+                                        <div
                                           className="flex items-center w-full"
                                           style={{ paddingLeft: `${folder.level * 16}px` }}
                                         >
                                           {folder.level > 0 && (
                                             <div className="flex items-center mr-1">
-                                              <div 
+                                              <div
                                                 className="w-3 h-3 border-l-2 border-b-2 border-gray-300 mr-1"
-                                                style={{ 
+                                                style={{
                                                   borderBottomLeftRadius: '3px',
                                                   marginTop: '-6px',
                                                   marginBottom: '6px'
@@ -4122,9 +3975,9 @@ const DocumentsPageContent = () => {
                                       e.stopPropagation();
                                       try {
                                         notify.info('Cancelling', `Cancelling processing for "${document.name}"...`)
-                                        
+
                                         const result = await cancelDocumentProcessing(document.id)
-                                        
+
                                         if (result.success) {
                                           notify.success('Processing Cancelled', result.message)
                                           playSound(SoundEffect.SUCCESS)
@@ -4134,7 +3987,8 @@ const DocumentsPageContent = () => {
                                           notify.error('Cancel Failed', result.message || 'Failed to cancel processing')
                                           playSound(SoundEffect.ERROR)
                                         }
-                                      } catch (error) {
+                                      } catch (caughtError) {
+      const error = normalizeError(caughtError);
                                         console.error('Error cancelling document processing:', error)
                                         notify.error('Cancel Failed', 'Failed to cancel processing. Please try again.')
                                         playSound(SoundEffect.ERROR)
@@ -4193,7 +4047,7 @@ const DocumentsPageContent = () => {
                 </span>
               )}
             </h3>
-            
+
             <div className="space-y-4">
               <div>
                 <label className="text-sm font-medium block mb-1">Name</label>
@@ -4206,7 +4060,7 @@ const DocumentsPageContent = () => {
                   autoFocus
                 />
               </div>
-              
+
               <div>
                 <label className="text-sm font-medium block mb-1">Description (optional)</label>
                 <Input
@@ -4216,7 +4070,7 @@ const DocumentsPageContent = () => {
                   placeholder="Folder description"
                 />
               </div>
-              
+
               <div>
                 <label className="text-sm font-medium block mb-2">Color</label>
                 <div className="grid grid-cols-5 gap-2">
@@ -4235,7 +4089,7 @@ const DocumentsPageContent = () => {
                 </div>
               </div>
             </div>
-            
+
             <div className="flex gap-3 mt-6">
               <Button
                 onClick={handleCreateFolder}
@@ -4268,7 +4122,7 @@ const DocumentsPageContent = () => {
             <h3 className="text-lg font-semibold mb-4">
               Edit Folder
             </h3>
-            
+
             <div className="space-y-4">
               <div>
                 <label className="text-sm font-medium block mb-1">Name</label>
@@ -4287,7 +4141,7 @@ const DocumentsPageContent = () => {
                   />
                 )}
               </div>
-              
+
               <div>
                 <label className="text-sm font-medium block mb-1">Description (optional)</label>
                 <Input
@@ -4297,7 +4151,7 @@ const DocumentsPageContent = () => {
                   placeholder="Folder description"
                 />
               </div>
-              
+
               <div>
                 <label className="text-sm font-medium block mb-2">Color</label>
                 <div className="grid grid-cols-5 gap-2">
@@ -4316,7 +4170,7 @@ const DocumentsPageContent = () => {
                 </div>
               </div>
             </div>
-            
+
             <div className="flex gap-3 mt-6">
               <Button
                 onClick={handleUpdateFolder}
@@ -4345,7 +4199,7 @@ const DocumentsPageContent = () => {
 
       {/* Document Details Modal */}
       {showDocumentModal && selectedDocument && (
-        <div 
+        <div
           className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4"
           onClick={handleModalBackdropClick}
         >
@@ -4354,7 +4208,7 @@ const DocumentsPageContent = () => {
             <div className="flex-1 bg-muted flex items-center justify-center min-w-0 min-h-[200px] md:min-h-0">
               {renderFilePreview(selectedDocument)}
             </div>
-            
+
             {/* Details Panel */}
             <div className="w-full md:w-96 flex flex-col border-t md:border-t-0 md:border-l">
               {/* Header */}
@@ -4362,7 +4216,7 @@ const DocumentsPageContent = () => {
                 <h3 className="text-lg font-semibold truncate mr-2">
                   {selectedDocument.name}
                 </h3>
-                <Button 
+                <Button
                   variant="ghost"
                   size="sm"
                   onClick={closeDocumentModal}
@@ -4370,14 +4224,14 @@ const DocumentsPageContent = () => {
                   <X size={20} />
                 </Button>
               </div>
-              
+
               {/* Document Content - Scrollable */}
               <div className="flex-1 overflow-y-auto p-4 space-y-6">
                 {/* Document Location as Subtitle */}
                 <div className="flex items-center gap-2 text-sm text-muted-foreground mb-4">
                   <Folder size={14} />
                   <span>
-                    {folderPath.length > 0 
+                    {folderPath.length > 0
                       ? 'Documents' + folderPath.map(p => ' > ' + p.name).join('')
                       : 'Documents (Root)'}
                   </span>
@@ -4444,7 +4298,7 @@ const DocumentsPageContent = () => {
                 {/* Editable Tags */}
                 <div>
                   <label className="text-xs text-muted-foreground uppercase tracking-wide mb-3 block">Tags</label>
-                  
+
                   {isEditingMetadata ? (
                     <div className="space-y-3">
                       {/* New tag input */}
@@ -4466,7 +4320,7 @@ const DocumentsPageContent = () => {
                           Add
                         </Button>
                       </div>
-                      
+
                       {/* Existing tags as badges */}
                       <div className="flex flex-wrap gap-2">
                         {editedTags.map((tag, index) => (
@@ -4482,7 +4336,7 @@ const DocumentsPageContent = () => {
                             </Button>
                           </div>
                         ))}
-                        
+
                         {editedTags.length === 0 && (
                           <span className="text-sm text-muted-foreground italic">No tags yet. Type above to add tags.</span>
                         )}
@@ -4526,7 +4380,7 @@ const DocumentsPageContent = () => {
                         </Badge>
                       </div>
                     )}
-                    
+
                     {selectedDocument.securityClassification && (
                       <div>
                         <label className="text-xs text-muted-foreground uppercase tracking-wide">Security Classification</label>
@@ -4535,7 +4389,7 @@ const DocumentsPageContent = () => {
                         </Badge>
                       </div>
                     )}
-                    
+
                     {selectedDocument.workflowStatus && (
                       <div>
                         <label className="text-xs text-muted-foreground uppercase tracking-wide">Workflow Status</label>
@@ -4544,28 +4398,21 @@ const DocumentsPageContent = () => {
                         </Badge>
                       </div>
                     )}
-                    
+
                     {selectedDocument.description && (
                       <div>
                         <label className="text-xs text-muted-foreground uppercase tracking-wide">Description</label>
                         <p className="text-sm break-words">{selectedDocument.description}</p>
                       </div>
                     )}
-                    
-                    {selectedDocument.setAsideType && (
-                      <div>
-                        <label className="text-xs text-muted-foreground uppercase tracking-wide">Priority Category</label>
-                        <p className="text-sm break-words">{selectedDocument.setAsideType}</p>
-                      </div>
-                    )}
-                    
-                    {selectedDocument.naicsCodes && selectedDocument.naicsCodes.length > 0 && (
+
+                    {selectedDocument.entities.entities.some(entity => entity.type === 'NAICS_CODE') && (
                       <div>
                         <label className="text-xs text-muted-foreground uppercase tracking-wide">NAICS Codes</label>
                         <div className="flex flex-wrap gap-1 mt-1">
-                          {selectedDocument.naicsCodes.map((code, index) => (
-                            <Badge key={index} variant="outline" className="text-xs">
-                              {code}
+                          {selectedDocument.entities.entities.filter(entity => entity.type === 'NAICS_CODE').map(entity => (
+                            <Badge key={entity.id} variant="outline" className="text-xs">
+                              {entity.text}
                             </Badge>
                           ))}
                         </div>
@@ -4574,7 +4421,7 @@ const DocumentsPageContent = () => {
                   </div>
                 </div>
               </div>
-              
+
               {/* Actions - Fixed at bottom */}
               <div className="border-t p-4 space-y-3 shrink-0">
                 {isEditingMetadata ? (
@@ -4600,7 +4447,7 @@ const DocumentsPageContent = () => {
                     {/* Move to Folder Dropdown */}
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button 
+                        <Button
                           variant="outline"
                           className="w-full justify-start"
                         >
@@ -4610,7 +4457,7 @@ const DocumentsPageContent = () => {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="start" className="w-56">
-                        <DropdownMenuItem 
+                        <DropdownMenuItem
                           onClick={() => handleMoveDocument(selectedDocument.id, UI_CONSTANTS.ROOT_FOLDER_ID)}
                           disabled={!currentFolderId}
                         >
@@ -4625,15 +4472,15 @@ const DocumentsPageContent = () => {
                             disabled={folder.id === currentFolderId}
                             className="relative"
                           >
-                            <div 
+                            <div
                               className="flex items-center w-full"
                               style={{ paddingLeft: `${folder.level * 20}px` }}
                             >
                               {folder.level > 0 && (
                                 <div className="flex items-center mr-1">
-                                  <div 
+                                  <div
                                     className="w-4 h-4 border-l-2 border-b-2 border-gray-300 mr-1"
-                                    style={{ 
+                                    style={{
                                       borderBottomLeftRadius: '4px',
                                       marginTop: '-8px',
                                       marginBottom: '8px'
@@ -4641,9 +4488,9 @@ const DocumentsPageContent = () => {
                                   />
                                 </div>
                               )}
-                              <Folder 
-                                size={14} 
-                                className="mr-2 flex-shrink-0" 
+                              <Folder
+                                size={14}
+                                className="mr-2 flex-shrink-0"
                                 style={{ color: folder.color || '#6b7280' }}
                               />
                               <span className="truncate">{folder.name}</span>
@@ -4663,7 +4510,7 @@ const DocumentsPageContent = () => {
                         Share
                       </Button>
                     </div>
-                    
+
                     <Button
                       variant="destructive"
                       onClick={() => {
@@ -4720,9 +4567,9 @@ const DocumentsPageContent = () => {
           setDraggedFileForModal(null); // Clear dragged file when modal closes
         }}
         onSubmit={handleCreateDocument}
-        currentFolderId={currentFolderId}
+        currentFolderId={currentFolderId ?? undefined}
         isCreating={isCreatingDocument}
-        initialFile={draggedFileForModal}
+        initialFile={draggedFileForModal ?? undefined}
         disabled={!organizationId}
       />
 

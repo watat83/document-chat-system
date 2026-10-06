@@ -131,39 +131,6 @@ export function useRealtimeValidation(
   const profileStore = useProfileStore()
 
   // ==========================================
-  // INITIALIZATION
-  // ==========================================
-
-  useEffect(() => {
-    // Create validation configuration
-    const validationConfig = {
-      realTimeValidation: validateOnChange,
-      debounceMs,
-      ...config,
-    }
-
-    // Initialize validators
-    fieldValidatorRef.current = new FieldValidator(validationConfig, context)
-    formValidatorRef.current = new FormValidator(validationConfig, context)
-
-    // Create debounced field validator
-    debouncedValidateFieldRef.current = debounceValidation(
-      async (field: string, value: any) => {
-        return await validateFieldInternal(field, value)
-      },
-      debounceMs
-    )
-
-    // Validate on mount if requested
-    if (validateOnMount) {
-      const currentData = getCurrentFormData()
-      if (currentData) {
-        validateForm(currentData)
-      }
-    }
-  }, [])
-
-  // ==========================================
   // INTERNAL VALIDATION FUNCTIONS
   // ==========================================
 
@@ -281,6 +248,24 @@ export function useRealtimeValidation(
     [formType, enableOptimisticUpdates]
   )
 
+  const getCurrentFormData = useCallback(() => {
+    switch (formType) {
+      case 'profile':
+        return profileStore.current
+      case 'organization':
+        return profileStore.current
+      default:
+        return null
+    }
+  }, [formType, profileStore.current])
+
+  const markFormDirty = useCallback(() => {
+    setValidationState((prev) => ({
+      ...prev,
+      isDirty: true,
+    }))
+  }, [])
+
   const validateFormInternal = useCallback(
     async (data: any): Promise<FormValidationResult> => {
       if (!formValidatorRef.current) {
@@ -368,16 +353,63 @@ export function useRealtimeValidation(
     [formType]
   )
 
-  const getCurrentFormData = useCallback(() => {
-    switch (formType) {
-      case 'profile':
-        return profileStore.current
-      case 'organization':
-        return profileStore.current
-      default:
-        return null
+
+
+  const validateForm = useCallback(
+    async (data: any): Promise<FormValidationResult> => {
+      markFormDirty()
+      return await validateFormInternal(data)
+    },
+    [validateFormInternal]
+  )
+
+
+
+
+  // ==========================================
+  // INITIALIZATION
+  // ==========================================
+
+  useEffect(() => {
+    // Create validation configuration
+    const validationConfig = {
+      realTimeValidation: validateOnChange,
+      debounceMs,
+      ...config,
     }
-  }, [formType, profileStore.current])
+
+    // Initialize validators
+    fieldValidatorRef.current = new FieldValidator(validationConfig, context)
+    formValidatorRef.current = new FormValidator(validationConfig, context)
+
+    // Create debounced field validator
+    debouncedValidateFieldRef.current = debounceValidation(
+      async (field: string, value: any) => {
+        return await validateFieldInternal(field, value)
+      },
+      debounceMs
+    )
+
+    // Validate on mount if requested
+    if (validateOnMount) {
+      const currentData = getCurrentFormData()
+      if (currentData) {
+        const timeout = window.setTimeout(() => {
+          void validateForm(currentData)
+        }, 0)
+
+        return () => window.clearTimeout(timeout)
+      }
+    }
+  }, [])
+
+  const markFieldTouched = useCallback((field: string) => {
+    setValidationState((prev) => ({
+      ...prev,
+      touchedFields: new Set([...prev.touchedFields, field]),
+    }))
+  }, [])
+
 
   // ==========================================
   // PUBLIC API FUNCTIONS
@@ -396,14 +428,6 @@ export function useRealtimeValidation(
       }
     },
     [validateOnChange, validateFieldInternal]
-  )
-
-  const validateForm = useCallback(
-    async (data: any): Promise<FormValidationResult> => {
-      markFormDirty()
-      return await validateFormInternal(data)
-    },
-    [validateFormInternal]
   )
 
   const validateAllFields = useCallback(
@@ -445,20 +469,6 @@ export function useRealtimeValidation(
       newState.touchedFields.delete(field)
       return newState
     })
-  }, [])
-
-  const markFieldTouched = useCallback((field: string) => {
-    setValidationState((prev) => ({
-      ...prev,
-      touchedFields: new Set([...prev.touchedFields, field]),
-    }))
-  }, [])
-
-  const markFormDirty = useCallback(() => {
-    setValidationState((prev) => ({
-      ...prev,
-      isDirty: true,
-    }))
   }, [])
 
   // ==========================================

@@ -180,15 +180,19 @@ export function useRealtimeSubscription(options: {
   // Initial fetch - use ref to avoid dependency issues
   const initialFetchDone = useRef(false);
   useEffect(() => {
-    if (user && !initialFetchDone.current) {
-      initialFetchDone.current = true;
-      fetchSubscription();
-    } else if (!user) {
-      initialFetchDone.current = false;
-      setLoading(false);
-      setSubscription(null);
-      setError(null);
-    }
+    const timeout = window.setTimeout(() => {
+      if (user && !initialFetchDone.current) {
+        initialFetchDone.current = true;
+        void fetchSubscription();
+      } else if (!user) {
+        initialFetchDone.current = false;
+        setLoading(false);
+        setSubscription(null);
+        setError(null);
+      }
+    }, 0)
+
+    return () => window.clearTimeout(timeout)
   }, [user, fetchSubscription]);
 
   // Background polling (if enabled)

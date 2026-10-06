@@ -1,4 +1,9 @@
 
+import type { OptimizationHints } from './service-contracts';
+
+export type Complexity = 'low' | 'medium' | 'high';
+export type TaskType = 'simple_qa' | 'complex_analysis' | 'document_analysis' | 'content_generation' | 'embedding' | 'data_extraction' | 'translation' | 'summarization' | 'code_generation' | 'media_generation' | 'image_generation' | 'video_generation' | 'image_edit' | 'document_processing' | 'opportunity_matching' | 'classification' | 'completion';
+
 export interface ImageAttachment {
   type: 'image';
   data?: string | Buffer; // Base64 string or Buffer
@@ -9,12 +14,13 @@ export interface ImageAttachment {
 }
 
 export interface FileAttachment {
-  type: 'file';
-  data?: Buffer;
+  type: 'file' | 'pdf';
+  data?: string | Buffer;
   path?: string;
   mimeType?: string;
   name?: string;
   size?: number;
+  metadata?: { engine?: 'native' | 'mistral-ocr' | 'pdf-text'; pageCount?: number; cost?: number; annotations?: unknown; [key: string]: unknown };
 }
 
 export type MessageAttachment = ImageAttachment | FileAttachment;
@@ -33,9 +39,15 @@ export interface UnifiedCompletionRequest {
   maxTokens?: number;
   stopSequences?: string[];
   systemPrompt?: string;
-  
+  signal?: AbortSignal;
+  organizationId?: string;
+  userId?: string;
+  metadata?: { organizationId?: string; userId?: string; provider?: string; httpRequest?: import('next/server').NextRequest; [key: string]: any };
+  hints?: Partial<OptimizationHints>;
+
   options?: {
     streaming?: boolean;
+    plugins?: Array<{ id: string; pdf?: { engine?: 'native' | 'mistral-ocr' | 'pdf-text' } }>;
     jsonMode?: boolean;
     functionCalling?: boolean;
     seed?: number;
@@ -45,13 +57,13 @@ export interface UnifiedCompletionRequest {
       search_depth?: 'basic' | 'advanced';
     };
   };
-  
+
   functions?: Array<{
     name: string;
     description: string;
     parameters: any;
   }>;
-  
+
   functionCall?: string | { name: string };
 }
 
@@ -91,6 +103,9 @@ export interface UnifiedCompletionResponse {
     functionCall?: any;
     citations?: Citation[];
     annotations?: URLCitation[];
+    cost?: number;
+    generationId?: string;
+    [key: string]: any;
   };
 }
 
@@ -110,10 +125,11 @@ export interface UnifiedEmbeddingResponse {
   metadata: {
     provider: string;
     dimensions: number;
+    cost?: number;
   };
 }
 
-export interface UnifiedStreamRequest extends Omit<UnifiedCompletionRequest, 'options'> {
+export interface UnifiedStreamRequest extends UnifiedCompletionRequest {
   onChunk?: (chunk: string) => void;
   onComplete?: (fullResponse: string) => void;
   onError?: (error: Error) => void;
@@ -125,6 +141,7 @@ export interface UnifiedStreamChunk {
     provider: string;
     model: string;
     finishReason?: string;
+    [key: string]: unknown;
   };
 }
 
@@ -151,6 +168,7 @@ export interface CostEstimate {
     promptCost?: number;
     completionCost?: number;
     imageCost?: number;
+    pdfCost?: number;
     pricePerToken?: number;
   };
   metadata?: {
@@ -158,6 +176,9 @@ export interface CostEstimate {
     pricingSource?: string;
     model?: string;
     hasImages?: boolean;
+    hasPDFs?: boolean;
+    provider?: string;
+    [key: string]: any;
     usageCheck?: any;
   };
 }
@@ -175,6 +196,9 @@ export interface AIRequest {
   features?: string[];
   messages?: UnifiedMessage[];
   text?: string;
+  taskType: TaskType;
+  complexity: Complexity;
+  tools?: unknown[];
 }
 
 export interface ModelInfo {

@@ -112,8 +112,8 @@ export async function GET(request: NextRequest) {
               status: 'FAILED',
               message: 'Test upload failed - likely missing storage policies',
               error: uploadError.message,
-              errorCode: uploadError.error,
-              statusCode: uploadError.statusCode,
+              errorCode: uploadError.name,
+              statusCode: 'status' in uploadError ? uploadError.status : undefined,
               solution: 'Add storage policy: CREATE POLICY "Allow all operations for service role" ON storage.objects FOR ALL USING (bucket_id = \'documents\');'
             };
           } else {

@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@clerk/nextjs/server'
 import { prisma } from '@/lib/db'
 import { z } from 'zod'
-import { SearchFilters } from '@/types'
-import { auditCrudLogger } from '@/lib/audit/crud-audit-logger'
+import type { Prisma } from '@prisma/client'
+import { processingTransaction } from '@/lib/documents/processing-state'
 import { UsageTrackingService, UsageType } from '@/lib/usage-tracking'
 
 /**
@@ -138,7 +138,7 @@ const CreateSavedSearchSchema = z.object({
 const QueryParamsSchema = z.object({
   category: z.string().optional(),
   shared: z.string().transform(val => val === 'true').optional(),
-  limit: z.string().transform(val => Math.min(parseInt(val) || 50, 100)).optional()
+  limit: z.coerce.number().int().min(1).max(100).optional()
 })
 
 // GET /api/v1/saved-searches - List saved searches
@@ -146,18 +146,18 @@ export async function GET(request: NextRequest) {
   try {
     const authResult = await auth()
     const userId = authResult?.userId
-    
+
     if (!userId) {
-      return NextResponse.json({ 
-        success: false, 
-        error: 'Unauthorized' 
+      return NextResponse.json({
+        success: false,
+        error: 'Unauthorized'
       }, { status: 401 })
     }
 
     // Get user's organization
     const user = await prisma.user.findUnique({
-      where: { clerkId: userId },
-      select: { 
+      where: { clerkId: userId, deletedAt: null, organization: { deletedAt: null } },
+      select: {
         id: true,
         clerkId: true,
         organizationId: true
@@ -165,9 +165,9 @@ export async function GET(request: NextRequest) {
     })
 
     if (!user) {
-      return NextResponse.json({ 
-        success: false, 
-        error: 'User not found' 
+      return NextResponse.json({
+        success: false,
+        error: 'User not found'
       }, { status: 404 })
     }
 
@@ -177,7 +177,7 @@ export async function GET(request: NextRequest) {
     const { category, shared, limit = 50 } = QueryParamsSchema.parse(queryParams)
 
     // Build where clause
-    const where: any = {
+    const where: Prisma.SavedSearchWhereInput = {
       userId: user.id,
       organizationId: user.organizationId,
       deletedAt: null
@@ -224,10 +224,11 @@ export async function GET(request: NextRequest) {
     })
 
   } catch (error) {
+    if (error instanceof z.ZodError) return NextResponse.json({ success: false, error: 'Invalid query parameters', details: error.errors }, { status: 400 })
     console.error('Error fetching saved searches:', error)
-    return NextResponse.json({ 
-      success: false, 
-      error: 'Failed to fetch saved searches' 
+    return NextResponse.json({
+      success: false,
+      error: 'Failed to fetch saved searches'
     }, { status: 500 })
   }
 }
@@ -237,18 +238,18 @@ export async function POST(request: NextRequest) {
   try {
     const authResult = await auth()
     const userId = authResult?.userId
-    
+
     if (!userId) {
-      return NextResponse.json({ 
-        success: false, 
-        error: 'Unauthorized' 
+      return NextResponse.json({
+        success: false,
+        error: 'Unauthorized'
       }, { status: 401 })
     }
 
     // Get user's organization
     const user = await prisma.user.findUnique({
-      where: { clerkId: userId },
-      select: { 
+      where: { clerkId: userId, deletedAt: null, organization: { deletedAt: null } },
+      select: {
         id: true,
         clerkId: true,
         organizationId: true
@@ -256,9 +257,9 @@ export async function POST(request: NextRequest) {
     })
 
     if (!user) {
-      return NextResponse.json({ 
-        success: false, 
-        error: 'User not found' 
+      return NextResponse.json({
+        success: false,
+        error: 'User not found'
       }, { status: 404 })
     }
 
@@ -279,21 +280,23 @@ export async function POST(request: NextRequest) {
         error: 'Usage limit exceeded',
         code: 'USAGE_LIMIT_EXCEEDED',
         details: {
-          message: usageCheck.message,
+          message: `Saved-search limit reached (${usageCheck.currentUsage}/${usageCheck.limit})`,
           currentUsage: usageCheck.currentUsage,
           limit: usageCheck.limit,
-          upgradeRequired: usageCheck.upgradeRequired
+          upgradeRequired: true
         }
       }, { status: 403 })
     }
 
+    const savedSearch = await processingTransaction(prisma, async tx => {
     // If this is being set as default, unset other defaults for this user
     if (data.isDefault) {
-      await prisma.savedSearch.updateMany({
+      await tx.savedSearch.updateMany({
         where: {
           userId: user.id,
           organizationId: user.organizationId,
-          isDefault: true
+          isDefault: true,
+          deletedAt: null
         },
         data: {
           isDefault: false
@@ -302,7 +305,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Create the saved search
-    const savedSearch = await prisma.savedSearch.create({
+    return tx.savedSearch.create({
       data: {
         ...data,
         userId: user.id,
@@ -320,6 +323,8 @@ export async function POST(request: NextRequest) {
           }
         }
       }
+    })
+
     })
 
     // Track the usage - THIS WAS MISSING!
@@ -357,9 +362,9 @@ export async function POST(request: NextRequest) {
     }
 
     console.error('Error creating saved search:', error)
-    return NextResponse.json({ 
-      success: false, 
-      error: 'Failed to create saved search' 
+    return NextResponse.json({
+      success: false,
+      error: 'Failed to create saved search'
     }, { status: 500 })
   }
 }

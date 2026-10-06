@@ -1,3 +1,4 @@
+import { provisionUser } from './auth/provision-user'
 import { auth, currentUser } from '@clerk/nextjs/server'
 import { db } from './db'
 import { User, UserRole } from '@prisma/client'
@@ -10,7 +11,7 @@ import { redirect } from 'next/navigation'
 export async function getCurrentUser(): Promise<User | null> {
   try {
     const { userId } = await auth()
-    
+
     if (!userId) {
       console.log('getCurrentUser: No userId from auth')
       return null
@@ -18,7 +19,7 @@ export async function getCurrentUser(): Promise<User | null> {
 
     console.log('getCurrentUser: Looking up user with clerkId:', userId)
     const user = await db.user.findUnique({
-      where: { 
+      where: {
         clerkId: userId,
         deletedAt: null,
       },
@@ -36,38 +37,8 @@ export async function getCurrentUser(): Promise<User | null> {
         // User exists in Clerk but not in our database
         // This should be handled by webhooks, but as a fallback, we'll create the user
         console.warn('User exists in Clerk but not in database, creating fallback user...')
-        
-        try {
-          // Create a personal organization for the user
-          const organization = await db.organization.create({
-            data: {
-              name: `${clerkUser.firstName || ''} ${clerkUser.lastName || ''}'s Organization`.trim() || 'My Organization',
-              slug: `org-${clerkUser.id.slice(0, 8)}`,
-            },
-          })
 
-          // Create the user in our database
-          const newUser = await db.user.create({
-            data: {
-              clerkId: clerkUser.id,
-              email: clerkUser.emailAddresses[0]?.emailAddress || '',
-              firstName: clerkUser.firstName,
-              lastName: clerkUser.lastName,
-              imageUrl: clerkUser.imageUrl,
-              organizationId: organization.id,
-              role: 'OWNER', // First user in organization is owner
-              lastActiveAt: new Date(),
-            },
-            include: {
-              organization: true,
-            },
-          })
-
-          return newUser
-        } catch (error) {
-          console.error('Error creating fallback user:', error)
-          return null
-        }
+        return await provisionUser(clerkUser)
       }
     }
 
@@ -91,11 +62,11 @@ export async function getCurrentOrganizationId(): Promise<string | null> {
  */
 export async function requireAuth(): Promise<User> {
   const user = await getCurrentUser()
-  
+
   if (!user) {
-    redirect('/sign-in')
+    redirect('/sign-in/')
   }
-  
+
   return user
 }
 
@@ -104,18 +75,18 @@ export async function requireAuth(): Promise<User> {
  */
 export async function requireRole(requiredRole: UserRole): Promise<User> {
   const user = await requireAuth()
-  
+
   const roleHierarchy: Record<UserRole, number> = {
     VIEWER: 1,
     MEMBER: 2,
     ADMIN: 3,
     OWNER: 4,
   }
-  
+
   if (roleHierarchy[user.role] < roleHierarchy[requiredRole]) {
     redirect('/unauthorized')
   }
-  
+
   return user
 }
 
@@ -125,18 +96,18 @@ export async function requireRole(requiredRole: UserRole): Promise<User> {
 export async function hasRole(requiredRole: UserRole): Promise<boolean> {
   try {
     const user = await getCurrentUser()
-    
+
     if (!user) {
       return false
     }
-    
+
     const roleHierarchy: Record<UserRole, number> = {
       VIEWER: 1,
       MEMBER: 2,
       ADMIN: 3,
       OWNER: 4,
     }
-    
+
     return roleHierarchy[user.role] >= roleHierarchy[requiredRole]
   } catch {
     return false
@@ -163,7 +134,7 @@ export async function isOwner(): Promise<boolean> {
 export async function updateLastActive(): Promise<void> {
   try {
     const { userId } = await auth()
-    
+
     if (!userId) {
       return
     }
@@ -183,7 +154,7 @@ export async function updateLastActive(): Promise<void> {
 export async function getUserByClerkId(clerkId: string): Promise<User | null> {
   try {
     return await db.user.findUnique({
-      where: { 
+      where: {
         clerkId,
         deletedAt: null,
       },
@@ -209,12 +180,14 @@ export async function syncUserFromClerk(clerkUser: any, organizationId?: string)
     lastActiveAt: new Date(),
   }
 
+  if (!organizationId) return await provisionUser(clerkUser)
+
   return await db.user.upsert({
     where: { clerkId: clerkUser.id },
     update: userData,
     create: {
       clerkId: clerkUser.id,
-      organizationId: organizationId || 'default', // This should be handled properly in production
+      organizationId,
       role: 'MEMBER',
       ...userData,
     },

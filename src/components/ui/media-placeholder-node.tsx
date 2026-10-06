@@ -1,4 +1,5 @@
 'use client';
+import { useObjectURL } from '@/hooks/use-object-url';
 
 import * as React from 'react';
 
@@ -193,16 +194,7 @@ export function ImageProgress({
   imageRef?: React.RefObject<HTMLImageElement | null>;
   progress?: number;
 }) {
-  const [objectUrl, setObjectUrl] = React.useState<string | null>(null);
-
-  React.useEffect(() => {
-    const url = URL.createObjectURL(file);
-    setObjectUrl(url);
-
-    return () => {
-      URL.revokeObjectURL(url);
-    };
-  }, [file]);
+  const objectUrl = useObjectURL(file);
 
   if (!objectUrl) {
     return null;

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useSyncExternalStore } from 'react'
 import { useNotifications } from '@/contexts/notification-context'
 
 // Circuit breaker states
@@ -431,26 +431,14 @@ export function useCircuitBreaker(
  * Hook to get circuit breaker statistics for monitoring
  */
 export function useCircuitBreakerStats(serviceKey: string): CircuitBreakerStats | null {
-  const [stats, setStats] = useState<CircuitBreakerStats | null>(null)
-
-  useEffect(() => {
+  const subscribe = useCallback((onChange: () => void) => {
     const breaker = circuitBreakerRegistry.get(serviceKey)
-    if (!breaker) return
-
-    setStats(breaker.stats)
-
-    const handleStatsChange = (newStats: CircuitBreakerStats) => {
-      setStats(newStats)
-    }
-
-    breaker.listeners.add(handleStatsChange)
-
-    return () => {
-      breaker.listeners.delete(handleStatsChange)
-    }
+    if (!breaker) return () => {}
+    breaker.listeners.add(onChange)
+    return () => { breaker.listeners.delete(onChange) }
   }, [serviceKey])
-
-  return stats
+  const getSnapshot = useCallback(() => circuitBreakerRegistry.get(serviceKey)?.stats ?? null, [serviceKey])
+  return useSyncExternalStore(subscribe, getSnapshot, () => null)
 }
 
 /**

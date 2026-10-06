@@ -1,3 +1,7 @@
+import { randomUUID } from 'node:crypto';
+import type { EmbeddingDocument } from './embedding-document';
+import { jsonObject } from '@/lib/documents/processing-state';
+import { getPinecone } from './pinecone-client'
 /**
  * Embedding Service
  *
@@ -6,10 +10,9 @@
  */
 
 import { Pinecone } from '@pinecone-database/pinecone'
-import { Document, DocumentEmbeddings } from '@/types/documents'
+import { DocumentEmbeddings } from '@/types/documents'
 import { AIServiceManager } from '@/lib/ai/ai-service-manager'
 import { DocumentChunk } from './document-chunker'
-import { CostOptimizationService } from './cost-optimization'
 import { prisma } from '@/lib/prisma'
 import { PineconeNamespaceManager, defaultNamespaceManager } from './pinecone-namespace-manager'
 
@@ -35,7 +38,7 @@ export interface PineconeMetadata {
 }
 
 export class EmbeddingService {
-  private pinecone: Pinecone
+  private get pinecone(): Pinecone { return getPinecone() }
   private aiManager: AIServiceManager
   private namespaceManager: PineconeNamespaceManager
   private config: EmbeddingConfig
@@ -48,14 +51,13 @@ export class EmbeddingService {
       ...config,
     }
 
-    // Initialize Pinecone
-    this.pinecone = new Pinecone({
-      apiKey: process.env.PINECONE_API_KEY!,
-    })
+    if (!Number.isInteger(this.config.batchSize) || this.config.batchSize < 1 || !Number.isInteger(this.config.dimensions) || this.config.dimensions < 1) {
+      throw new Error('Embedding batch size and dimensions must be positive integers');
+    }
 
     // Get AI service manager instance
     this.aiManager = AIServiceManager.getInstance()
-    
+
     // Initialize namespace manager
     this.namespaceManager = defaultNamespaceManager
   }
@@ -65,14 +67,16 @@ export class EmbeddingService {
    */
   async generateAndStoreEmbeddings(
     chunks: DocumentChunk[],
-    document: Document,
+    document: EmbeddingDocument,
     progressCallback?: (step: string, progress: number, chunksProcessed?: number, totalChunks?: number) => Promise<void>
   ): Promise<DocumentEmbeddings> {
     console.log(
       `🚀 Starting embedding generation for ${chunks.length} chunks...`
     )
+    if (!chunks.length) throw new Error('Cannot index an empty document');
     const startTime = Date.now()
 
+    const generationId = randomUUID();
     try {
       // Get or create organization namespace
       console.log(
@@ -80,7 +84,7 @@ export class EmbeddingService {
       )
       const namespaceInfo = await this.namespaceManager.getOrCreateNamespace(document.organizationId)
       const organizationNamespace = namespaceInfo.namespace
-      
+
       console.log(`📋 Using organization namespace: "${organizationNamespace}"${namespaceInfo.created ? ' (newly created)' : ' (existing)'}`)
 
       // Get Pinecone index with namespace
@@ -89,7 +93,7 @@ export class EmbeddingService {
       )
       const index = this.pinecone.index(process.env.PINECONE_INDEX_NAME!)
       const namespacedIndex = index.namespace(organizationNamespace)
-      
+
       console.log(
         `🗂️ Using organization-specific namespace: ${organizationNamespace}`
       )
@@ -117,11 +121,11 @@ export class EmbeddingService {
       )
 
       for (let i = 0; i < chunks.length; i += this.config.batchSize) {
+        const batch = chunks.slice(i, i + this.config.batchSize)
         try {
-          const batch = chunks.slice(i, i + this.config.batchSize)
           const batchNumber = Math.floor(i / this.config.batchSize) + 1
           const totalBatches = Math.ceil(chunks.length / this.config.batchSize)
-          
+
           console.log(
             `🔄 Processing batch ${batchNumber}/${totalBatches} (chunks ${i + 1}-${Math.min(i + this.config.batchSize, chunks.length)})`
           )
@@ -139,17 +143,15 @@ export class EmbeddingService {
 
         // Generate embeddings for batch with timeout
         console.log(`🧮 Generating embeddings for batch...`)
-        const embeddings = await Promise.race([
-          this.generateBatchEmbeddings(batch.map((chunk) => chunk.content)),
-          new Promise((_, reject) => 
-            setTimeout(() => reject(new Error('Embedding generation timeout after 60s')), 60000)
-          )
-        ]) as number[][]
+        const embeddings = await this.generateBatchEmbeddings(batch.map(chunk => chunk.content), document.organizationId);
+        if (embeddings.length !== batch.length || embeddings.some(vector => !Array.isArray(vector) || vector.length !== this.config.dimensions || vector.some(value => !Number.isFinite(value)))) {
+          throw new Error('Embedding response count, dimensions or values do not match the document chunks');
+        }
         console.log(`✅ Generated ${embeddings.length} embeddings for batch`)
 
         // Prepare dense vectors for Pinecone
         const vectors = batch.map((chunk, idx) => ({
-          id: `${document.organizationId}_${chunk.id}`, // Prefix with org for isolation
+          id: `${document.organizationId}_${chunk.id}_${generationId}`, // Prefix with org for isolation
           values: embeddings[idx], // Use values for dense vectors
           metadata: this.createPineconeMetadata(
             chunk,
@@ -169,12 +171,14 @@ export class EmbeddingService {
         console.log(
           `📡 Upserting ${vectors.length} vectors to Pinecone namespace: ${organizationNamespace}...`
         )
-        const upsertResponse = await Promise.race([
-          namespacedIndex.upsert(vectors),
-          new Promise((_, reject) => 
-            setTimeout(() => reject(new Error('Pinecone upsert timeout after 30s')), 30000)
-          )
-        ])
+        let timeoutId: ReturnType<typeof setTimeout> | undefined;
+        let upsertResponse: unknown;
+        try {
+          upsertResponse = await Promise.race([
+            namespacedIndex.upsert(vectors),
+            new Promise<never>((_, reject) => { timeoutId = setTimeout(() => reject(new Error('Pinecone upsert timeout after 30s')), 30000); }),
+          ]);
+        } finally { if (timeoutId) clearTimeout(timeoutId); }
         console.log(
           `✅ Successfully upserted vectors to Pinecone:`,
           upsertResponse
@@ -190,7 +194,7 @@ export class EmbeddingService {
             id: chunk.id,
             chunkIndex: chunk.chunkIndex,
             vectorId: vectors[idx].id,
-            content: chunk.content, // Store full chunk content in database
+            content: chunk.content,
             startChar: chunk.startChar,
             endChar: chunk.endChar,
             keywords: chunk.keywords,
@@ -221,7 +225,7 @@ export class EmbeddingService {
           }
 
           // Log the failure but continue processing remaining batches
-          console.warn(`⚠️ Continuing with remaining batches. Failed batch ${batchNumber} will be retried later.`)
+          console.warn(`⚠️ Continuing with remaining batches. Failed batch ${batchNumber} requires a new processing run.`)
           continue; // Continue to next batch instead of throwing
         }
       }
@@ -238,8 +242,8 @@ export class EmbeddingService {
         )
         console.warn(`Failed chunk IDs:`, failedChunkIds)
 
-        // If more than 50% of batches failed, throw error
-        if (failedBatches > totalBatches / 2) {
+        // Never report an incomplete index as successful
+        if (failedBatches > 0) {
           throw new Error(
             `Embedding generation critically failed: ${failedBatches}/${totalBatches} batches failed. ` +
             `Only ${successfulChunks}/${chunks.length} chunks processed successfully.`
@@ -260,9 +264,6 @@ export class EmbeddingService {
         dimensions: this.config.dimensions,
         totalChunks: chunks.length,
         lastProcessed: new Date().toISOString(),
-        partialFailure: failedBatches > 0,
-        failedBatches: failedBatches,
-        failedChunkIds: failedChunkIds,
       }
     } catch (error) {
       console.error('❌ Embedding generation failed:', error)
@@ -270,228 +271,19 @@ export class EmbeddingService {
     }
   }
 
-  /**
-   * Estimate token count for text (rough approximation: 1 token ≈ 4 characters)
-   */
-  private estimateTokenCount(text: string): number {
-    return Math.ceil(text.length / 4)
-  }
-
-  /**
-   * Split text that exceeds token limit into smaller chunks
-   */
-  private splitLargeText(text: string, maxTokens: number = 7000): string[] {
-    const estimatedTokens = this.estimateTokenCount(text)
-    
-    if (estimatedTokens <= maxTokens) {
-      return [text]
+  /** Keep one vector per complete chunk; oversized chunks must be split by the chunker. */
+  private async generateBatchEmbeddings(texts: string[], organizationId: string): Promise<number[][]> {
+    if (texts.some(text => !text.trim() || Math.ceil(text.length / 4) > 7500)) {
+      throw new Error('Document contains empty or oversized embedding chunks; rechunk before indexing');
     }
-
-    console.log(`📏 Text too large (${estimatedTokens} tokens), splitting into smaller chunks...`)
-    
-    const chunks: string[] = []
-    const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 0)
-    
-    let currentChunk = ''
-    
-    for (const sentence of sentences) {
-      const sentenceWithPunctuation = sentence.trim() + '. '
-      const wouldBeTokens = this.estimateTokenCount(currentChunk + sentenceWithPunctuation)
-      
-      if (wouldBeTokens > maxTokens && currentChunk.length > 0) {
-        // Current chunk is full, save it and start new one
-        chunks.push(currentChunk.trim())
-        currentChunk = sentenceWithPunctuation
-      } else {
-        // Add sentence to current chunk
-        currentChunk += sentenceWithPunctuation
-      }
-    }
-    
-    // Add final chunk if it has content
-    if (currentChunk.trim().length > 0) {
-      chunks.push(currentChunk.trim())
-    }
-    
-    console.log(`✂️ Split text into ${chunks.length} smaller chunks`)
-    return chunks
-  }
-
-  /**
-   * Generate dense embeddings for a batch of texts using OpenAI (proper batching)
-   */
-  private async generateBatchEmbeddings(texts: string[]): Promise<number[][]> {
-    console.log(
-      `🚀 Starting OpenAI embedding generation with ${texts.length} texts`
-    )
-    console.log(`🔧 Config:`, {
+    const result = await this.aiManager.generateEmbedding({
       model: this.config.model,
-      batchSize: this.config.batchSize,
+      text: texts,
       dimensions: this.config.dimensions,
-    })
-
-    // Check if API key exists
-    if (!process.env.OPENAI_API_KEY) {
-      throw new Error('OPENAI_API_KEY environment variable is not set')
-    }
-
-    console.log(
-      `🔑 Using OpenAI API key: ${process.env.OPENAI_API_KEY.substring(0, 8)}...`
-    )
-    // Validate and split texts that exceed token limits
-    console.log(`🔍 Validating text sizes before sending to OpenAI...`)
-    const processedTexts: string[] = []
-    
-    for (let i = 0; i < texts.length; i++) {
-      const text = texts[i]
-      const estimatedTokens = this.estimateTokenCount(text)
-      
-      if (estimatedTokens > 7500) { // Leave buffer under 8192 limit
-        console.log(`⚠️ Text ${i + 1} is too large (${estimatedTokens} tokens), splitting...`)
-        const splitTexts = this.splitLargeText(text, 7000)
-        processedTexts.push(...splitTexts)
-      } else {
-        processedTexts.push(text)
-      }
-    }
-
-    // Final safety check - validate all processed texts are under limit
-    console.log(`🛡️ Final safety check on ${processedTexts.length} processed texts...`)
-    for (let i = 0; i < processedTexts.length; i++) {
-      const estimatedTokens = this.estimateTokenCount(processedTexts[i])
-      if (estimatedTokens > 8000) {
-        console.error(`❌ SAFETY CHECK FAILED: Processed text ${i} still has ${estimatedTokens} tokens (over 8000 limit)`)
-        console.error(`Text preview: ${processedTexts[i].substring(0, 200)}...`)
-        throw new Error(`Text chunk ${i} exceeds token limit after processing: ${estimatedTokens} tokens`)
-      }
-    }
-    console.log(`✅ All ${processedTexts.length} texts passed safety validation`)
-
-    if (processedTexts.length !== texts.length) {
-      console.log(`📝 Text processing: ${texts.length} original texts became ${processedTexts.length} processed texts`)
-    }
-
-    console.log(`🎯 Calling OpenAI API with model: ${this.config.model}`)
-    console.log(`📤 Sending ${processedTexts.length} texts in single batch request`)
-
-    // Add timeout and better error handling
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 60000) // 60 second timeout for batch
-
-    try {
-      const response = await fetch('https://api.openai.com/v1/embeddings', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          input: processedTexts, // Send processed texts (may be split)
-          model: this.config.model,
-          encoding_format: 'float',
-        }),
-        signal: controller.signal,
-      })
-
-      clearTimeout(timeoutId)
-      console.log(`📡 OpenAI API responded with status: ${response.status}`)
-
-      if (!response.ok) {
-        const errorText = await response.text()
-        console.error(
-          `❌ OpenAI API error: ${response.status} ${response.statusText}`,
-          errorText
-        )
-
-        // Parse error response to check for quota issues
-        let errorMessage = `OpenAI API error: ${response.status} ${response.statusText} - ${errorText}`
-        try {
-          const errorData = JSON.parse(errorText)
-          if (errorData.error?.code === 'insufficient_quota' || response.status === 429) {
-            errorMessage = '⚠️ OpenAI API Quota Exceeded. Please add credits to your OpenAI account at https://platform.openai.com/account/billing'
-            console.error('💳 OpenAI quota exceeded. Visit https://platform.openai.com/account/billing to add credits.')
-          }
-        } catch (e) {
-          // If error parsing fails, use the default error message
-        }
-
-        throw new Error(errorMessage)
-      }
-
-      const data = await response.json()
-      console.log(
-        `📥 OpenAI response received, parsing ${data.data?.length || 0} embeddings...`
-      )
-
-      if (
-        data.data &&
-        Array.isArray(data.data) &&
-        data.data.length === processedTexts.length
-      ) {
-        const embeddings = data.data.map((item: any, index: number) => {
-          if (item.embedding && Array.isArray(item.embedding)) {
-            console.log(
-              `✅ Generated embedding ${index + 1}/${processedTexts.length}, size: ${item.embedding.length}`
-            )
-            return item.embedding
-          } else {
-            throw new Error(`Invalid embedding structure at index ${index}`)
-          }
-        })
-
-        // If texts were split, we need to handle merging embeddings back to match original text count
-        if (processedTexts.length > texts.length) {
-          console.log(`🔀 Merging split embeddings: ${processedTexts.length} embeddings -> ${texts.length} results`)
-          
-          // For now, we'll just take the first embedding for each original text
-          // TODO: In the future, we could average embeddings from split chunks
-          const mergedEmbeddings: number[][] = []
-          let embeddingIndex = 0
-          
-          for (let i = 0; i < texts.length; i++) {
-            const originalText = texts[i]
-            const estimatedTokens = this.estimateTokenCount(originalText)
-            
-            if (estimatedTokens > 7500) {
-              // This text was split, take the first embedding and skip the rest
-              mergedEmbeddings.push(embeddings[embeddingIndex])
-              const splitCount = this.splitLargeText(originalText, 7000).length
-              embeddingIndex += splitCount
-            } else {
-              // This text wasn't split, take the next embedding
-              mergedEmbeddings.push(embeddings[embeddingIndex])
-              embeddingIndex++
-            }
-          }
-          
-          console.log(`🎯 Merged ${embeddings.length} embeddings into ${mergedEmbeddings.length} results`)
-          return mergedEmbeddings
-        }
-
-        console.log(
-          `✅ Successfully generated ${embeddings.length} embeddings in batch`
-        )
-        return embeddings
-      } else {
-        console.error(
-          `❌ Invalid OpenAI response structure:`,
-          JSON.stringify(data, null, 2)
-        )
-        throw new Error(
-          `Expected ${processedTexts.length} embeddings (from ${texts.length} original texts), got ${data.data?.length || 0}`
-        )
-      }
-    } catch (fetchError: any) {
-      clearTimeout(timeoutId)
-      if (fetchError?.name === 'AbortError') {
-        console.error(
-          `❌ OpenAI API timeout after 60 seconds for batch of ${processedTexts.length} chunks (from ${texts.length} original)`
-        )
-        throw new Error(`OpenAI API timeout after 60 seconds`)
-      }
-      console.error(`❌ Fetch error for batch:`, fetchError)
-      throw fetchError
-    }
+      metadata: { organizationId, taskType: 'embedding' },
+    });
+    if (!Array.isArray(result.embedding) || !Array.isArray(result.embedding[0])) throw new Error('Expected a batch of embeddings');
+    return result.embedding as number[][];
   }
 
   /**
@@ -499,7 +291,7 @@ export class EmbeddingService {
    */
   private createPineconeMetadata(
     chunk: DocumentChunk,
-    document: Document,
+    document: EmbeddingDocument,
     organizationNamespace: string
   ): PineconeMetadata {
     const metadata = {
@@ -511,7 +303,7 @@ export class EmbeddingService {
       documentTitle: document.name,
       documentType: document.documentType,
       tags: document.tags || [],
-      naicsCodes: document.naicsCodes || [],
+      naicsCodes: (() => { const entities = jsonObject(document.entities).entities; return Array.isArray(entities) ? entities.map(jsonObject).filter(entity => entity.type === 'NAICS_CODE' && typeof entity.text === 'string').map(entity => entity.text as string) : []; })(),
       keywords: chunk.keywords,
       createdAt: new Date().toISOString(),
     }
@@ -538,34 +330,15 @@ export class EmbeddingService {
     // Get organization namespace
     const namespaceInfo = await this.namespaceManager.getOrCreateNamespace(organizationId)
     const organizationNamespace = namespaceInfo.namespace
-    
+
     const index = this.pinecone.index(process.env.PINECONE_INDEX_NAME!)
     const namespacedIndex = index.namespace(organizationNamespace)
 
-    // Query to find all vectors for this document using metadata filters in organization namespace
-    const queryResponse = await namespacedIndex.query({
-      vector: Array(1536).fill(0), // Dummy dense vector for metadata-only query (OpenAI text-embedding-3-small dimensions)
-      topK: 10000, // High number to get all vectors
-      includeMetadata: true,
-      filter: {
-        documentId: documentId, // organizationId filter not needed since we're in the org namespace
-      },
-    })
-
-    if (queryResponse.matches && queryResponse.matches.length > 0) {
-      const vectorIds = queryResponse.matches.map((match) => match.id)
-      console.log(`🔍 Found ${vectorIds.length} vectors to delete for document in namespace ${organizationNamespace}`)
-
-      // Delete vectors by ID from organization namespace
-      await namespacedIndex.deleteMany(vectorIds)
-      console.log(
-        `✅ Deleted ${vectorIds.length} vectors from namespace ${organizationNamespace}`
-      )
-    } else {
-      console.log(
-        `ℹ️ No vectors found for document ${documentId} in namespace ${organizationNamespace}`
-      )
+    await namespacedIndex.deleteMany({ documentId: { $eq: documentId }, organizationId: { $eq: organizationId } });
+    if (process.env.ENABLE_PGVECTOR_FALLBACK === 'true') {
+      await prisma.$executeRaw`DELETE FROM document_vectors WHERE organization_id = ${organizationId} AND document_id = ${documentId}`;
     }
+
   }
 }
 

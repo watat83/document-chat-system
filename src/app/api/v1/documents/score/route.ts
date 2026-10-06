@@ -1,3 +1,7 @@
+import { guardUsage } from '@/lib/billing/usage-guard';
+import { UsageType } from '@/lib/usage-tracking';
+import { guardDocumentMutation } from '@/lib/security/document-route-guard';
+import { processingSnapshot, processingTransition, updateProcessingState, ProcessingConflictError } from '@/lib/documents/processing-state';
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@clerk/nextjs/server'
 import { z } from 'zod'
@@ -32,7 +36,7 @@ const scoreSchema = z.object({
  *     description: |
  *       Score and analyze documents using advanced AI models to evaluate:
  *       - Relevance to government contracting opportunities
- *       - Compliance with regulations and requirements  
+ *       - Compliance with regulations and requirements
  *       - Document completeness and quality
  *       - Technical merit and feasibility
  *       - Risk assessment and mitigation
@@ -172,6 +176,8 @@ const scoreSchema = z.object({
  *         description: Scoring failed
  */
 export async function POST(request: NextRequest) {
+  let activeDocumentId: string | undefined;
+  let runId: string | undefined;
   try {
     const { userId } = await auth()
     if (!userId) {
@@ -180,7 +186,7 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json()
     const validation = scoreSchema.safeParse(body)
-    
+
     if (!validation.success) {
       return NextResponse.json(
         { error: 'Invalid request data', details: validation.error.format() },
@@ -188,7 +194,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const { documentId, organizationId, options = {} } = validation.data
+    const { documentId, organizationId, options } = validation.data
 
     // Get internal user ID from Clerk ID
     const user = await prisma.user.findFirst({
@@ -210,7 +216,7 @@ export async function POST(request: NextRequest) {
       where: {
         id: documentId,
         organizationId,
-        uploadedById: user.id // Use internal user ID, not Clerk ID
+        deletedAt: null
       }
     })
 
@@ -221,46 +227,25 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Ensure document has been processed (has extracted text)
-    if (!document.extractedText || document.status !== 'COMPLETED') {
+    const denied = await guardDocumentMutation(documentId, 'WRITE');
+    if (denied) return denied;
+
+    // Ensure document has text available
+    if (!document.extractedText?.trim()) {
       return NextResponse.json(
         { error: 'Document must be processed before scoring' },
         { status: 400 }
       )
     }
 
-    // Update document status to indicate scoring in progress using consolidated aiData
-    const currentAiData = document.aiData ? (document.aiData as any) : {
-      status: { status: 'pending', progress: 0, startedAt: document.createdAt.toISOString(), retryCount: 0 },
-      content: { extractedText: document.extractedText || '', summary: document.summary || '', keywords: [], keyPoints: [], actionItems: [], questions: [] },
-      structure: { sections: [], tables: [], images: [], ocrResults: [] },
-      analysis: { qualityScore: 0, readabilityScore: 0, complexityMetrics: { readabilityScore: 0 }, entities: [], confidence: 0.8, suggestions: [] },
-      processedAt: new Date().toISOString(),
-      modelVersion: 'unknown',
-      processingHistory: []
-    };
-
-    await prisma.document.update({
-      where: { id: documentId },
-      data: {
-        // Update consolidated aiData with scoring status
-        aiData: {
-          ...currentAiData,
-          status: {
-            ...currentAiData.status,
-            status: 'processing',
-            progress: 75 // Scoring is advanced processing
-          }
-        },
-        // Legacy field for backward compatibility
-        aiProcessingStatus: 'processing',
-        metadata: {
-          ...document.metadata as object,
-          scoringRequestedAt: new Date().toISOString(),
-          scoringOptions: options
-        }
-      }
-    })
+    const usageError = await guardUsage(organizationId, UsageType.DOCUMENT_PROCESSING);
+    if (usageError) return usageError;
+    const queued = await updateProcessingState(documentId, current => {
+      if (['PROCESSING', 'QUEUED'].includes(current.currentStatus)) throw new ProcessingConflictError();
+      return processingTransition(current, 'QUEUED');
+    }, organizationId);
+    activeDocumentId = documentId;
+    runId = processingSnapshot(queued.processing).runId ?? undefined;
 
     // Trigger Inngest background job for document scoring
     const { ids } = await inngest.send({
@@ -268,31 +253,33 @@ export async function POST(request: NextRequest) {
       data: {
         documentId,
         organizationId,
-        userId,
+        userId: user.id,
+        runId,
         options: {
-          includeRecommendations: options.performAnalysis ?? true,
-          includeCompliance: options.performAnalysis ?? true,
-          customCriteria: options.scoringWeights,
+          includeRecommendations: options?.performAnalysis ?? true,
+          includeCompliance: options?.performAnalysis ?? true,
+          customCriteria: options?.scoringWeights,
         }
       }
     })
 
     return NextResponse.json({
       documentId,
-      status: 'processing',
+      status: 'QUEUED',
       message: 'Document scoring job queued successfully',
-      estimatedProcessingTime: 5000, // Estimate 5 seconds
-      trackingUrl: `/api/v1/documents/${documentId}/scoring-status`,
+      trackingUrl: `/api/v1/documents/${documentId}/process`,
       inngestEventIds: ids,
       queuedAt: new Date().toISOString()
-    })
+    }, { status: 202 })
 
   } catch (error) {
+    if (error instanceof ProcessingConflictError) return NextResponse.json({ error: error.message }, { status: 409 });
+    if (activeDocumentId && runId) await updateProcessingState(activeDocumentId, current => current.runId !== runId || current.currentStatus === 'CANCELLED' ? current : processingTransition(current, 'FAILED', 'Unable to queue scoring')).catch(() => undefined);
     console.error('Document scoring error:', error)
     return NextResponse.json(
-      { 
-        error: 'Scoring failed', 
-        details: error instanceof Error ? error.message : 'Unknown error' 
+      {
+        error: 'Scoring failed',
+        details: error instanceof Error ? error.message : 'Unknown error'
       },
       { status: 500 }
     )

@@ -1,12 +1,12 @@
 /**
  * API Key Authentication System
- * 
+ *
  * Provides programmatic access authentication through:
  * - API key generation and management
  * - Scope-based access control
  * - Key rotation and expiration
  * - Usage tracking and rate limiting
- * 
+ *
  * Usage:
  * - generateAPIKey(): Create new API key
  * - validateAPIKey(): Validate incoming key
@@ -15,17 +15,17 @@
  */
 
 import { randomBytes, createHash, timingSafeEqual } from 'crypto';
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '@/lib/db';
 import { UsageTrackingService, UsageType } from '@/lib/usage-tracking';
 
-const prisma = new PrismaClient();
+
 
 // API Key configuration
 const API_KEY_LENGTH = 32;
 const API_KEY_PREFIX = 'gmai_'; // Document Chat System AI prefix
 const DEFAULT_KEY_TTL = 365 * 24 * 60 * 60 * 1000; // 1 year in milliseconds
 
-export type APIKeyScope = 
+export type APIKeyScope =
   | 'read:profile'
   | 'write:profile'
   | 'read:opportunities'
@@ -35,6 +35,12 @@ export type APIKeyScope =
   | 'write:organizations'
   | 'read:usage'
   | 'admin:all';
+
+const allowedScopes: readonly APIKeyScope[] = ['read:profile', 'write:profile', 'read:opportunities', 'read:match-scores', 'write:match-scores', 'read:organizations', 'write:organizations', 'read:usage', 'admin:all'];
+function parseScopes(scopes: string[]): APIKeyScope[] {
+  if (scopes.some(scope => !allowedScopes.includes(scope as APIKeyScope))) throw new Error('Invalid stored API key scopes');
+  return scopes as APIKeyScope[];
+}
 
 export interface APIKeyData {
   id: string;
@@ -47,6 +53,7 @@ export interface APIKeyData {
   lastUsedAt: Date | null;
   expiresAt: Date;
   isActive: boolean;
+  usageCount: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -96,10 +103,10 @@ export function extractKeyId(apiKey: string): string | null {
   if (!apiKey.startsWith(API_KEY_PREFIX)) {
     return null;
   }
-  
+
   const withoutPrefix = apiKey.slice(API_KEY_PREFIX.length);
   const keyIdMatch = withoutPrefix.match(/^([a-f0-9]{16})_/);
-  
+
   return keyIdMatch ? keyIdMatch[1] : null;
 }
 
@@ -109,14 +116,14 @@ export function extractKeyId(apiKey: string): string | null {
 export async function createAPIKey(request: CreateAPIKeyRequest): Promise<CreateAPIKeyResponse> {
   const apiKey = generateAPIKeyString();
   const keyId = extractKeyId(apiKey);
-  
+
   if (!keyId) {
     throw new Error('Failed to generate valid API key');
   }
-  
+
   const hashedKey = hashAPIKey(apiKey);
   const expiresAt = request.expiresAt || new Date(Date.now() + DEFAULT_KEY_TTL);
-  
+
   try {
     // Store API key in database
     const keyData = await prisma.apiKey.create({
@@ -131,19 +138,20 @@ export async function createAPIKey(request: CreateAPIKeyRequest): Promise<Create
         isActive: true
       }
     });
-    
+
     // Track usage
     await UsageTrackingService.trackUsage({
       userId: request.userId,
       organizationId: request.organizationId,
-      type: 'API_KEY_CREATION',
+      usageType: UsageType.API_CALL,
+      resourceType: 'api_key_creation',
       metadata: {
         keyId,
         keyName: request.name,
         scopes: request.scopes
       }
     });
-    
+
     return {
       keyId,
       apiKey, // Only returned during creation
@@ -151,7 +159,7 @@ export async function createAPIKey(request: CreateAPIKeyRequest): Promise<Create
       scopes: request.scopes,
       expiresAt
     };
-    
+
   } catch (error) {
     console.error('Failed to create API key:', error);
     throw new Error('Failed to create API key');
@@ -168,68 +176,69 @@ export async function validateAPIKey(apiKey: string): Promise<ValidateAPIKeyResu
     if (!keyId) {
       return { valid: false, error: 'Invalid API key format' };
     }
-    
+
     // Find key in database
     const keyData = await prisma.apiKey.findUnique({
-      where: { keyId }
+      where: { keyId, organization: { deletedAt: null }, user: { deletedAt: null } }
     });
-    
+
     if (!keyData) {
       return { valid: false, error: 'API key not found' };
     }
-    
+
     // Check if key is active
     if (!keyData.isActive) {
       return { valid: false, error: 'API key is inactive' };
     }
-    
+
     // Check expiration
     if (keyData.expiresAt < new Date()) {
       return { valid: false, error: 'API key has expired' };
     }
-    
+
     // Verify key hash using timing-safe comparison
     const providedHash = hashAPIKey(apiKey);
     const storedHash = keyData.hashedKey;
-    
+
     const providedBuffer = Buffer.from(providedHash, 'hex');
     const storedBuffer = Buffer.from(storedHash, 'hex');
-    
+
     if (providedBuffer.length !== storedBuffer.length) {
       return { valid: false, error: 'Invalid API key' };
     }
-    
+
     const isValid = timingSafeEqual(providedBuffer, storedBuffer);
-    
+
     if (!isValid) {
       return { valid: false, error: 'Invalid API key' };
     }
-    
+
     // Update last used timestamp
     await prisma.apiKey.update({
       where: { keyId },
-      data: { lastUsedAt: new Date() }
+      data: { lastUsedAt: new Date(), usageCount: { increment: 1 } }
     });
-    
+
     // Track usage
     await UsageTrackingService.trackUsage({
       userId: keyData.userId,
       organizationId: keyData.organizationId,
-      type: 'API_KEY_USAGE',
+      usageType: UsageType.API_CALL,
+      resourceType: 'api_key_usage',
       metadata: {
         keyId,
         keyName: keyData.name
       }
     });
-    
+
     // Return key data without hash
     const { hashedKey, ...safeKeyData } = keyData;
-    
+
     return {
       valid: true,
-      keyData: safeKeyData
+      keyData: { ...safeKeyData, scopes: parseScopes(safeKeyData.scopes) }
     };
-    
+
   } catch (error) {
     console.error('Failed to validate API key:', error);
     return { valid: false, error: 'API key validation failed' };
@@ -244,7 +253,7 @@ export function hasScope(keyData: APIKeyData, requiredScope: APIKeyScope): boole
   if (keyData.scopes.includes('admin:all')) {
     return true;
   }
-  
+
   return keyData.scopes.includes(requiredScope);
 }
 
@@ -257,9 +266,9 @@ export async function listAPIKeys(organizationId: string): Promise<Omit<APIKeyDa
       where: { organizationId },
       orderBy: { createdAt: 'desc' }
     });
-    
-    return keys.map(({ hashedKey, ...keyData }) => keyData);
-    
+
+    return keys.map(({ hashedKey, ...keyData }) => ({ ...keyData, scopes: parseScopes(keyData.scopes) }));
+
   } catch (error) {
     console.error('Failed to list API keys:', error);
     throw new Error('Failed to list API keys');
@@ -274,27 +283,28 @@ export async function revokeAPIKey(keyId: string, organizationId: string): Promi
     const keyData = await prisma.apiKey.findUnique({
       where: { keyId }
     });
-    
+
     if (!keyData || keyData.organizationId !== organizationId) {
       throw new Error('API key not found');
     }
-    
+
     await prisma.apiKey.update({
       where: { keyId },
       data: { isActive: false }
     });
-    
+
     // Track usage
     await UsageTrackingService.trackUsage({
       userId: keyData.userId,
       organizationId: keyData.organizationId,
-      type: 'API_KEY_REVOCATION',
+      usageType: UsageType.API_CALL,
+      resourceType: 'api_key_revocation',
       metadata: {
         keyId,
         keyName: keyData.name
       }
     });
-    
+
   } catch (error) {
     console.error('Failed to revoke API key:', error);
     throw new Error('Failed to revoke API key');
@@ -305,18 +315,18 @@ export async function revokeAPIKey(keyId: string, organizationId: string): Promi
  * Rotate API key (generate new key, revoke old one)
  */
 export async function rotateAPIKey(
-  keyId: string, 
+  keyId: string,
   organizationId: string
 ): Promise<CreateAPIKeyResponse> {
   try {
     const oldKeyData = await prisma.apiKey.findUnique({
       where: { keyId }
     });
-    
+
     if (!oldKeyData || oldKeyData.organizationId !== organizationId) {
       throw new Error('API key not found');
     }
-    
+
     // Create new key with same properties
     const newKey = await createAPIKey({
       name: oldKeyData.name,
@@ -325,12 +335,12 @@ export async function rotateAPIKey(
       userId: oldKeyData.userId,
       expiresAt: oldKeyData.expiresAt
     });
-    
+
     // Revoke old key
     await revokeAPIKey(keyId, organizationId);
-    
+
     return newKey;
-    
+
   } catch (error) {
     console.error('Failed to rotate API key:', error);
     throw new Error('Failed to rotate API key');
@@ -341,7 +351,7 @@ export async function rotateAPIKey(
  * Get API key usage statistics
  */
 export async function getAPIKeyUsage(
-  keyId: string, 
+  keyId: string,
   organizationId: string,
   days: number = 30
 ): Promise<{
@@ -353,18 +363,19 @@ export async function getAPIKeyUsage(
     const keyData = await prisma.apiKey.findUnique({
       where: { keyId }
     });
-    
+
     if (!keyData || keyData.organizationId !== organizationId) {
       throw new Error('API key not found');
     }
-    
+
     const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
-    
+
     // Get usage events from usage tracking
-    const usageEvents = await prisma.usageEvent.findMany({
+    const usageEvents = await prisma.usageRecord.findMany({
       where: {
         organizationId,
-        type: 'API_KEY_USAGE',
+        usageType: UsageType.API_CALL,
+      resourceType: 'api_key_usage',
         createdAt: { gte: since },
         metadata: {
           path: ['keyId'],
@@ -373,30 +384,30 @@ export async function getAPIKeyUsage(
       },
       orderBy: { createdAt: 'desc' }
     });
-    
+
     // Calculate statistics
     const totalRequests = usageEvents.length;
     const lastUsed = keyData.lastUsedAt;
-    
+
     // Group by day
     const requestsByDay: { [date: string]: number } = {};
-    
+
     usageEvents.forEach(event => {
       const date = event.createdAt.toISOString().split('T')[0];
       requestsByDay[date] = (requestsByDay[date] || 0) + 1;
     });
-    
+
     const requestsByDayArray = Object.entries(requestsByDay).map(([date, count]) => ({
       date,
       count
     }));
-    
+
     return {
       totalRequests,
       lastUsed,
       requestsByDay: requestsByDayArray
     };
-    
+
   } catch (error) {
     console.error('Failed to get API key usage:', error);
     throw new Error('Failed to get API key usage');
@@ -412,13 +423,13 @@ export function extractAPIKeyFromRequest(request: Request): string | null {
   if (authHeader?.startsWith('Bearer ') && authHeader.slice(7).startsWith(API_KEY_PREFIX)) {
     return authHeader.slice(7);
   }
-  
+
   // Check X-API-Key header
   const apiKeyHeader = request.headers.get('x-api-key');
   if (apiKeyHeader?.startsWith(API_KEY_PREFIX)) {
     return apiKeyHeader;
   }
-  
+
   return null;
 }
 
