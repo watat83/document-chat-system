@@ -6,7 +6,14 @@ import { guardUsage } from '@/lib/billing/usage-guard';
 import { UsageType } from '@/lib/usage-tracking';
 import { db } from '@/lib/db';
 import { z } from 'zod';
-import { AuthenticationError, QuotaExceededError, RateLimitError } from '@/lib/ai/interfaces/errors';
+import {
+  AuthenticationError,
+  ModelNotFoundError,
+  QuotaExceededError,
+  RateLimitError,
+  ValidationError,
+} from '@/lib/ai/interfaces/errors';
+import { DEFAULT_TEXT_MODEL } from '@/lib/ai/fallback-models';
 
 // Request validation schema
 const enhancedChatSchema = z.object({
@@ -55,8 +62,8 @@ const enhancedChatSchema = z.object({
   })).min(1).max(100)
     .describe("Array of conversation messages forming the chat history. Must contain at least one message. The AI uses this complete context to generate relevant responses for government contracting discussions."),
 
-  model: z.string().default('gpt-4o-mini')
-    .describe("AI model identifier to use for chat completion. Default 'gpt-4o-mini' provides cost-effective responses. Other options include 'gpt-4o' for higher quality or 'claude-3-sonnet' for specialized analysis. Use 'auto' for automatic model selection."),
+  model: z.string().default(DEFAULT_TEXT_MODEL)
+    .describe("AI model identifier to use for chat completion. Defaults to OpenRouter automatic model selection."),
 
   provider: z.string().optional()
     .describe("AI provider to use for the request. Options include 'openai', 'anthropic', 'google'. Use 'auto' for automatic provider selection based on the task requirements."),
@@ -135,8 +142,23 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     if (error instanceof SyntaxError) return Response.json({ success: false, error: 'Invalid JSON' }, { status: 400 });
-    const status = error instanceof AuthenticationError ? 502 : error instanceof QuotaExceededError || error instanceof RateLimitError ? 429 : 503;
+    const status = error instanceof ModelNotFoundError || error instanceof ValidationError
+      ? 400
+      : error instanceof AuthenticationError
+        ? 502
+        : error instanceof QuotaExceededError || error instanceof RateLimitError
+          ? 429
+          : 503;
+    const responseBody = error instanceof ModelNotFoundError
+      ? { success: false, error: 'The selected model is no longer available. Choose another model and retry.', code: error.code }
+      : error instanceof ValidationError
+        ? { success: false, error: 'The selected model could not accept this request. Choose another model and retry.', code: error.code }
+        : error instanceof AuthenticationError
+          ? { success: false, error: 'The AI provider rejected its credentials. An administrator must update the provider key.', code: error.code }
+          : error instanceof QuotaExceededError || error instanceof RateLimitError
+            ? { success: false, error: 'The AI provider is busy or the usage limit was reached. Please retry shortly.', code: error.code }
+            : { success: false, error: 'No AI provider could complete the request. Please retry or choose another model.', code: 'AI_SERVICE_UNAVAILABLE' };
     console.error('Enhanced chat request failed', error instanceof Error ? error.name : 'Unknown error');
-    return Response.json({ success: false, error: 'AI service unavailable. Please try again later.', code: 'AI_SERVICE_UNAVAILABLE' }, { status });
+    return Response.json(responseBody, { status });
   }
 }

@@ -120,7 +120,20 @@ export class AIRequestRouter {
     criteria: ProviderSelectionCriteria
   ): Promise<ProviderEvaluation> {
     const capabilities = adapter.getCapabilities();
-    const costEstimate = await this.estimateProviderCost(adapter, criteria);
+    // When the user chose a provider, availability and model fidelity matter
+    // more than an optional live pricing lookup. Avoid putting catalog I/O in
+    // front of the completion request.
+    const costEstimate: CostEstimate = criteria.preferredProviders?.includes(name)
+      ? {
+          estimatedCost: 0,
+          breakdown: {},
+          metadata: {
+            realTimePricing: false,
+            pricingSource: 'deferred',
+            model: criteria.requestedModel,
+          },
+        }
+      : await this.estimateProviderCost(adapter, criteria);
     const latencyEstimate = this.estimateProviderLatency(name, criteria);
 
     const scores = {
@@ -300,7 +313,22 @@ export class AIRequestRouter {
       messages: [{ role: 'user' as const, content: 'x'.repeat(criteria.estimatedTokens * 4) }]
     };
 
-    return adapter.estimateCost(mockRequest);
+    try {
+      return await adapter.estimateCost(mockRequest);
+    } catch (error) {
+      // Pricing/catalog lookup is advisory. It must not remove an otherwise
+      // healthy provider from the request path.
+      console.warn('Provider cost estimate unavailable; routing without price data:', error);
+      return {
+        estimatedCost: 0,
+        breakdown: {},
+        metadata: {
+          realTimePricing: false,
+          pricingSource: 'unavailable',
+          model: criteria.requestedModel,
+        },
+      };
+    }
   }
 
   private estimateProviderLatency(provider: string, criteria: ProviderSelectionCriteria): number {

@@ -69,7 +69,7 @@ import { TREE_OPERATIONS } from '@/lib/constants'
 import { formatFileSize } from '@/lib/exif-utils'
 import { getFileTypeFromMimeType } from '@/components/documents/file-type-utils'
 import { TreeUtils } from '@/lib/utils/tree-utils'
-import { getFallbackTextModels } from '@/lib/ai/fallback-models'
+import { DEFAULT_TEXT_MODEL, getFallbackTextModels } from '@/lib/ai/fallback-models'
 
 // =============================================
 // SLICE INTERFACES
@@ -2159,7 +2159,7 @@ export const useDocumentChatSystemStore = create<DocumentChatSystemStore>()(
           // AI slice implementation
           ai: {
             models: [],
-            selectedModel: null,
+            selectedModel: DEFAULT_TEXT_MODEL,
             loading: false,
             error: null,
             search: {
@@ -2302,6 +2302,9 @@ export const useDocumentChatSystemStore = create<DocumentChatSystemStore>()(
                 );
 
                 // Transform OpenRouter models
+                const liveTextModelNames = new Set<string>();
+                let preferredLiveTextModel = DEFAULT_TEXT_MODEL;
+
                 if (data.openrouter && Array.isArray(data.openrouter)) {
                   const openrouterModels = data.openrouter.map((model: any) => ({
                     name: model.id,
@@ -2319,6 +2322,10 @@ export const useDocumentChatSystemStore = create<DocumentChatSystemStore>()(
                     features: model.features
                   }));
                   openrouterModels.forEach((model: ModelInfo) => modelsByName.set(model.name, model));
+                  openrouterModels.forEach((model: ModelInfo) => liveTextModelNames.add(model.name));
+                  preferredLiveTextModel = liveTextModelNames.has(DEFAULT_TEXT_MODEL)
+                    ? DEFAULT_TEXT_MODEL
+                    : openrouterModels[0]?.name || DEFAULT_TEXT_MODEL;
                   console.log(`🔗 OpenRouter: Loaded ${openrouterModels.length} text generation models`);
                 }
 
@@ -2353,10 +2360,17 @@ export const useDocumentChatSystemStore = create<DocumentChatSystemStore>()(
                 set((state: DocumentChatSystemStore) => {
                   state.ai.models = allModels
                   state.ai.search.filteredModels = allModels
-                  if (!state.ai.selectedModel && allModels.length > 0) {
-                    // Prioritize text generation models (non-imagerouter) as default
-                    const textModel = allModels.find(m => m.provider !== 'imagerouter' && !m.features?.includes('media-generation'))
-                    state.ai.selectedModel = textModel ? textModel.name : allModels[0].name
+                  const selectedModel = state.ai.selectedModel;
+                  const selectedIsMedia = allModels.some(model =>
+                    model.name === selectedModel &&
+                    (model.provider === 'imagerouter' || model.features?.includes('media-generation'))
+                  );
+
+                  if (!selectedModel) {
+                    state.ai.selectedModel = preferredLiveTextModel;
+                  } else if (liveTextModelNames.size > 0 && !selectedIsMedia && !liveTextModelNames.has(selectedModel)) {
+                    // Retired model IDs should never remain selected after a live refresh.
+                    state.ai.selectedModel = preferredLiveTextModel;
                   }
                 })
 
@@ -2405,7 +2419,7 @@ export const useDocumentChatSystemStore = create<DocumentChatSystemStore>()(
                 set((state: DocumentChatSystemStore) => {
                   state.ai.models = fallbackModels
                   state.ai.search.filteredModels = fallbackModels
-                  if (!state.ai.selectedModel) {
+                  if (!state.ai.selectedModel || !fallbackModels.some(model => model.name === state.ai.selectedModel)) {
                     state.ai.selectedModel = fallbackModels[0].name
                   }
                   state.ai.error = error instanceof Error ? error.message : 'Failed to refresh models'

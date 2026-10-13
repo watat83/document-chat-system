@@ -22,7 +22,7 @@ import { EnhancedMessageRenderer } from '@/components/chat/enhanced-message-rend
 import { MessageActions } from '@/components/chat/message-actions';
 import { ModelSelectionModal } from '@/components/ai/model-selection-modal';
 import { getDefaultProvider } from '@/lib/ai/admin/provider-management';
-import { getFallbackTextModels } from '@/lib/ai/fallback-models';
+import { DEFAULT_TEXT_MODEL, getFallbackTextModels } from '@/lib/ai/fallback-models';
 import {
   Sparkles,
   Send,
@@ -268,16 +268,11 @@ export function CleanAIChat({ organizationId, className, onCitationsUpdate, chat
   const [modalMode, setModalMode] = useState<'text' | 'media'>('text');
 
   // AI settings derived from Zustand store
-  const selectedModel = ai.selectedModel || 'openai/gpt-4o-mini';
+  const selectedModel = ai.selectedModel || DEFAULT_TEXT_MODEL;
 
-  // Initialize mounted state and default text model
+  // Initialize client-only state after hydration.
   useEffect(() => {
     setIsMounted(true);
-
-    // Ensure we start with a text generation model, not an image model
-    if (!ai.selectedModel || ai.selectedModel.includes('test/test') || ai.selectedModel.includes('ir/')) {
-      ai.setSelectedModel('openai/gpt-4o-mini');
-    }
   }, []);
 
   // Initialize with appropriate welcome message based on chat state
@@ -783,7 +778,7 @@ export function CleanAIChat({ organizationId, className, onCitationsUpdate, chat
         }, 100);
       } else {
         console.warn('⚠️ OpenRouter provider not found or no models, using fallback');
-        ai.setSelectedModel('openai/gpt-4o-mini'); // Fallback
+        ai.setSelectedModel(DEFAULT_TEXT_MODEL); // Fallback
       }
     }
   };
@@ -1213,7 +1208,6 @@ Provide accurate, helpful, and professional assistance.`
           ...requestBody,
           documentContext: chatState.documentScope,
           useVercelOptimized: true,
-          model: selectedModel.replace(/^(openai|anthropic)\//, ''),
           temperature: 0.3, // Lower temperature for factual responses
         };
       }
@@ -1231,7 +1225,12 @@ Provide accurate, helpful, and professional assistance.`
 
       if (!response.ok) {
         // Handle different error types
-        const errorData = await response.json();
+        const errorData = await response.json().catch(() => ({})) as {
+          error?: string;
+          message?: string;
+          code?: string;
+          details?: Array<{ message?: string; code?: string }> | { formErrors?: string[] };
+        };
         console.error('❌ API Error Response:', errorData);
 
         if (response.status === 400) {
@@ -1239,12 +1238,12 @@ Provide accurate, helpful, and professional assistance.`
           console.error('🔍 Validation Error Details:', errorData.details);
           console.error('🔍 Full error response:', errorData);
           // Show specific validation error
-          const firstError = errorData.details?.[0];
+          const firstError = Array.isArray(errorData.details) ? errorData.details[0] : undefined;
           if (firstError) {
             console.error('🔍 First validation error:', firstError);
             notifyError(`Validation failed: ${firstError.message || firstError.code || 'Unknown error'}`);
           } else {
-            notifyError('Request validation failed. Check console for details.');
+            notifyError(errorData.error || errorData.message || 'Request validation failed.');
           }
           return;
         }
@@ -1256,14 +1255,16 @@ Provide accurate, helpful, and professional assistance.`
           return;
         }
 
-        if (response.status === 401) {
+        if (response.status === 401 || response.status === 403) {
           // API key issue
           setApiKeyConfigured(false);
           notifyError('API configuration issue. Please check your API keys in settings.');
           return;
         }
 
-        throw new Error(`API error: ${response.status}`);
+        const serviceMessage = errorData.error || errorData.message;
+        const errorCode = errorData.code ? ` (${errorData.code})` : '';
+        throw new Error(serviceMessage ? `${serviceMessage}${errorCode}` : `AI request failed with status ${response.status}`);
       }
 
       // Check if response is JSON or streaming
@@ -2531,7 +2532,15 @@ Would you like me to dive deeper into any aspects of your question?
                               <ModelSelectionModal
                                 selectedProvider={selectedProvider}
                                 selectedModel={selectedModel}
-                                onModelSelect={(model) => ai.setSelectedModel(model)}
+                                onModelSelect={(model) => {
+                                  ai.setSelectedModel(model);
+                                  setImageGenerationMode(false);
+                                  setModalMode('text');
+                                  const chosenModel = providers
+                                    .flatMap(provider => provider.models)
+                                    .find(candidate => candidate.id === model);
+                                  notifySuccess(`${chosenModel?.name || model} selected`);
+                                }}
                                 providers={providers}
                                 mode={modalMode}
                                 onModeChange={setModalMode}
@@ -2539,8 +2548,8 @@ Would you like me to dive deeper into any aspects of your question?
                                   <Button variant="outline" className="w-full justify-between">
                                     <span>
                                       {providers
-                                        .find(p => p.id === selectedProvider)
-                                        ?.models.find(m => m.id === selectedModel)?.name || 'Select model'}
+                                        .flatMap(provider => provider.models)
+                                        .find(model => model.id === selectedModel)?.name || selectedModel || 'Select model'}
                                     </span>
                                     <ChevronRight className="h-4 w-4" />
                                   </Button>

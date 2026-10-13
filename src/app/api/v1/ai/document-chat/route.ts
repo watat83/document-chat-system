@@ -53,6 +53,9 @@ const documentChatSchema = z.object({
   model: z.string().optional()
     .describe("AI model for document analysis and chat. Defaults to organization preferences. Models like 'claude-3-sonnet' excel at document analysis, while 'gpt-4o' provides balanced performance for government contract documents."),
 
+  provider: z.string().optional()
+    .describe("Provider for the selected model. OpenRouter models retain their provider-qualified IDs."),
+
   temperature: z.number().min(0).max(2).optional()
     .describe("Response creativity control for document-based chat. Lower values (0-0.3) recommended for factual document analysis and compliance checking. Higher values (0.7-1.0) for creative interpretation and strategic insights."),
 
@@ -255,6 +258,7 @@ export async function POST(request: NextRequest) {
       useVercelOptimized,
       streamingEnabled,
       model = 'gpt-4o',
+      provider,
       temperature = 0.7,
       maxTokens = 2000
     } = validation.data;
@@ -360,7 +364,9 @@ export async function POST(request: NextRequest) {
     // Initialize usage tracking
     const startTime = Date.now();
 
-    if (useVercelOptimized && streamingEnabled) {
+    const usesDirectProviderModel = !model.includes('/') && (model.startsWith('gpt-') || model.startsWith('claude-'));
+
+    if (useVercelOptimized && streamingEnabled && usesDirectProviderModel && provider !== 'openrouter') {
       // Use Vercel AI SDK for optimized streaming
 
       // Select model provider
@@ -482,6 +488,11 @@ export async function POST(request: NextRequest) {
           model,
           temperature,
           maxTokens,
+          metadata: {
+            organizationId,
+            userId: userOrg.id,
+            provider: provider === 'auto' ? undefined : provider,
+          },
         });
 
         // Track usage

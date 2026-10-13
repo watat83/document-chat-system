@@ -51,6 +51,28 @@ test('cached catalog prices convert dollars per token to dollars per thousand to
   expect(models[0].costPer1KTokens).toEqual({ prompt: 0.001, completion: 0.002 });
   expect(adapter.getAvailableModels()).toEqual(models);
 });
+test('initialization loads the model catalog with one provider request', async () => {
+  (cacheManager.get as jest.Mock).mockResolvedValue(null);
+  (global.fetch as jest.Mock).mockResolvedValue(Response.json({ data: [] }));
+  await createAdapter().initialize();
+  expect(global.fetch).toHaveBeenCalledTimes(1);
+});
+test('a successful completion is returned without a follow-up catalog or cost request', async () => {
+  (global.fetch as jest.Mock).mockResolvedValue(Response.json({
+    id: 'generation-a',
+    object: 'chat.completion',
+    created: 1,
+    model: 'openai/gpt-4o-mini',
+    choices: [{ index: 0, message: { role: 'assistant', content: 'Hello' }, finish_reason: 'stop' }],
+    usage: { prompt_tokens: 2, completion_tokens: 3, total_tokens: 5, cost: 0.0001 }
+  }));
+  const response = await createAdapter().generateCompletion({
+    model: 'openai/gpt-4o-mini',
+    messages: [{ role: 'user', content: 'Hello' }]
+  });
+  expect(response.content).toBe('Hello');
+  expect(global.fetch).toHaveBeenCalledTimes(1);
+});
 test('duplicate embedding indices fail before recording successful usage', async () => {
   (global.fetch as jest.Mock).mockResolvedValue(Response.json({ data: [{ index: 0, embedding: [0.1] }, { index: 0, embedding: [0.2] }] }));
   await expect(createAdapter().generateEmbedding({ model: 'embedding-small', text: ['first', 'second'], metadata: { organizationId: 'tenant-a' } })).rejects.toThrow(/indices/);

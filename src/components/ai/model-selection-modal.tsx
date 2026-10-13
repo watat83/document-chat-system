@@ -347,9 +347,12 @@ export function ModelSelectionModal({
                     ) : (
                       <div className="space-y-2">
                         {currentModeModels.map((model) => (
-                          <div
+                          <button
+                            type="button"
                             key={model.id || model.name}
-                            className={`p-3 sm:p-4 rounded-lg border cursor-pointer transition-all hover:shadow-md ${
+                            aria-pressed={selectedModel === (model.id || model.name)}
+                            data-testid={`model-option-${model.id || model.name}`}
+                            className={`w-full p-3 sm:p-4 rounded-lg border text-left transition-all hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
                               selectedModel === (model.id || model.name)
                                 ? 'border-primary bg-primary/5' 
                                 : 'border-border hover:border-primary/50'
@@ -417,7 +420,7 @@ export function ModelSelectionModal({
                                 </div>
                               </div>
                             </div>
-                          </div>
+                          </button>
                         ))}
                       </div>
                     )}
@@ -577,9 +580,12 @@ export function ModelSelectionModal({
                     ) : (
                       <div className="space-y-2">
                         {currentModeModels.map((model) => (
-                          <div
+                          <button
+                            type="button"
                             key={model.id || model.name}
-                            className={`p-3 sm:p-4 rounded-lg border cursor-pointer transition-all hover:shadow-md ${
+                            aria-pressed={selectedModel === (model.id || model.name)}
+                            data-testid={`model-option-${model.id || model.name}`}
+                            className={`w-full p-3 sm:p-4 rounded-lg border text-left transition-all hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
                               selectedModel === (model.id || model.name)
                                 ? 'border-primary bg-primary/5' 
                                 : 'border-border hover:border-primary/50'
@@ -640,7 +646,7 @@ export function ModelSelectionModal({
                                 </div>
                               </div>
                             </div>
-                          </div>
+                          </button>
                         ))}
                       </div>
                     )}

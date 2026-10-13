@@ -133,6 +133,7 @@ export interface OpenRouterResponse {
     prompt_tokens: number;
     completion_tokens: number;
     total_tokens: number;
+    cost?: number;
   };
   generation_id?: string;
 }
@@ -254,9 +255,8 @@ export class CleanOpenRouterAdapter extends AIProviderAdapter {
     }
 
     try {
-      // Only test connection, skip loading all models to prevent timeouts
-      // Models will be loaded on-demand when needed
-      await this.testConnection();
+      // Loading the catalog also verifies the connection. A separate health
+      // request doubled startup latency and made the picker more likely to time out.
       await this.loadAvailableModels();
       this.updateHealth(true);
       console.log('✅ CleanOpenRouterAdapter initialized successfully');
@@ -471,6 +471,13 @@ export class CleanOpenRouterAdapter extends AIProviderAdapter {
       );
 
       const latency = Date.now() - startTime;
+      let actualCost = 0;
+      try {
+        actualCost = await this.calculateActualCostFromOpenRouter(response, request.model);
+      } catch (costError) {
+        // Cost enrichment is non-critical and must not discard a valid answer.
+        console.warn('OpenRouter cost lookup failed; recording zero cost:', costError);
+      }
 
       // Track usage after successful request (Layer 1: Billing)
       if (organizationId) {
@@ -483,7 +490,7 @@ export class CleanOpenRouterAdapter extends AIProviderAdapter {
           metadata: {
             model: response.model,
             tokens: response.usage.total_tokens,
-            cost: await this.calculateActualCostFromOpenRouter(response, request.model),
+            cost: actualCost,
             latency: latency,
             provider: 'openrouter'
           }
@@ -503,7 +510,7 @@ export class CleanOpenRouterAdapter extends AIProviderAdapter {
               completion: response.usage.completion_tokens,
               total: response.usage.total_tokens
             },
-            cost: await this.calculateActualCostFromOpenRouter(response, request.model),
+            cost: actualCost,
             success: true,
             metadata: {
               taskType: 'completion',
@@ -1045,21 +1052,14 @@ export class CleanOpenRouterAdapter extends AIProviderAdapter {
   }
 
   private async calculateActualCostFromOpenRouter(response: OpenRouterResponse, modelId: string): Promise<number> {
-    // First try to get actual cost from OpenRouter generation stats
-    if (response.generation_id) {
-      try {
-        const stats = await this.fetchGenerationStatsFromOpenRouter(response.generation_id);
-        if (stats?.cost) {
-          return stats.cost;
-        }
-      } catch (caughtError) {
-      const error = normalizeError(caughtError);
-        console.warn('Failed to fetch generation cost from OpenRouter:', error);
-      }
+    if (typeof response.usage.cost === 'number' && Number.isFinite(response.usage.cost)) {
+      return response.usage.cost;
     }
 
-    // Fallback to real-time pricing calculation
-    const pricing = await this.getRealTimePricingFromOpenRouter(modelId);
+    // Cost tracking must never add a network request to the response path.
+    // Use the warmed catalog when available and record zero otherwise.
+    const resolvedModel = this.resolveModel(modelId).replace(/:online$/, '');
+    const pricing = this.availableModels.find(model => model.name === resolvedModel)?.costPer1KTokens;
     if (pricing) {
       return ((response.usage.prompt_tokens / 1000) * pricing.prompt) +
              ((response.usage.completion_tokens / 1000) * pricing.completion);

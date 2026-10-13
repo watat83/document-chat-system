@@ -158,8 +158,6 @@ export class AIServiceManager implements IAIService {
           timeout: 30000
         });
 
-        await openrouterAdapter.initialize();
-
         this.registry.register('openrouter', openrouterAdapter, {
           enabled: true,
           priority: 10, // HIGHEST PRIORITY - Default provider with 100+ models
@@ -167,7 +165,16 @@ export class AIServiceManager implements IAIService {
           healthCheckInterval: 120000, // 2 minutes
         });
 
-        console.log('✅ Initialized SmartOpenRouter provider (100+ models including Anthropic)');
+        // Model discovery is useful for the picker, but it must never block chat.
+        // Register first and warm the catalog in the background so a slow /models
+        // response cannot make a healthy /chat/completions endpoint look offline.
+        void openrouterAdapter.initialize().then(() => {
+          console.log('✅ Warmed SmartOpenRouter model catalog');
+        }).catch((error) => {
+          console.warn('⚠️ OpenRouter catalog warmup failed; chat remains available:', error);
+        });
+
+        console.log('✅ Registered SmartOpenRouter provider');
       } catch (error) {
         console.error('❌ Failed to initialize SmartOpenRouter provider:', error);
       }
@@ -411,7 +418,10 @@ export class AIServiceManager implements IAIService {
     }
 
     try {
-      if (this.config.enableFallback) {
+      // A user-selected provider must receive the exact model ID they chose.
+      // Cross-provider fallback can send an OpenRouter model ID to an
+      // incompatible direct provider, so fallback is reserved for auto routing.
+      if (this.config.enableFallback && !request.metadata?.provider) {
         const result = await this.fallbackStrategy.executeCompletionWithFallback(request);
 
         this.recordMetrics({

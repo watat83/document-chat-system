@@ -401,6 +401,12 @@ describe('AIServiceManager Unit Tests', () => {
       });
 
       expect(mockOpenRouterAdapter.initialize).toHaveBeenCalled();
+      expect(mockRegistry.register).toHaveBeenCalledWith('openrouter', mockOpenRouterAdapter, {
+        enabled: true,
+        priority: 10,
+        maxConcurrentRequests: 100,
+        healthCheckInterval: 120000
+      });
     });
 
     it('should handle provider initialization failures gracefully', async () => {
@@ -506,6 +512,36 @@ describe('AIServiceManager Unit Tests', () => {
         messages: mockRequest.messages
       });
       expect(mockAdapter.generateCompletion).toHaveBeenCalledWith(mockRequest);
+    });
+
+    it('honors an explicitly selected provider without cross-provider fallback', async () => {
+      const explicitRequest: UnifiedCompletionRequest = {
+        ...mockRequest,
+        model: 'openrouter/auto',
+        metadata: {
+          ...mockRequest.metadata,
+          provider: 'openrouter'
+        }
+      };
+      const mockAdapter = {
+        generateCompletion: jest.fn().mockResolvedValue(mockResponse)
+      };
+      mockRouter.route.mockResolvedValue({
+        adapter: mockAdapter,
+        selectedProvider: 'openrouter',
+        estimatedCost: 0,
+        confidence: 1
+      } as any);
+
+      const result = await aiServiceManager.generateCompletion(explicitRequest);
+
+      expect(result).toEqual(mockResponse);
+      expect(mockRouter.route).toHaveBeenCalledWith(expect.objectContaining({
+        model: 'openrouter/auto',
+        provider: 'openrouter'
+      }));
+      expect(mockAdapter.generateCompletion).toHaveBeenCalledWith(explicitRequest);
+      expect(mockFallbackStrategy.executeCompletionWithFallback).not.toHaveBeenCalled();
     });
 
     it('should handle completion generation errors', async () => {
