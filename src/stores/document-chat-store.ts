@@ -69,6 +69,7 @@ import { TREE_OPERATIONS } from '@/lib/constants'
 import { formatFileSize } from '@/lib/exif-utils'
 import { getFileTypeFromMimeType } from '@/components/documents/file-type-utils'
 import { TreeUtils } from '@/lib/utils/tree-utils'
+import { getFallbackTextModels } from '@/lib/ai/fallback-models'
 
 // =============================================
 // SLICE INTERFACES
@@ -2294,8 +2295,11 @@ export const useDocumentChatSystemStore = create<DocumentChatSystemStore>()(
                 console.log(`📊 Loaded ${data.totalModels} models in ${data.loadingTime}ms`);
                 console.log('🔍 Raw API Response:', data);
 
-                // Combine all models from all providers
-                const allModels: ModelInfo[] = [];
+                // Keep the configured catalog available even when a provider's
+                // live model endpoint is temporarily unavailable or returns no data.
+                const modelsByName = new Map<string, ModelInfo>(
+                  getFallbackTextModels().map((model) => [model.name, model])
+                );
 
                 // Transform OpenRouter models
                 if (data.openrouter && Array.isArray(data.openrouter)) {
@@ -2314,7 +2318,7 @@ export const useDocumentChatSystemStore = create<DocumentChatSystemStore>()(
                     tier: model.tier,
                     features: model.features
                   }));
-                  allModels.push(...openrouterModels);
+                  openrouterModels.forEach((model: ModelInfo) => modelsByName.set(model.name, model));
                   console.log(`🔗 OpenRouter: Loaded ${openrouterModels.length} text generation models`);
                 }
 
@@ -2337,12 +2341,14 @@ export const useDocumentChatSystemStore = create<DocumentChatSystemStore>()(
                     tier: model.tier,
                     features: model.features || ['media-generation']
                   }));
-                  allModels.push(...imagerouterModels);
+                  imagerouterModels.forEach((model: ModelInfo) => modelsByName.set(model.name, model));
                   console.log(`🎨 ImageRouter: Loaded ${imagerouterModels.length} media generation models`);
                   console.log('🎨 ImageRouter: Transformed models:', imagerouterModels);
                 } else {
                   console.warn('⚠️ ImageRouter: No models data received or not array:', data.imagerouter);
                 }
+
+                const allModels = Array.from(modelsByName.values());
 
                 set((state: DocumentChatSystemStore) => {
                   state.ai.models = allModels
@@ -2394,21 +2400,7 @@ export const useDocumentChatSystemStore = create<DocumentChatSystemStore>()(
                   state.ai.error = 'Unable to load AI models. Using fallback models.'
                 })
 
-                // Fallback to minimal set on error
-                const fallbackModels: ModelInfo[] = [
-                  {
-                    name: 'openai/gpt-4o-mini',
-                    provider: 'openrouter',
-                    displayName: 'GPT-4o Mini',
-                    description: 'Fast and efficient model via OpenRouter',
-                    maxTokens: 128000,
-                    costPer1KTokens: { prompt: 0.15, completion: 0.6 },
-                    averageLatency: null,
-                    qualityScore: null,
-                    tier: 'balanced',
-                    features: ['chat', 'completion', 'reasoning']
-                  }
-                ];
+                const fallbackModels: ModelInfo[] = getFallbackTextModels();
 
                 set((state: DocumentChatSystemStore) => {
                   state.ai.models = fallbackModels
@@ -2890,7 +2882,7 @@ export const useTreeNavigation = () => {
 
 export const useFolderOperations = () => {
   const loadFolders = useDocumentChatSystemStore((state) => state.loadFolders)
-  const createFolder = useDocumentChatSystemStore((state) => state.createFolder)
+  const createFolder = useDocumentChatSystemStore((state) => state.documents.createFolder)
   const updateFolder = useDocumentChatSystemStore((state) => state.updateFolder)
   const deleteFolder = useDocumentChatSystemStore((state) => state.deleteFolder)
   const moveFolder = useDocumentChatSystemStore((state) => state.moveFolder)

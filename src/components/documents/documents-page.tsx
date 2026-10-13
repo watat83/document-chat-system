@@ -195,6 +195,7 @@ const DocumentsPageContent = () => {
   const [showRecursive, setShowRecursive] = useState(false);
   const [mobileControlsOpen, setMobileControlsOpen] = useState(false);
   const [showNewFolderDialog, setShowNewFolderDialog] = useState(false);
+  const [isCreatingFolder, setIsCreatingFolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
   const [newFolderDescription, setNewFolderDescription] = useState('');
   const [newFolderColor, setNewFolderColor] = useState('#6b7280');
@@ -913,15 +914,38 @@ const DocumentsPageContent = () => {
   ];
 
   // Event handlers
-  const handleCreateFolder = useCallback(() => {
+  const handleCreateFolder = useCallback(async () => {
     if (!newFolderName.trim()) return;
 
-    createFolder(newFolderName, currentFolderId, newFolderDescription, newFolderColor);
-    setNewFolderName('');
-    setNewFolderDescription('');
-    setNewFolderColor('#6b7280');
-    setShowNewFolderDialog(false);
-  }, [newFolderName, newFolderDescription, newFolderColor, currentFolderId, createFolder]);
+    if (!organizationId) {
+      notify.warning('Please wait', 'Organization data is still loading. Please try again in a moment.');
+      return;
+    }
+
+    setIsCreatingFolder(true);
+    try {
+      const result = await createFolder({
+        name: newFolderName.trim(),
+        parentId: currentFolderId,
+        organizationId,
+        description: newFolderDescription.trim(),
+        color: newFolderColor,
+      });
+
+      if (!result.success) {
+        notify.error('Folder not created', result.error || 'Please try again.');
+        return;
+      }
+
+      notify.success('Folder created', `“${newFolderName.trim()}” is ready.`);
+      setNewFolderName('');
+      setNewFolderDescription('');
+      setNewFolderColor('#6b7280');
+      setShowNewFolderDialog(false);
+    } finally {
+      setIsCreatingFolder(false);
+    }
+  }, [newFolderName, newFolderDescription, newFolderColor, currentFolderId, organizationId, createFolder, notify]);
 
   const handleEditFolder = useCallback((folder: FolderData) => {
     setEditingFolder(folder);
@@ -4056,7 +4080,9 @@ const DocumentsPageContent = () => {
                   value={newFolderName}
                   onChange={(e) => setNewFolderName(e.target.value)}
                   placeholder="Folder name"
-                  onKeyPress={(e) => e.key === 'Enter' && handleCreateFolder()}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !isCreatingFolder) void handleCreateFolder();
+                  }}
                   autoFocus
                 />
               </div>
@@ -4092,11 +4118,11 @@ const DocumentsPageContent = () => {
 
             <div className="flex gap-3 mt-6">
               <Button
-                onClick={handleCreateFolder}
-                disabled={!newFolderName.trim()}
+                onClick={() => void handleCreateFolder()}
+                disabled={!newFolderName.trim() || !organizationId || isCreatingFolder}
                 className="flex-1"
               >
-                Create
+                {isCreatingFolder ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Create'}
               </Button>
               <Button
                 variant="outline"
@@ -4106,6 +4132,7 @@ const DocumentsPageContent = () => {
                   setNewFolderDescription('');
                   setNewFolderColor('#6b7280');
                 }}
+                disabled={isCreatingFolder}
                 className="flex-1"
               >
                 Cancel
