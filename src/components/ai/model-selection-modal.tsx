@@ -6,7 +6,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Search, RefreshCw, Zap, Clock, DollarSign, Star, ChevronRight, Eye, Globe, Search as SearchIcon, Image, Code, Layers, MessageSquare, Video, Edit3 } from 'lucide-react';
 import { useDocumentChatStore } from '@/stores/document-chat-store';
@@ -57,6 +56,8 @@ export function ModelSelectionModal({
   const [loading, setLoading] = useState(false);
   // Use optimized search from Zustand store
   const {
+    models: storeModels,
+    loading: storeLoading,
     search: { query, selectedTier, selectedCapabilities, filteredModels, isSearching },
     setSearchQuery,
     setSelectedTier,
@@ -69,12 +70,10 @@ export function ModelSelectionModal({
 
   // Load models when modal opens or provider changes
   useEffect(() => {
-    if (open && selectedProvider) {
-      if (!providers && useDocumentChatStore.getState().ai.models.length === 0) {
-        void storeRefreshModels();
-      }
+    if (open && selectedProvider && storeModels.length === 0) {
+      void storeRefreshModels();
     }
-  }, [open, selectedProvider, providers, storeRefreshModels]);
+  }, [open, selectedProvider, storeModels.length, storeRefreshModels]);
 
   // Clear search when modal closes
   useEffect(() => {
@@ -109,13 +108,25 @@ export function ModelSelectionModal({
     }
   };
 
-  // Get filtered models for current mode
-  const currentModeModels = getFilteredModelsForMode(filteredModels);
-  const allStoreModeModels = getFilteredModelsForMode(useDocumentChatStore.getState().ai.models);
-  
-  // Debug logging
-  console.log(`🔍 Modal Debug - Mode: ${mode}, All models: ${filteredModels.length}, Current mode: ${currentModeModels.length}`);
-  console.log(`🔍 Modal Debug - Store models for ${mode}:`, allStoreModeModels.length);
+  const providedModels = providers?.flatMap((provider) => provider.models) ?? [];
+  const filteredProvidedModels = providedModels.filter((model) => {
+    const normalizedQuery = query.trim().toLowerCase();
+    const matchesQuery = !normalizedQuery || [model.id, model.name, model.displayName, model.description]
+      .some((value) => value?.toLowerCase().includes(normalizedQuery));
+    const matchesTier = selectedTier === 'all' || model.tier === selectedTier;
+    const matchesCapabilities = selectedCapabilities.length === 0 || selectedCapabilities.every(
+      (capability) => model.features?.includes(capability)
+    );
+    return matchesQuery && matchesTier && matchesCapabilities;
+  });
+
+  // Provider data gives the modal an immediate, resilient fallback while the
+  // authenticated live catalog refreshes in the background.
+  const availableModels = storeModels.length > 0 ? storeModels : providedModels;
+  const visibleModels = storeModels.length > 0 ? filteredModels : filteredProvidedModels;
+  const currentModeModels = getFilteredModelsForMode(visibleModels);
+  const allStoreModeModels = getFilteredModelsForMode(availableModels);
+  const isLoading = loading || (storeLoading && allStoreModeModels.length === 0);
 
   const getTierColor = (tier: string) => {
     switch (tier) {
@@ -321,10 +332,10 @@ export function ModelSelectionModal({
               <div className="flex-1 min-h-0">
                 <ScrollArea className="h-[400px] sm:h-[500px] w-full">
                   <div className="space-y-2 pr-4 pb-4">
-                    {loading || isSearching ? (
+                    {isLoading || isSearching ? (
                       <div className="flex items-center justify-center py-8">
                         <RefreshCw className="h-6 w-6 animate-spin mr-2" />
-                        <span>{loading ? 'Loading models...' : 'Searching...'}</span>
+                        <span>{isLoading ? 'Loading models...' : 'Searching...'}</span>
                       </div>
                     ) : currentModeModels.length === 0 ? (
                       <div className="text-center py-8 text-muted-foreground">
@@ -337,13 +348,13 @@ export function ModelSelectionModal({
                       <div className="space-y-2">
                         {currentModeModels.map((model) => (
                           <div
-                            key={(model as any).name || model.id}
+                            key={model.id || model.name}
                             className={`p-3 sm:p-4 rounded-lg border cursor-pointer transition-all hover:shadow-md ${
-                              selectedModel === ((model as any).name || model.id) 
+                              selectedModel === (model.id || model.name)
                                 ? 'border-primary bg-primary/5' 
                                 : 'border-border hover:border-primary/50'
                             }`}
-                            onClick={() => handleModelSelect((model as any).name || model.id)}
+                            onClick={() => handleModelSelect(model.id || model.name)}
                           >
                             <div className="flex items-start justify-between">
                               <div className="flex-1 min-w-0">
@@ -352,7 +363,7 @@ export function ModelSelectionModal({
                                   <Badge variant="outline" className={`${getTierColor(model.tier)} text-xs`}>
                                     {model.tier}
                                   </Badge>
-                                  {selectedModel === ((model as any).name || model.id) && (
+                                  {selectedModel === (model.id || model.name) && (
                                     <Badge variant="default" className="bg-primary text-xs">
                                       ✓
                                     </Badge>
@@ -533,10 +544,10 @@ export function ModelSelectionModal({
               <div className="flex-1 min-h-0">
                 <ScrollArea className="h-[400px] sm:h-[500px] w-full">
                   <div className="space-y-2 pr-4 pb-4">
-                    {loading || isSearching ? (
+                    {isLoading || isSearching ? (
                       <div className="flex items-center justify-center py-8">
                         <RefreshCw className="h-6 w-6 animate-spin mr-2" />
-                        <span>{loading ? 'Loading models...' : 'Searching...'}</span>
+                        <span>{isLoading ? 'Loading models...' : 'Searching...'}</span>
                       </div>
                     ) : currentModeModels.length === 0 ? (
                       <div className="text-center py-8 text-muted-foreground">
@@ -567,13 +578,13 @@ export function ModelSelectionModal({
                       <div className="space-y-2">
                         {currentModeModels.map((model) => (
                           <div
-                            key={(model as any).name || model.id}
+                            key={model.id || model.name}
                             className={`p-3 sm:p-4 rounded-lg border cursor-pointer transition-all hover:shadow-md ${
-                              selectedModel === ((model as any).name || model.id) 
+                              selectedModel === (model.id || model.name)
                                 ? 'border-primary bg-primary/5' 
                                 : 'border-border hover:border-primary/50'
                             }`}
-                            onClick={() => handleModelSelect((model as any).name || model.id)}
+                            onClick={() => handleModelSelect(model.id || model.name)}
                           >
                             <div className="flex items-start justify-between">
                               <div className="flex-1 min-w-0">
@@ -582,7 +593,7 @@ export function ModelSelectionModal({
                                   <Badge variant="outline" className={`${getTierColor(model.tier)} text-xs`}>
                                     {model.tier}
                                   </Badge>
-                                  {selectedModel === ((model as any).name || model.id) && (
+                                  {selectedModel === (model.id || model.name) && (
                                     <Badge variant="default" className="bg-primary text-xs">
                                       ✓
                                     </Badge>

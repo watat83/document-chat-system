@@ -313,15 +313,24 @@ export async function POST(request: NextRequest) {
     let path: string[] = []
     
     if (parentId) {
-      const parentFolder = await prisma.folder.findUnique({
-        where: { id: parentId },
+      const parentFolder = await prisma.folder.findFirst({
+        where: {
+          id: parentId,
+          organizationId: user.organizationId,
+          deletedAt: null
+        },
         select: { level: true, path: true, name: true }
       })
-      
-      if (parentFolder) {
-        level = parentFolder.level + 1
-        path = [...parentFolder.path, parentFolder.name]
+
+      if (!parentFolder) {
+        return NextResponse.json(
+          { success: false, error: 'Parent folder not found' },
+          { status: 404 }
+        )
       }
+
+      level = parentFolder.level + 1
+      path = [...parentFolder.path, parentFolder.name]
     }
 
     // Create the folder

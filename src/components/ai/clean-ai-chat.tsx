@@ -21,7 +21,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { EnhancedMessageRenderer } from '@/components/chat/enhanced-message-renderer';
 import { MessageActions } from '@/components/chat/message-actions';
 import { ModelSelectionModal } from '@/components/ai/model-selection-modal';
-import { getDefaultProvider, getUIProviders } from '@/lib/ai/admin/provider-management';
+import { getDefaultProvider } from '@/lib/ai/admin/provider-management';
+import { getFallbackTextModels } from '@/lib/ai/fallback-models';
 import {
   Sparkles,
   Send,
@@ -361,16 +362,6 @@ export function CleanAIChat({ organizationId, className, onCitationsUpdate, chat
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
 
-  // Get dynamic providers from management system
-  const dynamicProviders = useMemo(() => {
-    try {
-      return getUIProviders();
-    } catch (error) {
-      console.warn('Failed to get dynamic providers, using fallback:', error);
-      return [];
-    }
-  }, []);
-
   // Initialize AI models if not already loaded (wait for auth to be ready)
   useEffect(() => {
     // Wait for auth to be loaded before fetching models
@@ -535,22 +526,20 @@ export function CleanAIChat({ organizationId, className, onCitationsUpdate, chat
     // If no models loaded for OpenRouter, add fallback models
     const openRouterProvider = providerMap.get('openrouter')!;
     if (openRouterProvider.models.length === 0) {
-      openRouterProvider.models = [
-        {
-          id: 'openai/gpt-4o-mini',
-          name: 'GPT-4o Mini (OpenRouter)',
-          description: 'Fast and efficient via OpenRouter - Best value',
-          maxTokens: 128000,
-          costPerPromptToken: 0.00015,
-          costPerCompletionToken: 0.0006,
-          features: ['reasoning', 'code', 'math'],
-          provider: 'openrouter',
-          tier: 'balanced',
-          quality: 85,
-          speed: 90,
-          cost: 20
-        }
-      ];
+      openRouterProvider.models = getFallbackTextModels().map((model) => ({
+        id: model.name,
+        name: model.displayName,
+        description: model.description,
+        maxTokens: model.maxTokens,
+        costPerPromptToken: model.costPer1KTokens.prompt / 1000,
+        costPerCompletionToken: model.costPer1KTokens.completion / 1000,
+        features: model.features,
+        provider: model.provider,
+        tier: model.tier,
+        quality: model.qualityScore ? Math.round(model.qualityScore * 100) : 0,
+        speed: 80,
+        cost: model.costPer1KTokens.prompt + model.costPer1KTokens.completion,
+      }));
     }
 
     // If no models loaded for ImageRouter, add fallback models
